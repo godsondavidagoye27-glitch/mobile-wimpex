@@ -1,0 +1,55 @@
+export const motion = {
+  durations: {
+    splash: 2300,
+    strokeDraw: 700,
+    strokeDelay: 300,
+    strokeSecondDelay: 700,
+    markScale: 600,
+    glow: 800,
+    pulse: 900,
+    wordRise: 500,
+    wordStagger: 40,
+    moveToWelcome: 1000,
+    welcomeFade: 500,
+    authSlide: 500,
+    cardSpring: 850,
+    cardEnter: 400,
+    fieldFocus: 200,
+    fieldError: 350,
+    spinner: 500,
+    success: 350,
+    reduceMotion: 300,
+  },
+  easings: {
+    easeOut: [0.22, 1, 0.36, 1] as const,
+    easeInOut: [0.42, 0, 0.58, 1] as const,
+    overshoot: [0.3, 1.6, 0.5, 1] as const,
+    moveToWelcome: [0.7, 0, 0.2, 1] as const,
+    cardSpring: [0.2, 1.1, 0.3, 1] as const,
+  },
+  spring: {
+    mark: {
+      damping: 16,
+      stiffness: 180,
+      mass: 0.9,
+      overshootClamping: false,
+    },
+  },
+  blur: {
+    glow: 10,
+    blob: 60,
+    blobSoft: 32,
+  },
+  shadows: {
+    wordmark: {
+      shadowOpacity: 0.67,
+      shadowRadius: 8,
+      shadowOffset: { width: 0, height: 0 },
+    },
+    wordmarkStrong: {
+      shadowOpacity: 0.4,
+      shadowRadius: 22,
+      shadowOffset: { width: 0, height: 0 },
+    },
+  },
+} as const;
