@@ -5,6 +5,8 @@ export const theme = {
     primary: '#38BDF8',
     success: '#22C55E',
     gold: '#FFD700',
+    danger: '#EF4444',
+    warning: '#F59E0B',
     surface: '#111418',
     surfaceLight: '#F1F5F9',
     line: '#1E242B',
@@ -14,8 +16,6 @@ export const theme = {
     textMutedLight: '#64748B',
     textDark: '#111827',
     overlay: 'rgba(0, 0, 0, 0.7)',
-    danger: '#EF4444',
-    warning: '#F59E0B',
   },
   spacing: {
     xs: 4,
@@ -29,6 +29,7 @@ export const theme = {
     sm: 8,
     md: 18,
     lg: 22,
+    xl: 28,
     pill: 999,
   },
   shadows: {
@@ -41,6 +42,7 @@ export const theme = {
     },
   },
   typography: {
+    wordmark: { fontSize: 38, fontWeight: '800' as const, letterSpacing: 1 },
     title: { fontSize: 24, fontWeight: '800' as const },
     heading: { fontSize: 18, fontWeight: '700' as const },
     body: { fontSize: 15, fontWeight: '500' as const },

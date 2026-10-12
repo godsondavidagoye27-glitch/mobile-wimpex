@@ -44,22 +44,28 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="create"
+        name="create-action"
         options={{
-          title: 'Create',
+          title: '',
           tabBarLabel: () => null,
-          tabBarButton: () => (
+          tabBarButton: (props) => (
             <Pressable
+              onPress={props.onPress}
               accessibilityRole="button"
               accessibilityLabel="Create"
               style={styles.fabWrap}
-              onPress={() => router.push('/(tabs)/create')}
             >
               <View style={styles.fab}>
-                <Icon name="plus" size={24} color={theme.colors.white} />
+                <Icon name="plus" size={24} color={theme.colors.black} />
               </View>
             </Pressable>
           ),
+        }}
+        listeners={{
+          tabPress: (event) => {
+            event.preventDefault();
+            router.push('/create');
+          },
         }}
       />
       <Tabs.Screen

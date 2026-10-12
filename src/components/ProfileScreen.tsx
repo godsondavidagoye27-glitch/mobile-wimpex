@@ -192,7 +192,7 @@ export function ProfileScreen({ profile, isOwner = false }: Props) {
           <View style={styles.actionRow}>
             {isOwner ? (
               <>
-                <Pressable style={styles.ghostButton} onPress={() => router.push('/profile?edit=1')} accessibilityRole="button" accessibilityLabel="Edit profile">
+                <Pressable style={styles.ghostButton} onPress={() => router.push('/profile/edit')} accessibilityRole="button" accessibilityLabel="Edit profile">
                   <Text style={styles.ghostButtonText}>Edit profile</Text>
                 </Pressable>
                 <Pressable style={styles.iconCircleButton} accessibilityRole="button" accessibilityLabel="Share profile">

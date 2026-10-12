@@ -54,7 +54,11 @@ export default function HomeScreen() {
 
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.storyRow}>
           {stories.map((story: (typeof stories)[number]) => (
-            <Link key={story.id} href={story.isOwner ? '/profile' : '/user?username=mila'} asChild>
+            <Link
+              key={story.id}
+              href={story.isOwner ? '/profile' : { pathname: '/user/[username]', params: { username: 'mila' } }}
+              asChild
+            >
               <Pressable style={styles.storyItem} accessibilityRole="button">
                 <LinearGradient
                   colors={['#38BDF8', '#22C55E']}
@@ -76,7 +80,7 @@ export default function HomeScreen() {
             <View style={styles.progressBar} />
             <View style={styles.videoOverlay}>
               <View style={styles.metaStack}>
-                <Link href="/user?username=mila" asChild>
+                <Link href={{ pathname: '/user/[username]', params: { username: 'mila' } }} asChild>
                   <Pressable>
                     <Text style={styles.username}>{post.user}</Text>
                   </Pressable>

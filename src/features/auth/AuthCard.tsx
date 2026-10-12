@@ -1,5 +1,5 @@
 import { StyleSheet, Text, View } from 'react-native';
-import { theme } from '../../theme';
+import { theme } from '../../theme/theme';
 
 export function AuthCard() {
   return (
@@ -27,7 +27,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   subtitle: {
-    color: theme.colors.mutedDark,
+    color: theme.colors.textMuted,
     fontSize: 13,
     marginTop: 8,
   },

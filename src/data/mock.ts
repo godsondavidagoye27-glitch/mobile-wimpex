@@ -24,7 +24,7 @@ export const feed = [
     id: '2',
     user: 'Jun',
     handle: '@jun',
-    caption: 'Tiny home office reset — the calm before the launch.',
+    caption: 'Tiny home office reset, the calm before the launch.',
     hashtags: ['#workspace', '#startup'],
     likes: 1204,
     comments: 89,

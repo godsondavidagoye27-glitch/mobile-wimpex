@@ -1,15 +1,18 @@
 {
   "expo": {
-    "name": "wimpex-mobile",
+    "name": "Wimpex",
     "slug": "wimpex-mobile",
+    "scheme": "wimpex",
     "version": "1.0.0",
     "orientation": "portrait",
-    "userInterfaceStyle": "dark",
+    "userInterfaceStyle": "automatic",
     "icon": "./assets/icon.png",
     "ios": {
+      "bundleIdentifier": "app.wimpex.mobile",
       "supportsTablet": true
     },
     "android": {
+      "package": "app.wimpex.mobile",
       "adaptiveIcon": {
         "backgroundColor": "#000000",
         "foregroundImage": "./assets/android-icon-foreground.png",

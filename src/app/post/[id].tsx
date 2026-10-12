@@ -13,13 +13,13 @@ export default function PostDetailScreen() {
         />
 
         <View style={styles.authorRow}>
-          <Link href="/user?username=mila" asChild>
+          <Link href={{ pathname: '/user/[username]', params: { username: 'mila' } }} asChild>
             <Pressable style={styles.avatar} accessibilityRole="button" accessibilityLabel="Open profile">
               <Text style={styles.avatarText}>A</Text>
             </Pressable>
           </Link>
           <View style={styles.authorMeta}>
-            <Link href="/user?username=mila" asChild>
+            <Link href={{ pathname: '/user/[username]', params: { username: 'mila' } }} asChild>
               <Pressable>
                 <Text style={styles.name}>Ari</Text>
                 <Text style={styles.handle}>@ari</Text>
@@ -43,13 +43,13 @@ export default function PostDetailScreen() {
         <View style={styles.commentList}>
           {['Love this energy', 'The frame is perfect.', 'Need this location details'].map((comment, index) => (
             <View key={comment} style={styles.commentRow}>
-              <Link href="/user?username=mila" asChild>
+              <Link href={{ pathname: '/user/[username]', params: { username: 'mila' } }} asChild>
                 <Pressable style={styles.commentAvatar} accessibilityRole="button" accessibilityLabel="Open commenter profile">
                   <Text style={styles.commentAvatarText}>{String.fromCharCode(65 + index)}</Text>
                 </Pressable>
               </Link>
               <View style={styles.commentBody}>
-                <Link href="/user?username=mila" asChild>
+                <Link href={{ pathname: '/user/[username]', params: { username: 'mila' } }} asChild>
                   <Pressable>
                     <Text style={styles.commentName}>{['Mila', 'Noah', 'Rae'][index]}</Text>
                   </Pressable>

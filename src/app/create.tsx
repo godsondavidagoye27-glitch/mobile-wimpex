@@ -1,38 +1,40 @@
 import { router } from 'expo-router';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
-import { Icon } from '../../components/Icon';
-import { theme } from '../../theme/theme';
+import { Icon, type AppIconName } from '../components/Icon';
+import { theme } from '../theme/theme';
 
-const createOptions = [
+const createOptions: Array<{ key: string; title: string; description: string; icon: AppIconName }> = [
   { key: 'video', title: 'Video', description: 'Record or upload a clip', icon: 'video' },
   { key: 'story', title: 'Story', description: 'Share a quick update', icon: 'sparkles' },
-  { key: 'live', title: 'Live', description: 'Go live with your audience', icon: 'radio' },
+  { key: 'live', title: 'Live', description: 'Go live with your audience', icon: 'live' },
   { key: 'community', title: 'Community post', description: 'Start a discussion', icon: 'groups' },
-] as const;
+];
 
-export default function CreateScreen() {
+export default function CreateModalRoute() {
   const handlePress = (key: string) => {
     if (key === 'video' || key === 'community') {
-      router.push('/create-post');
+      router.replace('/create-post');
       return;
     }
 
-    const title = key === 'story' ? 'Story' : 'Live';
-    const message = key === 'story' ? 'Story is not available yet.' : 'Live is not available yet.';
-
-    Alert.alert(title, message);
+    Alert.alert(key === 'story' ? 'Story' : 'Live', key === 'story' ? 'Story is not available yet.' : 'Live is not available yet.');
   };
 
   return (
     <View style={styles.screen}>
-      <Pressable style={styles.backdrop} onPress={() => router.back()} />
+      <Pressable style={styles.backdrop} onPress={() => router.back()} accessibilityRole="button" accessibilityLabel="Close create menu" />
       <View style={styles.sheet}>
         <View style={styles.handle} />
         <Text style={styles.title}>Create</Text>
         {createOptions.map((option) => (
-          <Pressable key={option.key} style={styles.optionRow} onPress={() => handlePress(option.key)} accessibilityRole="button">
+          <Pressable
+            key={option.key}
+            style={styles.optionRow}
+            onPress={() => handlePress(option.key)}
+            accessibilityRole="button"
+          >
             <View style={styles.iconBox}>
-              <Icon name={option.icon === 'radio' ? 'live' : option.icon === 'groups' ? 'groups' : option.icon as any} size={20} color={theme.colors.primary} />
+              <Icon name={option.icon} size={20} color={theme.colors.primary} />
             </View>
             <View style={styles.textWrap}>
               <Text style={styles.optionTitle}>{option.title}</Text>
@@ -52,11 +54,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
   },
   backdrop: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
+    ...StyleSheet.absoluteFill,
     backgroundColor: 'rgba(0, 0, 0, 0.6)',
   },
   sheet: {
