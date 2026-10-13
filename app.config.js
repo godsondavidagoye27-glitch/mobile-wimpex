@@ -12,6 +12,14 @@ module.exports = ({ config }) => {
       ...(config.plugins ?? []),
       'expo-video',
       'expo-sqlite',
+      [
+        '@livekit/react-native-expo-plugin',
+        {
+          android: { audioType: 'communication' },
+          ios: { enableMultitaskingCameraAccess: false },
+        },
+      ],
+      '@config-plugins/react-native-webrtc',
       ...(iosUrlScheme
         ? [
             [

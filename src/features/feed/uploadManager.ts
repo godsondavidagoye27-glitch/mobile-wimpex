@@ -204,6 +204,7 @@ async function upsertPostRecord(job: VideoUploadJob): Promise<Post['status']> {
     save_count: 0,
     share_count: 0,
     view_count: 0,
+    is_demo: false,
     created_at: new Date().toISOString(),
     published_at: null,
   };

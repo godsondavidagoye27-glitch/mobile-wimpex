@@ -3,6 +3,7 @@ import * as Crypto from 'expo-crypto';
 import { Platform } from 'react-native';
 import { getSupabaseClient } from '../../lib/supabase';
 import { shouldCompleteSocialProfile } from './signupValidation';
+import { unregisterPushTokenBeforeSignOut } from '../notifications/pushNotifications';
 
 export type SocialSignInResult = {
   profileNeeded: boolean;
@@ -175,6 +176,7 @@ export async function signInWithApple(): Promise<SocialSignInResult | null> {
 }
 
 export async function signOutProviders() {
+  await unregisterPushTokenBeforeSignOut();
   const { error } = await getSupabaseClient().auth.signOut();
   if (error) throw error;
 

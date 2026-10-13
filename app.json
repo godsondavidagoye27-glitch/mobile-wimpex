@@ -10,10 +10,20 @@
     "ios": {
       "bundleIdentifier": "app.wimpex.mobile",
       "supportsTablet": true,
-      "usesAppleSignIn": true
+      "usesAppleSignIn": true,
+      "infoPlist": {
+        "NSCameraUsageDescription": "Allow Wimpex to access your camera for photos, videos, and calls.",
+        "NSMicrophoneUsageDescription": "Allow Wimpex to access your microphone for voice messages and calls."
+      }
     },
     "android": {
       "package": "app.wimpex.mobile",
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_MICROPHONE"
+      ],
       "adaptiveIcon": {
         "backgroundColor": "#000000",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -38,9 +48,21 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Allow Wimpex to access your photos so you can add a profile picture."
+          "photosPermission": "Allow Wimpex to access your photos so you can add a profile picture.",
+          "cameraPermission": "Allow Wimpex to access your camera for photos, videos, and calls.",
+          "microphonePermission": "Allow Wimpex to access your microphone for voice messages and calls."
         }
       ],
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Allow Wimpex to access your microphone for voice messages and calls.",
+          "recordAudioAndroid": true,
+          "enableBackgroundPlayback": true,
+          "enableBackgroundRecording": true
+        }
+      ],
+      "expo-notifications",
       "expo-secure-store",
       "expo-apple-authentication"
     ],

@@ -1,2 +1,11 @@
 [functions.delete-own-account]
 verify_jwt = true
+
+[functions.demo-reply]
+verify_jwt = false
+
+[functions.livekit-call]
+verify_jwt = true
+
+[functions.chat-push]
+verify_jwt = false

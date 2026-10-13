@@ -1,11 +1,12 @@
 import { useEvent } from 'expo';
-import { Link, router } from 'expo-router';
+import { Link, router, useFocusEffect } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useNetworkState } from 'expo-network';
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  AppState,
   Alert,
   FlatList,
   Pressable,
@@ -36,13 +37,23 @@ import { theme } from '../../theme/theme';
 
 const viewabilityConfig = { itemVisiblePercentThreshold: 65 };
 
-function FeedVideo({ uri, active, onOpenPost }: { uri: string | null; active: boolean; onOpenPost: () => void }) {
-  if (!uri) {
+function FeedVideo({
+  uri,
+  active,
+  shouldLoad,
+  onOpenPost,
+}: {
+  uri: string | null;
+  active: boolean;
+  shouldLoad: boolean;
+  onOpenPost: () => void;
+}) {
+  if (!uri || !shouldLoad) {
     return (
       <Pressable onPress={onOpenPost} style={styles.videoSurface} accessibilityRole="button" accessibilityLabel="Open video details">
         <LinearGradient colors={['#102B3B', '#17382C']} style={styles.videoPlaceholder}>
           <Icon name="play" size={24} color={theme.colors.white} />
-          <Text style={styles.unavailableText}>Video unavailable</Text>
+          <Text style={styles.unavailableText}>{uri ? 'Scroll to play' : 'Video unavailable'}</Text>
         </LinearGradient>
       </Pressable>
     );
@@ -126,23 +137,27 @@ function FeedHeader() {
 function FeedPostCard({
   item,
   active,
+  shouldLoadVideo,
   onToggleLike,
   onToggleSave,
   onShare,
   busy,
+  itemHeight,
 }: {
   item: FeedItem;
   active: boolean;
+  shouldLoadVideo: boolean;
   onToggleLike: () => void;
   onToggleSave: () => void;
   onShare: () => void;
   busy: boolean;
+  itemHeight: number;
 }) {
   const openPost = () => router.push({ pathname: '/post/[id]', params: { id: item.post.id } });
 
   return (
-    <View style={styles.videoCardWrap}>
-      <FeedVideo uri={item.videoUrl} active={active} onOpenPost={openPost} />
+    <View style={[styles.videoCardWrap, { height: itemHeight }]}>
+      <FeedVideo uri={item.videoUrl} active={active} shouldLoad={shouldLoadVideo} onOpenPost={openPost} />
       <View pointerEvents="box-none" style={styles.videoOverlay}>
         <View pointerEvents="box-none" style={styles.metaStack}>
           <Link href={{ pathname: '/user/[username]', params: { username: item.author.username } }} asChild>
@@ -207,14 +222,32 @@ function FeedPostCard({
 export default function HomeScreen() {
   const [tab, setTab] = useState<'For You' | 'Following'>('For You');
   const [activePostId, setActivePostId] = useState<string | null>(null);
+  const [activeIndex, setActiveIndex] = useState<number | null>(null);
+  const [listHeight, setListHeight] = useState(0);
   const [busyPostIds, setBusyPostIds] = useState<Set<string>>(() => new Set());
   const [uploadJobs, setUploadJobs] = useState<VideoUploadJob[]>([]);
   const networkState = useNetworkState();
   const viewedPostIds = useRef(new Set<string>());
   const queryClient = useQueryClient();
+  const [isFocused, setIsFocused] = useState(false);
+  const [appIsActive, setAppIsActive] = useState(AppState.currentState === 'active');
   const mode = tab === 'For You' ? 'for_you' : 'following';
   const feedQuery = useFeed(mode);
   const posts = mergeFeedPages(feedQuery.data?.pages.map((page) => page.items) ?? []);
+
+  useFocusEffect(
+    useCallback(() => {
+      setIsFocused(true);
+      return () => setIsFocused(false);
+    }, []),
+  );
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (state) => {
+      setAppIsActive(state === 'active');
+    });
+    return () => subscription.remove();
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -249,7 +282,9 @@ export default function HomeScreen() {
 
   const onViewableItemsChanged = useCallback(({ viewableItems }: { viewableItems: ViewToken<FeedItem>[] }) => {
     const firstVisible = viewableItems.find((token) => token.isViewable)?.item;
+    const visibleToken = viewableItems.find((token) => token.isViewable);
     setActivePostId(firstVisible?.post.id ?? null);
+    setActiveIndex(visibleToken?.index ?? null);
   }, []);
 
   useEffect(() => {
@@ -311,11 +346,13 @@ export default function HomeScreen() {
     }
   };
 
-  const renderPost = ({ item }: { item: FeedItem }) => (
+  const renderPost = ({ item, index }: { item: FeedItem; index: number }) => (
     <FeedPostCard
       item={item}
-      active={item.post.id === activePostId}
+      active={item.post.id === activePostId && isFocused && appIsActive}
+      shouldLoadVideo={activeIndex !== null && Math.abs(index - activeIndex) <= 1}
       busy={busyPostIds.has(item.post.id)}
+      itemHeight={listHeight || 480}
       onToggleLike={() => void runPostAction(item.post.id, () => setPostLiked(item.post.id, item.is_liked))}
       onToggleSave={() => void runPostAction(item.post.id, () => setPostSaved(item.post.id, item.is_saved))}
       onShare={() => void sharePost(item)}
@@ -326,7 +363,7 @@ export default function HomeScreen() {
     if (feedQuery.isPending) {
       return (
         <View accessibilityLabel="Loading videos">
-          {[0, 1, 2].map((index) => <View key={index} style={styles.skeletonCard} />)}
+          <View style={[styles.skeletonCard, { height: listHeight || 480 }]} />
         </View>
       );
     }
@@ -388,44 +425,40 @@ export default function HomeScreen() {
           </Pressable>
         ))}
       </View>
+      <FeedHeader />
+      {uploadJobs.map((job) => (
+        <View key={job.id} style={styles.uploadBanner}>
+          <View style={styles.uploadBannerContent}>
+            <Text style={styles.uploadBannerTitle}>
+              {job.state === 'failed' ? 'Upload paused' : 'Uploading your video'}
+            </Text>
+            <Text style={styles.uploadBannerDetail}>
+              {job.error ?? `${Math.round(job.progress * 100)}% complete`}
+            </Text>
+            <View style={styles.uploadProgressTrack}>
+              <View style={[styles.uploadProgressFill, { width: `${Math.round(job.progress * 100)}%` }]} />
+            </View>
+          </View>
+          {job.state === 'failed' ? (
+            <View style={styles.uploadButtons}>
+              <Pressable onPress={() => void retryUpload(job)} style={styles.uploadButton} accessibilityRole="button">
+                <Text style={styles.uploadButtonText}>Retry</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => void removeFailedUpload(job)}
+                style={styles.uploadButton}
+                accessibilityRole="button"
+              >
+                <Text style={styles.removeUploadText}>Remove</Text>
+              </Pressable>
+            </View>
+          ) : <ActivityIndicator color={theme.colors.primary} />}
+        </View>
+      ))}
       <FlatList
         data={posts}
         keyExtractor={(item) => item.post.id}
         renderItem={renderPost}
-        ListHeaderComponent={
-          <>
-            <FeedHeader />
-            {uploadJobs.map((job) => (
-              <View key={job.id} style={styles.uploadBanner}>
-                <View style={styles.uploadBannerContent}>
-                  <Text style={styles.uploadBannerTitle}>
-                    {job.state === 'failed' ? 'Upload paused' : 'Uploading your video'}
-                  </Text>
-                  <Text style={styles.uploadBannerDetail}>
-                    {job.error ?? `${Math.round(job.progress * 100)}% complete`}
-                  </Text>
-                  <View style={styles.uploadProgressTrack}>
-                    <View style={[styles.uploadProgressFill, { width: `${Math.round(job.progress * 100)}%` }]} />
-                  </View>
-                </View>
-                {job.state === 'failed' ? (
-                  <View style={styles.uploadButtons}>
-                    <Pressable onPress={() => void retryUpload(job)} style={styles.uploadButton} accessibilityRole="button">
-                      <Text style={styles.uploadButtonText}>Retry</Text>
-                    </Pressable>
-                    <Pressable
-                      onPress={() => void removeFailedUpload(job)}
-                      style={styles.uploadButton}
-                      accessibilityRole="button"
-                    >
-                      <Text style={styles.removeUploadText}>Remove</Text>
-                    </Pressable>
-                  </View>
-                ) : <ActivityIndicator color={theme.colors.primary} />}
-              </View>
-            ))}
-          </>
-        }
         ListEmptyComponent={emptyContent}
         ListFooterComponent={feedQuery.isFetchingNextPage ? (
           <ActivityIndicator color={theme.colors.primary} style={styles.listFooter} />
@@ -436,6 +469,14 @@ export default function HomeScreen() {
           </Pressable>
         ) : null}
         contentContainerStyle={styles.content}
+        onLayout={(event) => setListHeight(event.nativeEvent.layout.height)}
+        snapToInterval={listHeight || undefined}
+        snapToStart
+        snapToEnd={false}
+        decelerationRate="fast"
+        initialNumToRender={1}
+        maxToRenderPerBatch={1}
+        windowSize={3}
         showsVerticalScrollIndicator={false}
         onEndReached={() => {
           if (feedQuery.hasNextPage && !feedQuery.isFetchingNextPage) void feedQuery.fetchNextPage();
@@ -532,7 +573,6 @@ const styles = StyleSheet.create({
   storyInitial: { fontSize: 20, fontWeight: '700', color: theme.colors.white },
   storyLabel: { marginTop: 8, fontSize: 12, color: theme.colors.textMuted, textAlign: 'center' },
   videoCardWrap: {
-    marginTop: 18,
     marginHorizontal: 18,
     height: 480,
     borderRadius: 22,
@@ -572,7 +612,7 @@ const styles = StyleSheet.create({
   rightRail: { width: 54, justifyContent: 'flex-end', gap: 14, alignItems: 'center' },
   actionButton: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center', gap: 4 },
   count: { color: theme.colors.white, fontSize: 11, fontWeight: '700' },
-  skeletonCard: { height: 480, marginHorizontal: 14, marginTop: 14, marginBottom: 4, borderRadius: 22, backgroundColor: theme.colors.surface },
+  skeletonCard: { marginHorizontal: 18, borderRadius: 22, backgroundColor: theme.colors.surface },
   feedMessage: { minHeight: 240, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 28, gap: 16 },
   feedMessageText: { color: theme.colors.textMuted, fontSize: 15, lineHeight: 22, textAlign: 'center' },
   feedButton: { minHeight: 44, borderRadius: 22, paddingHorizontal: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.primary },

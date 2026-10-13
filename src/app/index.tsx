@@ -1,71 +1,71 @@
 import { router } from 'expo-router';
-import { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useEffect } from 'react';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { getSupabaseClient } from '../lib/supabase';
 import { theme } from '../theme/theme';
 import { rehydrateAuthFlow, useAuthFlow } from '../features/auth/useAuthFlow';
 
 export default function IndexRoute() {
-  const [failed, setFailed] = useState(false);
-
   const resolveInitialRoute = async () => {
-    setFailed(false);
+    let timeout: ReturnType<typeof setTimeout> | undefined;
     try {
-      await rehydrateAuthFlow();
-      if (!process.env.EXPO_PUBLIC_SUPABASE_URL || !process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY) {
-        router.replace('/(auth)/welcome');
-        return;
-      }
+      const destination = await Promise.race([
+        (async () => {
+          await rehydrateAuthFlow();
+          if (!process.env.EXPO_PUBLIC_SUPABASE_URL || !process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY) {
+            return { route: 'welcome' as const };
+          }
 
-      const { data, error } = await getSupabaseClient().auth.getSession();
-      if (error) throw error;
-      if (!data.session) {
-        router.replace('/(auth)/welcome');
-        return;
-      }
+          const { data, error } = await getSupabaseClient().auth.getSession();
+          if (error) throw error;
+          console.log('session result', data.session ? 'authenticated' : 'no session');
+          if (!data.session) return { route: 'welcome' as const };
 
-      const { data: profile, error: profileError } = await getSupabaseClient()
-        .from('profiles')
-        .select('id')
-        .eq('id', data.session.user.id)
-        .maybeSingle();
-      if (profileError) throw profileError;
+          const { data: profile, error: profileError } = await getSupabaseClient()
+            .from('profiles')
+            .select('id')
+            .eq('id', data.session.user.id)
+            .maybeSingle();
+          if (profileError) throw profileError;
+          if (profile) return { route: 'tabs' as const };
 
-      if (profile) {
+          return { route: 'signup' as const, session: data.session };
+        })(),
+        new Promise<never>((_, reject) => {
+          timeout = setTimeout(() => reject(new Error('Session check timed out.')), 5000);
+        }),
+      ]);
+
+      if (destination.route === 'tabs') {
         router.replace('/(tabs)');
-        return;
+      } else if (destination.route === 'signup') {
+        const flow = useAuthFlow.getState();
+        flow.setSignupData({
+          flowType: flow.flowType,
+          email: destination.session.user.email ?? flow.email,
+          password: '',
+          currentStep: flow.flowType === 'social' ? flow.currentStep : 3,
+        });
+        router.replace('/(auth)/welcome?resume=signup');
+      } else {
+        router.replace('/(auth)/welcome');
       }
-
-      const flow = useAuthFlow.getState();
-      flow.setSignupData({
-        flowType: flow.flowType,
-        email: data.session.user.email ?? useAuthFlow.getState().email,
-        password: '',
-        currentStep: flow.flowType === 'social' ? flow.currentStep : 3,
-      });
-      router.replace('/(auth)/welcome?resume=signup');
     } catch (error) {
-      setFailed(true);
-      Alert.alert('Unable to check your session', error instanceof Error ? error.message : 'Please try again.');
+      console.error('Unable to resolve the initial route; opening welcome.', error);
+      router.replace('/(auth)/welcome');
+    } finally {
+      if (timeout) clearTimeout(timeout);
     }
   };
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      void resolveInitialRoute();
-    }, 0);
-    return () => clearTimeout(timer);
+    console.log('index start');
+    void resolveInitialRoute();
   }, []);
 
   return (
     <View style={styles.screen}>
-      {failed ? (
-        <Pressable onPress={() => void resolveInitialRoute()} accessibilityRole="button">
-          <Text style={styles.retry}>Retry</Text>
-        </Pressable>
-      ) : (
-        <ActivityIndicator color={theme.colors.primary} />
-      )}
+      <ActivityIndicator color={theme.colors.primary} />
     </View>
   );
 }
@@ -76,9 +76,5 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: theme.colors.black,
-  },
-  retry: {
-    color: theme.colors.primary,
-    fontWeight: '700',
   },
 });

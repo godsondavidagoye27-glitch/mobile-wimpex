@@ -1,5 +1,5 @@
 import { router } from 'expo-router';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Component, useCallback, useEffect, useMemo, useState, type ErrorInfo, type ReactNode } from 'react';
 import {
   ActivityIndicator,
   PanResponder,
@@ -23,6 +23,7 @@ import Animated, {
   withSequence,
   withTiming,
   useReducedMotion,
+  type SharedValue,
 } from 'react-native-reanimated';
 import { Blur, Canvas, Circle as SkiaCircle, Group, Paint, useCanvasSize } from '@shopify/react-native-skia';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
@@ -53,6 +54,47 @@ type AuthMode = 'login' | 'signup';
 type LoginFieldName = 'email' | 'password';
 
 const AnimatedFinishPath = Animated.createAnimatedComponent(Path);
+
+class SkiaSetupBoundary extends Component<
+  { children: ReactNode; onError: () => void },
+  { hasError: boolean }
+> {
+  state = { hasError: false };
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error('Unable to initialize the splash animation.', error, info.componentStack);
+    this.props.onError();
+  }
+
+  render() {
+    return this.state.hasError ? null : this.props.children;
+  }
+}
+
+function SkiaBackdrop({
+  backdropOpacity,
+  goldGlowOpacity,
+}: {
+  backdropOpacity: SharedValue<number>;
+  goldGlowOpacity: SharedValue<number>;
+}) {
+  const { ref: canvasRef, size: canvasSize } = useCanvasSize();
+  return (
+    <Canvas ref={canvasRef} style={styles.canvas}>
+      <Group layer={<Paint><Blur blur={motion.blur.blob} /></Paint>}>
+        <SkiaCircle cx={canvasSize.width * 0.12} cy={canvasSize.height * 0.08} r={160} color={theme.colors.primary} opacity={backdropOpacity} />
+        <SkiaCircle cx={canvasSize.width * 0.9} cy={canvasSize.height * 0.92} r={160} color={theme.colors.success} opacity={backdropOpacity} />
+      </Group>
+      <Group layer={<Paint><Blur blur={14} /></Paint>}>
+        <SkiaCircle cx={canvasSize.width / 2} cy={canvasSize.height / 2 - 16} r={46} color={theme.colors.gold} opacity={goldGlowOpacity} />
+      </Group>
+    </Canvas>
+  );
+}
 
 function LoginField({
   label,
@@ -286,7 +328,6 @@ const finishStyles = StyleSheet.create({
 export function SplashSequence() {
   const { height } = useWindowDimensions();
   const reduceMotion = useReducedMotion();
-  const { ref: canvasRef, size: canvasSize } = useCanvasSize();
   const signupStep = useAuthFlow((state) => state.currentStep);
   const signupFlowType = useAuthFlow((state) => state.flowType);
   const signupHydrated = useAuthFlow((state) => state.hasHydrated);
@@ -313,6 +354,7 @@ export function SplashSequence() {
   const [buttonState, setButtonState] = useState<'idle' | 'loading' | 'success'>('idle');
   const [toast, setToast] = useState('');
   const [segmentWidth, setSegmentWidth] = useState(0);
+  const [skiaFailed, setSkiaFailed] = useState(false);
   const translateY = useSharedValue(290);
   const logoScale = useSharedValue(1.25);
   const welcomeOpacity = useSharedValue(0);
@@ -343,19 +385,40 @@ export function SplashSequence() {
   }, []);
 
   useEffect(() => {
-    segmentOffset.value = withTiming(authMode === 'signup' ? (segmentWidth - 6) / 2 : 0, {
-      duration: 400,
-      easing: Easing.bezier(0.3, 1.4, 0.5, 1),
-    });
-  }, [authMode, segmentOffset, segmentWidth]);
+    const offset = authMode === 'signup' ? (segmentWidth - 6) / 2 : 0;
+    if (skiaFailed) segmentOffset.value = offset;
+    else {
+      segmentOffset.value = withTiming(offset, {
+        duration: 400,
+        easing: Easing.bezier(0.3, 1.4, 0.5, 1),
+      });
+    }
+  }, [authMode, segmentOffset, segmentWidth, skiaFailed]);
 
   useEffect(() => {
     const duration = reduceMotion ? 0 : 220;
-    segmentOpacity.value = withTiming(resetOpen ? 0 : 1, { duration });
-    segmentHeight.value = withTiming(resetOpen ? 0 : 42, { duration });
-  }, [reduceMotion, resetOpen, segmentHeight, segmentOpacity]);
+    if (skiaFailed) {
+      segmentOpacity.value = resetOpen ? 0 : 1;
+      segmentHeight.value = resetOpen ? 0 : 42;
+    } else {
+      segmentOpacity.value = withTiming(resetOpen ? 0 : 1, { duration });
+      segmentHeight.value = withTiming(resetOpen ? 0 : 42, { duration });
+    }
+  }, [reduceMotion, resetOpen, segmentHeight, segmentOpacity, skiaFailed]);
 
   useEffect(() => {
+    if (skiaFailed) {
+      translateY.value = authOpen ? 16 : 54;
+      logoScale.value = authOpen ? 0.5 : 0.85;
+      welcomeOpacity.value = authOpen ? 0 : 1;
+      welcomeTranslateY.value = 0;
+      pulseOpacity.value = 0;
+      backdropOpacity.value = 0;
+      goldGlowOpacity.value = 0;
+      cardTranslateY.value = authOpen ? 0 : height * 0.735;
+      return;
+    }
+
     if (authOpen) {
       translateY.value = withTiming(16, { duration: 500, easing: Easing.bezier(0.7, 0, 0.2, 1) });
       logoScale.value = withTiming(0.5, { duration: 500, easing: Easing.bezier(0.7, 0, 0.2, 1) });
@@ -392,7 +455,7 @@ export function SplashSequence() {
     }, 3500);
 
     return () => clearInterval(interval);
-  }, [authOpen, backdropOpacity, cardTranslateY, goldGlowOpacity, height, logoScale, phase, pulseOpacity, pulseScale, replayKey, translateY, welcomeOpacity, welcomeTranslateY]);
+  }, [authOpen, backdropOpacity, cardTranslateY, goldGlowOpacity, height, logoScale, phase, pulseOpacity, pulseScale, replayKey, skiaFailed, translateY, welcomeOpacity, welcomeTranslateY]);
 
   useEffect(
     () => () => {
@@ -484,6 +547,10 @@ export function SplashSequence() {
   const closeAuth = () => {
     setResetOpen(false);
     setResetStep(0);
+    if (skiaFailed) {
+      setAuthOpen(false);
+      return;
+    }
     cardTranslateY.value = withTiming(height * 0.735, {
       duration: 500,
       easing: Easing.bezier(0.7, 0, 0.2, 1),
@@ -599,21 +666,17 @@ export function SplashSequence() {
       return;
     }
     setSlideIndex(0);
+    if (skiaFailed) return;
     setReplayKey((key) => key + 1);
     setPhase('splash');
   };
+  const displayedPhase = skiaFailed ? 'welcome' : phase;
 
   return (
     <View style={styles.container}>
-      <Canvas ref={canvasRef} style={styles.canvas}>
-        <Group layer={<Paint><Blur blur={motion.blur.blob} /></Paint>}>
-          <SkiaCircle cx={canvasSize.width * 0.12} cy={canvasSize.height * 0.08} r={160} color={theme.colors.primary} opacity={backdropOpacity} />
-          <SkiaCircle cx={canvasSize.width * 0.9} cy={canvasSize.height * 0.92} r={160} color={theme.colors.success} opacity={backdropOpacity} />
-        </Group>
-        <Group layer={<Paint><Blur blur={14} /></Paint>}>
-          <SkiaCircle cx={canvasSize.width / 2} cy={canvasSize.height / 2 - 16} r={46} color={theme.colors.gold} opacity={goldGlowOpacity} />
-        </Group>
-      </Canvas>
+      <SkiaSetupBoundary onError={() => setSkiaFailed(true)}>
+        <SkiaBackdrop backdropOpacity={backdropOpacity} goldGlowOpacity={goldGlowOpacity} />
+      </SkiaSetupBoundary>
 
       <Animated.View style={[styles.logoStack, { top: 0 }, logoStyle]}>
         <View style={styles.logoMarkWrap}>
@@ -625,9 +688,9 @@ export function SplashSequence() {
 
       <Animated.View
         style={[styles.welcome, welcomeStyle]}
-        pointerEvents={phase === 'welcome' && !authOpen ? 'auto' : 'none'}
+        pointerEvents={displayedPhase === 'welcome' && !authOpen ? 'auto' : 'none'}
       >
-        {phase === 'welcome' ? (
+        {displayedPhase === 'welcome' ? (
           <>
             <Pressable style={styles.replayButton} onPress={replay} accessibilityRole="button" accessibilityLabel="Replay splash">
               <Text style={styles.replayLabel}>Replay</Text>
@@ -636,7 +699,7 @@ export function SplashSequence() {
             <Animated.View
               key={slideIndex}
               style={[styles.slide, { top: height * 0.2625 }, welcomeContentStyle]}
-              entering={FadeInDown.duration(500)}
+              entering={skiaFailed ? undefined : FadeInDown.duration(500)}
               {...panHandlers}
             >
               <SlideArt index={slideIndex} />

@@ -1,16 +1,50 @@
 import { router } from 'expo-router';
 import { preferenceStorage } from '../lib/storage';
 import { useEffect, useState } from 'react';
-import { Alert, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
-import { Icon } from '../components/Icon';
+import { Alert, AppState, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { Icon, type AppIconName } from '../components/Icon';
 import { currentUserProfile } from '../data/profile';
 import { signOutProviders } from '../features/auth/socialAuth';
 import { useAuthFlow } from '../features/auth/useAuthFlow';
+import {
+  getPushPermissionGranted,
+  syncPushTokenForCurrentSession,
+} from '../features/notifications/pushNotifications';
+import { getSupabaseClient } from '../lib/supabase';
 import { theme } from '../theme/theme';
 
 type ThemeMode = 'Dark' | 'Light' | 'System';
 
 const themeModes: ThemeMode[] = ['Dark', 'Light', 'System'];
+
+type NotificationSettingKey =
+  | 'push_enabled'
+  | 'notify_likes'
+  | 'notify_comments'
+  | 'notify_followers'
+  | 'notify_messages'
+  | 'notify_live'
+  | 'show_online_status';
+
+const notificationSettingByLabel: Record<string, NotificationSettingKey> = {
+  'Show my online status': 'show_online_status',
+  'Push notifications': 'push_enabled',
+  Likes: 'notify_likes',
+  Comments: 'notify_comments',
+  'New followers': 'notify_followers',
+  Messages: 'notify_messages',
+  'Live from people I follow': 'notify_live',
+};
+
+const defaultNotificationSettings = {
+  push_enabled: true,
+  notify_likes: true,
+  notify_comments: true,
+  notify_followers: true,
+  notify_messages: true,
+  notify_live: true,
+  show_online_status: true,
+};
 
 const settingsSections = [
   {
@@ -27,6 +61,7 @@ const settingsSections = [
     rows: [
       { label: 'Private account', icon: 'shield', type: 'switch', active: true },
       { label: 'Who can message me', icon: 'message', value: 'Everyone', type: 'value' },
+      { label: 'Show my online status', icon: 'eye', type: 'switch', active: true },
       { label: 'Show my liked videos', icon: 'heart', type: 'switch', active: false },
       { label: 'Allow others to find me by contacts', icon: 'user', type: 'switch', active: true },
       { label: 'Blocked users', icon: 'ban', value: '3', type: 'value' },
@@ -74,18 +109,138 @@ const settingsSections = [
 
 export default function SettingsScreen() {
   const [themeMode, setThemeMode] = useState<ThemeMode>('Dark');
+  const [notificationSettings, setNotificationSettings] = useState(defaultNotificationSettings);
+  const [pushPermissionGranted, setPushPermissionGranted] = useState(false);
+  const [settingsUserId, setSettingsUserId] = useState<string | null>(null);
+  const [isMinor, setIsMinor] = useState(false);
   const [deleteSheetOpen, setDeleteSheetOpen] = useState(false);
   const [typedUsername, setTypedUsername] = useState('');
 
   useEffect(() => {
-    preferenceStorage.getItem('wimpex-theme-mode').then((value) => {
-      if (value && themeModes.includes(value as ThemeMode)) setThemeMode(value as ThemeMode);
+    let active = true;
+    void preferenceStorage.getItem('wimpex-theme-mode').then((value) => {
+      if (active && value && themeModes.includes(value as ThemeMode)) setThemeMode(value as ThemeMode);
+    }).catch((error: unknown) => {
+      Alert.alert('Could not load your theme setting', error instanceof Error ? error.message : 'Try again.');
     });
+    void (async () => {
+      try {
+        const client = getSupabaseClient();
+        const { data: userData, error: userError } = await client.auth.getUser();
+        if (userError) throw userError;
+        if (!userData.user) return;
+        const { data, error } = await client
+          .from('user_settings')
+          .select('push_enabled,notify_likes,notify_comments,notify_followers,notify_messages,notify_live,show_online_status')
+          .eq('user_id', userData.user.id)
+          .maybeSingle();
+        if (error) throw error;
+        const { data: profile, error: profileError } = await client
+          .from('profiles')
+          .select('date_of_birth')
+          .eq('id', userData.user.id)
+          .maybeSingle();
+        if (profileError) throw profileError;
+        if (!active) return;
+        setSettingsUserId(userData.user.id);
+        if (profile) {
+          const today = new Date();
+          const birthday = new Date(`${profile.date_of_birth}T00:00:00`);
+          let age = today.getFullYear() - birthday.getFullYear();
+          if (
+            today.getMonth() < birthday.getMonth()
+            || (today.getMonth() === birthday.getMonth() && today.getDate() < birthday.getDate())
+          ) {
+            age -= 1;
+          }
+          setIsMinor(age < 18);
+        }
+        if (data) setNotificationSettings(data);
+      } catch (error) {
+        if (active) {
+          Alert.alert(
+            'Could not load notification settings',
+            error instanceof Error ? error.message : 'Try again.',
+          );
+        }
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const refreshPushPermission = () => {
+      void getPushPermissionGranted()
+        .then(setPushPermissionGranted)
+        .catch((error: unknown) => {
+          Alert.alert(
+            'Could not check notification permission',
+            error instanceof Error ? error.message : 'Try again.',
+          );
+        });
+    };
+    refreshPushPermission();
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') refreshPushPermission();
+    });
+    return () => subscription.remove();
   }, []);
 
   const persistTheme = async (nextMode: ThemeMode) => {
     setThemeMode(nextMode);
-    await preferenceStorage.setItem('wimpex-theme-mode', nextMode);
+    try {
+      await preferenceStorage.setItem('wimpex-theme-mode', nextMode);
+    } catch (error) {
+      Alert.alert('Could not save your theme setting', error instanceof Error ? error.message : 'Try again.');
+    }
+  };
+
+  const persistNotificationSetting = async (key: NotificationSettingKey, value: boolean) => {
+    if (!settingsUserId) {
+      Alert.alert('Unable to save setting', 'Sign in again and retry.');
+      return;
+    }
+    const previous = notificationSettings[key];
+    setNotificationSettings((current) => ({ ...current, [key]: value }));
+    try {
+      const settingUpdate: { user_id: string } & Partial<Record<NotificationSettingKey, boolean>> = {
+        user_id: settingsUserId,
+      };
+      settingUpdate[key] = value;
+      const { error } = await getSupabaseClient()
+        .from('user_settings')
+        .upsert(settingUpdate, { onConflict: 'user_id' });
+      if (error) throw error;
+      if (key === 'push_enabled') {
+        try {
+          await syncPushTokenForCurrentSession(value);
+          if (value) setPushPermissionGranted(true);
+        } catch (registrationError) {
+          const rollback = { user_id: settingsUserId, push_enabled: previous };
+          const { error: rollbackError } = await getSupabaseClient()
+            .from('user_settings')
+            .upsert(rollback, { onConflict: 'user_id' });
+          if (rollbackError) {
+            throw new Error(
+              `Push setup failed (${registrationError instanceof Error ? registrationError.message : 'unknown error'}); `
+              + `the setting could not be restored (${rollbackError.message}).`,
+            );
+          }
+          throw registrationError;
+        }
+      }
+      if (key === 'show_online_status' && isMinor) {
+        setNotificationSettings((current) => ({ ...current, show_online_status: false }));
+      }
+    } catch (error) {
+      setNotificationSettings((current) => ({ ...current, [key]: previous }));
+      Alert.alert(
+        'Could not save notification setting',
+        error instanceof Error ? error.message : 'Try again.',
+      );
+    }
   };
 
   const canDelete = typedUsername.trim() === currentUserProfile.username;
@@ -108,13 +263,28 @@ export default function SettingsScreen() {
               <Pressable key={row.label} style={styles.row} accessibilityRole="button">
                 <View style={styles.rowMain}>
                   <View style={styles.iconWrap}>
-                    <Icon name={row.icon as any} size={20} color={theme.colors.primary} />
+                    <Icon name={row.icon as AppIconName} size={20} color={theme.colors.primary} />
                   </View>
                   <Text style={styles.rowLabel}>{row.label}</Text>
                 </View>
 
                 {row.type === 'switch' ? (
-                  <Switch value={Boolean('active' in row && row.active)} trackColor={{ false: '#374151', true: theme.colors.success }} thumbColor={theme.colors.white} />
+                  <Switch
+                    value={
+                      notificationSettingByLabel[row.label]
+                        ? notificationSettingByLabel[row.label] === 'push_enabled'
+                          ? notificationSettings.push_enabled && pushPermissionGranted
+                          : notificationSettings[notificationSettingByLabel[row.label]]
+                        : Boolean('active' in row && row.active)
+                    }
+                    disabled={notificationSettingByLabel[row.label] === 'show_online_status' && isMinor}
+                    onValueChange={(value) => {
+                      const key = notificationSettingByLabel[row.label];
+                      if (key) void persistNotificationSetting(key, value);
+                    }}
+                    trackColor={{ false: '#374151', true: theme.colors.success }}
+                    thumbColor={theme.colors.white}
+                  />
                 ) : row.type === 'segmented' ? (
                   <View style={styles.segmentedWrap}>
                     {themeModes.map((mode) => (
