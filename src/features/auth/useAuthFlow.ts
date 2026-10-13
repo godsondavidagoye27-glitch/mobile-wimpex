@@ -1,6 +1,6 @@
-import * as SecureStore from 'expo-secure-store';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
+import { secureStorage } from '../../lib/storage';
 
 export type SignupData = {
   flowType: 'email' | 'social';
@@ -38,12 +38,6 @@ const initialSignupData: SignupData = {
   avatarUri: null,
   interests: [],
   currentStep: 0,
-};
-
-const secureStorage = {
-  getItem: (key: string) => SecureStore.getItemAsync(key),
-  setItem: (key: string, value: string) => SecureStore.setItemAsync(key, value),
-  removeItem: (key: string) => SecureStore.deleteItemAsync(key),
 };
 
 export const useAuthFlow = create<AuthFlowState>()(

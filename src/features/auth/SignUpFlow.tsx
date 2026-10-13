@@ -198,6 +198,7 @@ export function SignUpFlow({
   const [resendBusy, setResendBusy] = useState(false);
   const [usernameStatus, setUsernameStatus] = useState<UsernameStatus>('idle');
   const [usernameStatusText, setUsernameStatusText] = useState('');
+  const [usernameStatusFor, setUsernameStatusFor] = useState('');
   const [usernameError, setUsernameError] = useState('');
   const [nameError, setNameError] = useState('');
   const [pickerError, setPickerError] = useState('');
@@ -238,9 +239,6 @@ export function SignUpFlow({
 
   useEffect(() => {
     if (step !== codeStep) return;
-    setCode(['', '', '', '', '', '']);
-    setCodeError('');
-    setResendSeconds(30);
     const interval = setInterval(() => {
       setResendSeconds((remaining) => {
         if (remaining <= 1) {
@@ -253,19 +251,29 @@ export function SignUpFlow({
     return () => clearInterval(interval);
   }, [codeStep, resendCycle, step]);
 
+  const currentUsernameStatus =
+    flow.username.length < 3
+      ? 'idle'
+      : usernameStatusFor === flow.username
+        ? usernameStatus
+        : 'checking';
+  const currentUsernameStatusText =
+    flow.username.length < 3
+      ? ''
+      : usernameStatusFor === flow.username
+        ? usernameStatusText
+        : 'Checking';
+
   useEffect(() => {
     if (step !== profileStep) return;
     const candidate = flow.username.toLowerCase();
-    if (candidate.length < 3) {
-      setUsernameStatus('idle');
-      setUsernameStatusText('');
-      return;
-    }
+    if (candidate.length < 3) return;
 
     let active = true;
-    setUsernameStatus('checking');
-    setUsernameStatusText('Checking');
     const timer = setTimeout(() => {
+      setUsernameStatusFor(candidate);
+      setUsernameStatus('checking');
+      setUsernameStatusText('Checking');
       void (async () => {
         try {
           const { data, error } = await getSupabaseClient().rpc('is_username_available', {
@@ -353,7 +361,13 @@ export function SignUpFlow({
           if (data.user?.identities?.length === 0) {
             throw new Error('An account with this email already exists. Log in instead.');
           }
-          return () => flow.setSignupData({ currentStep: 1 });
+          return () => {
+            setCode(['', '', '', '', '', '']);
+            setCodeError('');
+            setResendSeconds(30);
+            setResendCycle((cycle) => cycle + 1);
+            flow.setSignupData({ currentStep: 1 });
+          };
         },
         (error) => {
           setScreenError(
@@ -387,7 +401,15 @@ export function SignUpFlow({
       }
       setBirthdayError('');
       await performAction(
-        async () => () => flow.setSignupData({ currentStep: isSocial ? 1 : 2 }),
+        async () => () => {
+          if (!isSocial) {
+            setCode(['', '', '', '', '', '']);
+            setCodeError('');
+            setResendSeconds(30);
+            setResendCycle((cycle) => cycle + 1);
+          }
+          flow.setSignupData({ currentStep: isSocial ? 1 : 2 });
+        },
         (error) => setScreenError(getErrorMessage(error)),
       );
       return;
@@ -834,28 +856,28 @@ export function SignUpFlow({
               setUsernameError('');
             }}
             autoComplete="off"
-            error={usernameError && !usernameStatusText ? usernameError : undefined}
+            error={usernameError && !currentUsernameStatusText ? usernameError : undefined}
             inputRef={usernameRef}
           />
           <View style={styles.usernameStatus}>
-            {usernameStatus === 'checking' ? (
+            {currentUsernameStatus === 'checking' ? (
               <>
                 <ActivityIndicator size="small" color={theme.colors.textMuted} />
                 <Text style={styles.statusMuted}>Checking</Text>
               </>
-            ) : usernameStatus === 'available' ? (
+            ) : currentUsernameStatus === 'available' ? (
               <>
                 <Icon name="check" size={20} color={theme.colors.success} />
                 <Text style={styles.statusSuccess}>Available</Text>
               </>
-            ) : usernameStatusText ? (
+            ) : currentUsernameStatusText ? (
               <Text
                 style={[
                   styles.statusError,
-                  usernameStatus === 'failed' && styles.statusMuted,
+                  currentUsernameStatus === 'failed' && styles.statusMuted,
                 ]}
               >
-                {usernameStatusText}
+                {currentUsernameStatusText}
               </Text>
             ) : null}
           </View>

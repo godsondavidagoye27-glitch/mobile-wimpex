@@ -260,7 +260,7 @@ export function ProfileScreen({ profile, isOwner = false }: Props) {
         {activeTab === 'liked' && !isOwner && !profile.showLikedVideos ? (
           <View style={styles.privateState}>
             <Icon name="lock" size={20} color={theme.colors.primary} />
-            <Text style={styles.privateText}>This user's liked videos are private.</Text>
+            <Text style={styles.privateText}>This user&apos;s liked videos are private.</Text>
           </View>
         ) : (
           <View style={styles.gridWrap}>

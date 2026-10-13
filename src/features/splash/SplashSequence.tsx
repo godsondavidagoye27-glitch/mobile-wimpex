@@ -1,5 +1,5 @@
 import { router } from 'expo-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   PanResponder,
@@ -429,15 +429,16 @@ export function SplashSequence() {
     transform: [{ scale: pulseScale.value }],
   }));
 
-  const responder = useRef(
-    PanResponder.create({
+  const panHandlers = useMemo(
+    () => PanResponder.create({
       onMoveShouldSetPanResponder: (_, gesture) => Math.abs(gesture.dx) > 20,
       onPanResponderRelease: (_, gesture) => {
         if (Math.abs(gesture.dx) < 40) return;
         setSlideIndex((index) => (index + (gesture.dx < 0 ? 1 : slides.length - 1)) % slides.length);
       },
-    }),
-  ).current;
+    }).panHandlers,
+    [],
+  );
 
   const openAuth = (mode: AuthMode) => {
     setAuthMode(mode);
@@ -452,9 +453,12 @@ export function SplashSequence() {
 
   useEffect(() => {
     if (!signupHydrated || (signupStep === 0 && signupFlowType !== 'social')) return;
-    setPhase('welcome');
-    setAuthMode('signup');
-    setAuthOpen(true);
+    const timer = setTimeout(() => {
+      setPhase('welcome');
+      setAuthMode('signup');
+      setAuthOpen(true);
+    }, 0);
+    return () => clearTimeout(timer);
   }, [signupFlowType, signupHydrated, signupStep]);
 
   const handleAuthBack = () => {
@@ -633,7 +637,7 @@ export function SplashSequence() {
               key={slideIndex}
               style={[styles.slide, { top: height * 0.2625 }, welcomeContentStyle]}
               entering={FadeInDown.duration(500)}
-              {...responder.panHandlers}
+              {...panHandlers}
             >
               <SlideArt index={slideIndex} />
               <Text style={styles.slideTitle}>{slides[slideIndex].title}</Text>

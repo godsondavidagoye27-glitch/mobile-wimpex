@@ -51,7 +51,10 @@ export default function IndexRoute() {
   };
 
   useEffect(() => {
-    void resolveInitialRoute();
+    const timer = setTimeout(() => {
+      void resolveInitialRoute();
+    }, 0);
+    return () => clearTimeout(timer);
   }, []);
 
   return (

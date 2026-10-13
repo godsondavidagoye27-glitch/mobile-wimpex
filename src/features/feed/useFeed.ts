@@ -22,6 +22,27 @@ type FeedPage = {
   nextCursor: FeedCursor | null;
 };
 
+type SignedUrlResult = {
+  path: string;
+  signedUrl: string | null;
+  error?: unknown;
+};
+
+export function mapSignedUrlResults(
+  paths: readonly string[],
+  results: readonly SignedUrlResult[] | null,
+): Map<string, string | null> {
+  const urls = new Map(paths.map((path) => [path, null]));
+  if (!results) return urls;
+  results.forEach((result, index) => {
+    const requestedPath = paths[index];
+    if (requestedPath && result.path === requestedPath && !result.error && result.signedUrl) {
+      urls.set(requestedPath, result.signedUrl);
+    }
+  });
+  return urls;
+}
+
 async function getSignedUrls(bucket: 'videos' | 'thumbnails', paths: string[]) {
   const uniquePaths = [...new Set(paths)];
   if (uniquePaths.length === 0) return new Map<string, string>();
@@ -32,18 +53,14 @@ async function getSignedUrls(bucket: 'videos' | 'thumbnails', paths: string[]) {
     .createSignedUrls(uniquePaths, signedUrlExpirySeconds);
 
   if (error) throw error;
-  if (!data || data.length !== uniquePaths.length) {
-    throw new Error(`Could not create signed URLs for ${bucket}.`);
-  }
-
-  const urls = new Map<string, string>();
-  data.forEach((result, index) => {
-    if (result.error || !result.signedUrl) {
-      throw new Error(`Could not create a signed URL for ${bucket}/${uniquePaths[index]}.`);
-    }
-    urls.set(uniquePaths[index], result.signedUrl);
-  });
-  return urls;
+  return mapSignedUrlResults(
+    uniquePaths,
+    data?.map((result, index) => ({
+      path: result.path ?? uniquePaths[index],
+      signedUrl: result.signedUrl,
+      error: result.error,
+    })) ?? null,
+  );
 }
 
 async function attachSignedUrls(rows: FeedRpcRow[]): Promise<FeedItem[]> {

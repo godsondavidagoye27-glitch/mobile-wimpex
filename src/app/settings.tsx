@@ -1,5 +1,5 @@
 import { router } from 'expo-router';
-import * as SecureStore from 'expo-secure-store';
+import { preferenceStorage } from '../lib/storage';
 import { useEffect, useState } from 'react';
 import { Alert, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { Icon } from '../components/Icon';
@@ -78,14 +78,14 @@ export default function SettingsScreen() {
   const [typedUsername, setTypedUsername] = useState('');
 
   useEffect(() => {
-    SecureStore.getItemAsync('wimpex-theme-mode').then((value) => {
+    preferenceStorage.getItem('wimpex-theme-mode').then((value) => {
       if (value && themeModes.includes(value as ThemeMode)) setThemeMode(value as ThemeMode);
     });
   }, []);
 
   const persistTheme = async (nextMode: ThemeMode) => {
     setThemeMode(nextMode);
-    await SecureStore.setItemAsync('wimpex-theme-mode', nextMode);
+    await preferenceStorage.setItem('wimpex-theme-mode', nextMode);
   };
 
   const canDelete = typedUsername.trim() === currentUserProfile.username;
