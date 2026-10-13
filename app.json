@@ -9,7 +9,8 @@
     "icon": "./assets/icon.png",
     "ios": {
       "bundleIdentifier": "app.wimpex.mobile",
-      "supportsTablet": true
+      "supportsTablet": true,
+      "usesAppleSignIn": true
     },
     "android": {
       "package": "app.wimpex.mobile",
@@ -34,7 +35,14 @@
           "resizeMode": "contain"
         }
       ],
-      "expo-secure-store"
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow Wimpex to access your photos so you can add a profile picture."
+        }
+      ],
+      "expo-secure-store",
+      "expo-apple-authentication"
     ]
   }
 }

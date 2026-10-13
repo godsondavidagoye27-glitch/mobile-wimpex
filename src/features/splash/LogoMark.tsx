@@ -13,8 +13,8 @@ import { theme } from '../../theme/theme';
 const AnimatedPath = Animated.createAnimatedComponent(Path);
 
 export function LogoMark({ size = 120, style }: { size?: number; style?: StyleProp<ViewStyle> }) {
-  const firstStroke = useSharedValue(135);
-  const secondStroke = useSharedValue(135);
+  const firstStroke = useSharedValue(140);
+  const secondStroke = useSharedValue(140);
 
   useEffect(() => {
     firstStroke.value = withDelay(300, withTiming(0, { duration: 700, easing: Easing.out(Easing.cubic) }));
@@ -33,7 +33,7 @@ export function LogoMark({ size = 120, style }: { size?: number; style?: StylePr
           strokeWidth={12}
           strokeLinecap="round"
           strokeLinejoin="round"
-          strokeDasharray={135}
+          strokeDasharray={[140, 300]}
           animatedProps={firstStrokeProps}
         />
         <AnimatedPath
@@ -42,7 +42,7 @@ export function LogoMark({ size = 120, style }: { size?: number; style?: StylePr
           strokeWidth={12}
           strokeLinecap="round"
           strokeLinejoin="round"
-          strokeDasharray={135}
+          strokeDasharray={[140, 300]}
           animatedProps={secondStrokeProps}
         />
       </Svg>

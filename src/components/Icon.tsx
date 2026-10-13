@@ -10,6 +10,8 @@ import {
   ChevronRight,
   Circle,
   Download,
+  Eye,
+  EyeOff,
   Flag,
   Globe,
   Heart,
@@ -85,6 +87,8 @@ const iconMap = {
   flag: Flag,
   ban: Ban,
   info: Info,
+  eye: Eye,
+  eyeOff: EyeOff,
 } as const;
 
 export type AppIconName = keyof typeof iconMap;

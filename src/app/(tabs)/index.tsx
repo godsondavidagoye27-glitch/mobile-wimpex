@@ -1,13 +1,17 @@
-import { Link } from 'expo-router';
+import { Link, router } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useState } from 'react';
 import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Icon } from '../../components/Icon';
-import { feed, liveMoments, stories } from '../../data/mock';
+import { liveMoments, stories } from '../../data/mock';
+import { mergeFeedPages } from '../../features/feed/feedPagination';
+import { useFeed } from '../../features/feed/useFeed';
 import { theme } from '../../theme/theme';
 
 export default function HomeScreen() {
   const [tab, setTab] = useState<'For You' | 'Following'>('For You');
+  const feedQuery = useFeed(tab === 'For You' ? 'for_you' : 'following');
+  const posts = mergeFeedPages(feedQuery.data?.pages.map((page) => page.items) ?? []);
 
   return (
     <View style={styles.screen}>
@@ -38,7 +42,20 @@ export default function HomeScreen() {
         ))}
       </View>
 
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+        onMomentumScrollEnd={(event) => {
+          const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+          if (
+            contentSize.height - contentOffset.y - layoutMeasurement.height < 500
+            && feedQuery.hasNextPage
+            && !feedQuery.isFetchingNextPage
+          ) {
+            void feedQuery.fetchNextPage();
+          }
+        }}
+      >
         <View style={styles.liveRow}>
           <Text style={styles.sectionTitle}>Live now</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.liveScroll}>
@@ -74,35 +91,87 @@ export default function HomeScreen() {
           ))}
         </ScrollView>
 
-        {feed.map((post: (typeof feed)[number]) => (
-          <View key={post.id} style={styles.videoCardWrap}>
-            <Image source={{ uri: post.image }} style={styles.videoThumb} resizeMode="cover" />
+        {feedQuery.isPending ? (
+          <View accessibilityLabel="Loading videos">
+            {[0, 1].map((index) => (
+              <View key={index} style={styles.skeletonCard}>
+                <View style={styles.skeletonText} />
+                <View style={styles.skeletonTextShort} />
+              </View>
+            ))}
+          </View>
+        ) : null}
+
+        {feedQuery.isError && posts.length === 0 ? (
+          <View style={styles.feedMessage}>
+            <Text style={styles.feedMessageText}>Could not load videos. Check your connection and try again.</Text>
+            <Pressable
+              onPress={() => void feedQuery.refetch()}
+              style={styles.feedButton}
+              accessibilityRole="button"
+            >
+              <Text style={styles.feedButtonText}>Retry</Text>
+            </Pressable>
+          </View>
+        ) : null}
+
+        {!feedQuery.isPending && !feedQuery.isError && posts.length === 0 ? (
+          <View style={styles.feedMessage}>
+            <Text style={styles.feedMessageText}>
+              {tab === 'For You'
+                ? 'No videos yet. Be the first to post.'
+                : 'Follow people to see their videos here.'}
+            </Text>
+            {tab === 'For You' ? (
+              <Pressable onPress={() => router.push('/create-post')} style={styles.feedButton} accessibilityRole="button">
+                <Text style={styles.feedButtonText}>Create video</Text>
+              </Pressable>
+            ) : null}
+          </View>
+        ) : null}
+
+        {posts.map((item) => (
+          <View key={item.post.id} style={styles.videoCardWrap}>
+            {item.thumbnailUrl ? (
+              <Image source={{ uri: item.thumbnailUrl }} style={styles.videoThumb} resizeMode="cover" />
+            ) : (
+              <LinearGradient
+                colors={['#102B3B', '#17382C']}
+                style={[styles.videoThumb, styles.videoPlaceholder]}
+              >
+                <Icon name="play" size={24} color={theme.colors.white} />
+              </LinearGradient>
+            )}
             <View style={styles.progressBar} />
             <View style={styles.videoOverlay}>
               <View style={styles.metaStack}>
-                <Link href={{ pathname: '/user/[username]', params: { username: 'mila' } }} asChild>
+                <Link href={{ pathname: '/user/[username]', params: { username: item.author.username } }} asChild>
                   <Pressable>
-                    <Text style={styles.username}>{post.user}</Text>
+                    <Text style={styles.username}>{item.author.username}</Text>
                   </Pressable>
                 </Link>
-                <Text style={styles.caption}>{post.caption}</Text>
-                <Text style={styles.hashtags}>{post.hashtags.join(' ')}</Text>
-                <View style={styles.autoCaption}>
-                  <Text style={styles.autoCaptionText}>Auto captions</Text>
-                </View>
+                <Text style={styles.caption}>{item.post.caption}</Text>
+                {item.post.hashtags.length > 0 ? (
+                  <Text style={styles.hashtags}>{item.post.hashtags.map((tag) => `#${tag}`).join(' ')}</Text>
+                ) : null}
+                {item.post.auto_captions ? (
+                  <View style={styles.autoCaption}>
+                    <Text style={styles.autoCaptionText}>Auto captions</Text>
+                  </View>
+                ) : null}
               </View>
               <View style={styles.rightRail}>
                 <Pressable style={styles.actionButton} accessibilityRole="button">
-                  <Icon name="heart" size={20} color={theme.colors.white} filled />
-                  <Text style={styles.count}>{post.likes}</Text>
+                  <Icon name="heart" size={20} color={theme.colors.white} filled={item.is_liked} />
+                  <Text style={styles.count}>{item.post.like_count}</Text>
                 </Pressable>
                 <Pressable style={styles.actionButton} accessibilityRole="button">
                   <Icon name="comment" size={20} color={theme.colors.white} />
-                  <Text style={styles.count}>{post.comments}</Text>
+                  <Text style={styles.count}>{item.post.comment_count}</Text>
                 </Pressable>
                 <Pressable style={styles.actionButton} accessibilityRole="button">
-                  <Icon name="bookmark" size={20} color={theme.colors.white} />
-                  <Text style={styles.count}>{post.saves}</Text>
+                  <Icon name="bookmark" size={20} color={theme.colors.white} filled={item.is_saved} />
+                  <Text style={styles.count}>{item.post.save_count}</Text>
                 </Pressable>
                 <Pressable style={styles.actionButton} accessibilityRole="button">
                   <Icon name="captions" size={20} color={theme.colors.white} />
@@ -294,6 +363,59 @@ const styles = StyleSheet.create({
   videoThumb: {
     width: '100%',
     height: '100%',
+  },
+  videoPlaceholder: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  skeletonCard: {
+    height: 480,
+    marginHorizontal: 14,
+    marginTop: 14,
+    marginBottom: 4,
+    borderRadius: 22,
+    backgroundColor: theme.colors.surface,
+    justifyContent: 'flex-end',
+    padding: 20,
+    gap: 10,
+  },
+  skeletonText: {
+    width: '56%',
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: '#242A31',
+  },
+  skeletonTextShort: {
+    width: '34%',
+    height: 11,
+    borderRadius: 6,
+    backgroundColor: '#242A31',
+  },
+  feedMessage: {
+    minHeight: 240,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 28,
+    gap: 16,
+  },
+  feedMessageText: {
+    color: theme.colors.textMuted,
+    fontSize: 15,
+    lineHeight: 22,
+    textAlign: 'center',
+  },
+  feedButton: {
+    minHeight: 44,
+    borderRadius: 22,
+    paddingHorizontal: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.colors.primary,
+  },
+  feedButtonText: {
+    color: theme.colors.black,
+    fontSize: 14,
+    fontWeight: '700',
   },
   progressBar: {
     position: 'absolute',

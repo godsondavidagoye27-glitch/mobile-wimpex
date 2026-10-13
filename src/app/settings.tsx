@@ -1,9 +1,11 @@
 import { router } from 'expo-router';
 import * as SecureStore from 'expo-secure-store';
 import { useEffect, useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { Alert, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { Icon } from '../components/Icon';
 import { currentUserProfile } from '../data/profile';
+import { signOutProviders } from '../features/auth/socialAuth';
+import { useAuthFlow } from '../features/auth/useAuthFlow';
 import { theme } from '../theme/theme';
 
 type ThemeMode = 'Dark' | 'Light' | 'System';
@@ -136,7 +138,23 @@ export default function SettingsScreen() {
           </View>
         ))}
 
-        <Pressable style={styles.signoutRow} accessibilityRole="button">
+        <Pressable
+          style={styles.signoutRow}
+          accessibilityRole="button"
+          onPress={() => {
+            void signOutProviders()
+              .then(() => {
+                useAuthFlow.getState().resetSignup();
+                router.replace('/(auth)/welcome');
+              })
+              .catch((error: unknown) => {
+                Alert.alert(
+                  'Unable to log out',
+                  error instanceof Error ? error.message : 'Try again.',
+                );
+              });
+          }}
+        >
           <View style={styles.rowMain}>
             <View style={styles.iconWrap}>
               <Icon name="logOut" size={20} color={theme.colors.white} />
@@ -313,4 +331,3 @@ const styles = StyleSheet.create({
   deleteButtonText: { color: theme.colors.white, fontWeight: '800' },
   deleteButtonTextDisabled: { color: '#F8FAFC' },
 });
-

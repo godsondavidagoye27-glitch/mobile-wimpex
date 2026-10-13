@@ -1,0 +1,2 @@
+[functions.delete-own-account]
+verify_jwt = true
