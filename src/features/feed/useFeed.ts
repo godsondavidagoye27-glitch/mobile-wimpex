@@ -3,6 +3,7 @@ import type { FeedRpcRow } from '../../types/database';
 import { getSupabaseClient } from '../../lib/supabase';
 import { getNextFeedCursor } from './feedPagination';
 import { queryKeys, type FeedMode } from './queryKeys';
+import { mapSignedUrlResults } from './signedUrls';
 
 const pageSize = 10;
 const signedUrlExpirySeconds = 60 * 60 * 2;
@@ -22,28 +23,7 @@ type FeedPage = {
   nextCursor: FeedCursor | null;
 };
 
-type SignedUrlResult = {
-  path: string;
-  signedUrl: string | null;
-  error?: unknown;
-};
-
-export function mapSignedUrlResults(
-  paths: readonly string[],
-  results: readonly SignedUrlResult[] | null,
-): Map<string, string | null> {
-  const urls = new Map(paths.map((path) => [path, null]));
-  if (!results) return urls;
-  results.forEach((result, index) => {
-    const requestedPath = paths[index];
-    if (requestedPath && result.path === requestedPath && !result.error && result.signedUrl) {
-      urls.set(requestedPath, result.signedUrl);
-    }
-  });
-  return urls;
-}
-
-async function getSignedUrls(bucket: 'videos' | 'thumbnails', paths: string[]) {
+export async function getSignedUrls(bucket: 'videos' | 'thumbnails', paths: string[]) {
   const uniquePaths = [...new Set(paths)];
   if (uniquePaths.length === 0) return new Map<string, string>();
 

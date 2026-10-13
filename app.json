@@ -43,6 +43,13 @@
       ],
       "expo-secure-store",
       "expo-apple-authentication"
-    ]
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "6b332828-dadc-4f04-8ab7-18fdae0fcb6a"
+      }
+    },
+    "owner": "wimpycorp"
   }
 }

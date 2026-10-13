@@ -29,6 +29,7 @@ import {
   MoonStar,
   MoreHorizontal,
   Play,
+  Pause,
   Plus,
   Radio,
   Search,
@@ -42,6 +43,7 @@ import {
   User,
   Users,
   Video,
+  X,
 } from 'lucide-react-native';
 
 const iconMap = {
@@ -89,6 +91,8 @@ const iconMap = {
   info: Info,
   eye: Eye,
   eyeOff: EyeOff,
+  close: X,
+  pause: Pause,
 } as const;
 
 export type AppIconName = keyof typeof iconMap;

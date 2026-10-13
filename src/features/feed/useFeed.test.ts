@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mapSignedUrlResults } from './useFeed';
+import { mapSignedUrlResults } from './signedUrls';
 
 describe('signed video URLs', () => {
   it('keeps successful URLs and leaves failed paths null', () => {
