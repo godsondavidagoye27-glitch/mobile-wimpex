@@ -1,0 +1,595 @@
+# Wimpex
+
+Wimpex is an Expo and React Native mobile application using Expo Router and Supabase. This README consolidates project setup, feature test checklists, server configuration, and operational guidance.
+
+## Contents
+
+- [Getting started](#getting-started)
+- [Authentication setup](#authentication-setup)
+- [Sign up testing](#sign-up-test-checklist)
+- [Social sign-in and password reset testing](#social-sign-in-and-password-reset-checks)
+- [Profile and follow testing](#profile-and-follow-testing)
+- [Feed testing](#feed-test-checklist)
+- [Search testing](#search-test-guide)
+- [Communities testing](#communities-test-guide)
+- [Chat testing](#chat-manual-test-checklist)
+- [Push notifications](#push-notifications)
+- [LiveKit calling](#phase-7d-livekit-calling)
+- [Stories testing and setup](#stories-manual-test)
+- [Live streaming testing and setup](#live-streaming-test)
+- [Safe demo data](#safe-demo-data)
+
+## Getting started
+
+Install dependencies and start the Expo development server:
+
+```powershell
+npm install
+npx expo start
+```
+
+Copy `.env.example` to `.env` and set the Expo-public Supabase URL and anon key. Configure Google sign-in IDs for the platforms you use. Do not place service-role keys, OAuth client secrets, or other server credentials in the app environment.
+
+Useful project commands:
+
+```powershell
+npx expo start
+npx expo start --web
+npx tsc --noEmit
+npx expo lint
+npx vitest run
+```
+
+For features that require native modules, build and run a development client rather than using Expo Go. Apply Supabase migrations before using server-backed features. Feature-specific database tests and deployment instructions follow.
+
+## Authentication setup
+
+### Google
+
+1. Open Google Cloud Console and create or select a project.
+2. Configure the OAuth consent screen with Wimpex's app name, support email, terms URL, and privacy URL.
+3. Create a Web application OAuth client ID. Add it as `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID` in the local environment. The native Google module uses this ID as its server client ID.
+4. Create an iOS OAuth client ID using `app.wimpex.mobile` as the bundle ID. Set `EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID` and set `EXPO_PUBLIC_GOOGLE_IOS_URL_SCHEME` to the reversed client ID scheme from the Google client configuration.
+5. Create an Android OAuth client ID using `app.wimpex.mobile` as the package name and an Android signing certificate SHA-1 fingerprint. EAS credentials are listed with:
+
+   ```sh
+   npx eas-cli@latest credentials --platform android
+   ```
+
+   Register the development and production fingerprints as separate Android OAuth clients when they differ. Add the corresponding IDs to the Supabase provider configuration.
+6. In Supabase Dashboard, open Authentication, Sign In / Providers, then Google. Enable Google and enter the Web, iOS, and Android client IDs. Enable **Skip nonce check** for the native iOS Google flow.
+7. In the project root, copy `.env.example` to `.env` and set the Google IDs together with the Supabase URL and anon key. Do not put an OAuth client secret in the app environment.
+
+Google Sign-In requires a development build. Expo Go displays the development-build message instead of importing the native sign-in module.
+
+### Apple
+
+1. In Apple Developer, enable Sign In with Apple for the Wimpex App ID whose bundle identifier is `app.wimpex.mobile`.
+2. In Supabase Dashboard, open Authentication, Sign In / Providers, then Apple. Enable Apple and configure its Services ID and signing key as required by the provider configuration.
+3. Put the Services ID first in Supabase's Apple Client IDs list, then include the native App ID. This preserves native token sign-in while retaining the configured Services ID for web OAuth.
+4. Configure the email relay source with Apple's Sign in with Apple for Email Communication service if users may choose a private relay address.
+5. Add the Apple capability through the app config and build with EAS. Apple sign-in is displayed only on iOS when the platform reports it is available.
+
+Native Apple authentication sends a SHA-256 nonce to Apple and supplies the original nonce to Supabase for token verification. The first Apple response may include a full name; subsequent responses may not.
+
+### Supabase email and functions
+
+1. Configure Supabase email signup and a six digit OTP email template. The recovery email template must expose the token code, not only a deep link, for the in-app reset screen.
+2. Apply the migrations in `supabase/migrations` before creating profiles.
+3. In Supabase Dashboard, open Edge Functions, then Secrets, and add `WIMPEX_SERVICE_ROLE_KEY` with the project service role key as its value. This secret is only read by the Edge Function. Do not add it to `.env`, `.env.example`, an EAS public variable, or app config.
+4. Deploy the account cleanup function:
+
+   ```sh
+   npx supabase functions deploy delete-own-account
+   ```
+
+   The function verifies the caller's bearer token and deletes only the user identified by that verified token.
+
+### Development builds
+
+Install native packages and run a development build with EAS:
+
+```sh
+npx expo install @react-native-google-signin/google-signin expo-apple-authentication expo-crypto expo-dev-client
+npx eas-cli@latest build --profile development --platform all
+npx expo start --dev-client
+```
+
+Use a physical iOS device for Apple sign-in validation. Google sign-in configuration requires the matching bundle identifier or Android package and signing fingerprint.
+
+## Sign up test checklist
+
+- Enter an incorrect email code and confirm the code boxes clear, the row shakes, and the error is shown.
+- Enter an expired email code and confirm it is rejected with the same invalid-code message.
+- Wait for the resend countdown, request a new code, and confirm the success toast appears.
+- Check a username already in use, then try continuing with a username that becomes unavailable before profile creation.
+- Select a birthday that makes the account under 13 and confirm the form blocks continuation.
+- Select a birthday for an age 14 user, complete sign up, and confirm the profile has private account and friends-only message defaults.
+- Complete email verification, close the app before finishing the profile, reopen it, and confirm sign up resumes at the username step.
+- Disable network access during the final profile submission, restore it, retry, and confirm profile creation completes without duplicate interests.
+
+## Social sign-in and password reset checks
+
+- [ ] Sign in with Google as a new person and complete all three profile steps.
+- [ ] Sign in with Google as a returning person and confirm the welcome back sequence opens the tabs.
+- [ ] Cancel Google sign-in and confirm the screen stays unchanged with no error.
+- [ ] Sign in with Apple for the first time and confirm the returned name is saved to user metadata.
+- [ ] Sign in with Apple again and confirm onboarding does not depend on a returned name.
+- [ ] Start social signup with a birth date under 13 and confirm the account is deleted and the app returns to welcome.
+- [ ] Close the app during social profile setup, reopen it, and confirm the birthday step resumes.
+- [ ] Request a password reset, enter a wrong code, and confirm the boxes clear and the code error appears.
+- [ ] Request a password reset, enter an expired code, and confirm the code error appears with a resend action.
+- [ ] Request a reset code for an email with no account and confirm the screen does not reveal whether the account exists.
+- [ ] Open the Google button in Expo Go and confirm the development-build message appears without a crash.
+- [ ] Disable the network during password reset and confirm a network message and retry action are available.
+
+## Profile and follow testing
+
+### Apply the database changes
+
+Apply `supabase/migrations/20261014030000_profiles_follows.sql` after the existing feed migrations. Profile editing, privacy, follow requests, blocking, profile post tabs, and profile counters depend on this migration.
+
+### Automated database tests
+
+Run the local Supabase database tests after the migration has been applied:
+
+```powershell
+npx supabase test db
+```
+
+`supabase/tests/profile_follows_security.sql` verifies pending and accepted follow counts, request ownership, counter write protection, block cleanup, and blocked profile/post access.
+
+### Manual app checks
+
+1. Create two accounts and make one account private in Settings.
+2. From the other account, request to follow. Confirm the button shows pending and the private account's follow-request badge updates.
+3. Accept and decline requests. Confirm the list and profile counts update without restarting either app.
+4. Block the follower from the private profile. Confirm the relationship disappears, the profile and its videos are unavailable to the blocked account, and the blocked account cannot follow again.
+5. Edit the profile name, username, bio, HTTPS link, and avatar. Confirm invalid usernames and links show a readable error, and a successful avatar change appears on the profile.
+6. Pin up to three videos, then confirm that pinning a fourth is rejected. Change a video's audience and verify visibility from a different account.
+7. Open the Followers and Following sheets, search for an account, and test follow, request, unfollow, and profile navigation.
+8. Set an account's date of birth to under 18 in a test environment and confirm that public account privacy cannot be enabled.
+
+## Feed test checklist
+
+Use two signed-in accounts and a development build on devices that can reach the configured Supabase project.
+
+### Create and upload
+
+- Pick an MP4 video under 60 seconds and under 50 MB, preview it, add a caption, and post it.
+- Try to choose a video longer than 60 seconds and verify the app rejects it.
+- Try to choose a video larger than 50 MB and verify the app rejects it.
+- Turn off the network during an upload, confirm the failed upload remains visible, restore the network, and retry.
+- Close the app during an upload, reopen it, and confirm the queued upload resumes from its saved TUS offset.
+- Confirm a successful upload appears in the feed and opens its post detail.
+- Confirm a failed upload can be removed and its pending post and local media are cleaned up.
+- Edit a caption and audience, leave the composer, reopen it, and confirm the draft is restored.
+
+### Feed and interactions
+
+- Confirm only the currently visible video plays while scrolling, and off-screen videos pause.
+- Confirm a post whose signed video URL fails shows a placeholder while other feed items remain visible.
+- Like and unlike a post from both the feed and detail screen, then confirm counts update.
+- Save and unsave a post, then confirm counts update.
+- Share a post and confirm its share count updates after the share sheet succeeds.
+- Scroll to the end of each feed and confirm another keyset page loads without duplicates.
+- Pull to refresh each feed and confirm the newest posts appear.
+- Set an account to private and verify its posts stay hidden until a follow is accepted.
+- Block an account and verify neither account can see the other's posts.
+
+### Post details and comments
+
+- Open a post from the feed, confirm its private video URL plays, and confirm the author profile opens.
+- Add a comment and a reply, then confirm both appear in chronological order on both signed-in clients.
+- Delete your own comment and confirm the deleted-comment state is shown.
+- Try to comment on a post with comments disabled and confirm the composer is not available.
+- Load more comments and confirm no duplicate comments appear.
+- Leave the detail screen and confirm its comments realtime subscription is removed.
+
+### Database and network
+
+- Enable airplane mode and confirm cached feed items remain visible and feed errors offer a retry.
+- Run `supabase test db` with Docker available and confirm all `supabase/tests` pgTAP tests pass.
+
+## Search test guide
+
+Apply the search migration and run its database tests with a local Supabase stack:
+
+```sh
+npx supabase db reset
+npx supabase test db
+```
+
+The `search_security.sql` pgTAP test covers profile and video visibility, blocks, demo-account filtering, exact hashtag counts, seven-day trends, suggested people, keyset pagination, input/page limits, authentication, and the 60-request rate limit.
+
+### Manual app checks
+
+1. Open Search from the Home header. Confirm the input says “Search people, videos, communities” and the default view shows recent searches, trending hashtags, and suggested people.
+2. Run a search shorter than two characters, then enter at least two. Confirm results do not appear before the 300 ms debounce and stale query results are replaced.
+3. Switch among People, Videos, Hashtags, and Communities. Follow a person, open a profile, open a video, and open a hashtag or community result.
+4. Load another page of results and verify no duplicate rows and correct continuation order.
+5. Save a recent search, remove it, clear all recents, and relaunch Search to verify local persistence.
+6. Open a hashtag from the Home caption, post detail, composer chips, trending list, and search results. Confirm the deep-linked hashtag route shows its exact count and a three-column video grid.
+7. Refresh Search and a hashtag page, and test empty results and offline errors with Retry.
+
+## Communities test guide
+
+Apply all migrations and run the database security tests with a local Supabase stack:
+
+```sh
+npx supabase db reset
+npx supabase test db
+```
+
+`communities_core_security.sql` covers community creation limits, membership and ownership rules, private community visibility, adults-only access, counters, and direct-write restrictions. The app unit tests cover community role permissions.
+
+### Manual app checks
+
+1. Open Groups and verify My communities, Suggested, and Discover load. Search and filter by category, paginate results, and retry after an offline error.
+2. Create a public community with rules and an icon. Verify the creator is its owner, its active member count starts at one, and the community appears under My communities and Discover.
+3. Join a public community as another account. Verify membership is immediate, the count updates, and the owner receives a community notification.
+4. Create a private community. Verify other accounts can discover its name/category but not its description, posts, or members; request to join and confirm a manager can approve or decline it.
+5. As a manager, invite an eligible person. Verify the invite notification opens the community and the invited account can accept or decline.
+6. Promote a member to moderator. Verify moderators can manage membership and rules but cannot transfer ownership, delete the community, or ban the owner or another moderator.
+7. Transfer ownership, leave a community, ban and unban a member, and delete a community as its owner. Confirm counts and membership lists update correctly.
+8. Check an adults-only community with adult and minor accounts. A minor must not discover it, open it by deep link, join it, create one, or receive an invitation.
+9. Mark community notifications read, refresh Groups and the community page, and confirm unread badges and membership state remain correct.
+10. Test empty results, blocked users, repeated join/invite actions, and offline errors with Retry.
+
+Posts and community chat are covered in Phase 8D.
+
+## Chat manual test checklist
+
+Run this checklist against a development build after applying migrations. Rebuild the native development client when native packages or Expo plugins change:
+
+```powershell
+npx eas-cli@latest build --profile development --platform android
+```
+
+### Setup
+
+- [ ] Create `.env.seed` using [Safe demo data](#safe-demo-data), apply migrations, and seed with `npm run seed -- --me <your-account-email>`.
+- [ ] In the Dashboard, configure the `public.messages` INSERT webhook and set `DEMO_MODE=true` only in the development project.
+- [ ] Sign in as the seeded real account and open **Chats**.
+
+### Chats and threads
+
+- [ ] Confirm Ada, Tobi, Zee, and Kemi are mutual follows and appear as eligible contacts.
+- [ ] Confirm Sade has no seeded follow relationship, Dayo refuses DMs, and the under-18 profile cannot be messaged without a mutual accepted follow.
+- [ ] Open both seeded direct threads and the **Weekend crew** group. Confirm messages are ordered oldest-to-newest visually, unread counts are present, and a message becomes read when its newest item is visible.
+- [ ] Send a message while online; confirm it appears immediately, sends once, and a retry after a temporary failure reconciles by client ID.
+- [ ] Add and remove a reaction; confirm reaction counts update without duplicate reactions.
+- [ ] Reply to a message, copy its text, and report or block a participant.
+- [ ] Verify the official welcome conversation is read-only; its mute control remains available.
+
+### Chat media
+
+- [ ] Pick a photo; confirm it is resized/normalized, appears in the thread, and opens for recipients in the same active conversation.
+- [ ] Send an MP4 video up to 60 seconds and 25 MB; confirm tapping it opens Expo Video playback controls.
+- [ ] Record and send a voice message up to 2 minutes; confirm it plays, pauses, and reports its duration.
+- [ ] Confirm files larger than 25 MB, non-MP4 video, unsupported file types, unknown sizes, and overlong/missing-duration media are rejected with a visible explanation.
+- [ ] Confirm microphone denial is explained and does not block text chat; cancel a selected attachment without sending it.
+- [ ] With a second signed-in account outside the conversation, verify media cannot be read or signed. Confirm active members can read it only while they remain in the conversation.
+- [ ] Delete an attachment message and confirm its private object is removed; simulate an upload failure and confirm the local attachment remains available to retry.
+
+### Realtime and lifecycle
+
+- [ ] With a second client signed in, confirm messages arrive without refreshing and typing indicators expire when typing stops.
+- [ ] Confirm online presence is visible only while allowed by the account's online-status setting and only for permitted chat peers.
+- [ ] Navigate away from a thread and background the app; confirm typing/presence subscriptions stop and no stale online or typing state remains.
+- [ ] Disable online status and message notifications in Settings, restart the app, and confirm settings persist.
+
+### Policy, cleanup and failure states
+
+- [ ] Run `npx supabase test db` and confirm the chat policy tests pass.
+- [ ] Test blocked direct/group participants, group-size limits, restricted message media, and a rate-limited sender.
+- [ ] Temporarily disconnect network access; confirm the chat list/thread shows an offline or retry state instead of an indefinite spinner.
+- [ ] Run `npm run seed:clean`, confirm only tagged demo records/accounts and their owned assets are removed, then rerun the seed command.
+- [ ] Confirm chat media uploads use the private `chat-media` bucket and message attachments are delivered through short-lived signed URLs, not public URLs.
+
+## Push notifications
+
+The mobile client uses Expo Notifications SDK 57. The root app must mount `NotificationLifecycle` inside the Expo Router tree (for example beside `OnlinePresence` in `src/app/_layout.tsx`). The component follows Supabase auth session changes, synchronizes already-granted notification permissions, handles notification taps, and verifies active conversation membership before routing. Push permission is requested only when a user enables **Push notifications** in Settings.
+
+### Supabase setup
+
+1. Apply `supabase/migrations/20261013060000_push_notifications.sql` after the chat schema migration.
+2. Deploy the `chat-push` Edge Function:
+
+   ```powershell
+   npx supabase functions deploy chat-push --no-verify-jwt
+   ```
+
+3. Set a long random webhook secret and configure the function secrets:
+
+   ```powershell
+   supabase secrets set PUSH_NOTIFICATION_WEBHOOK_SECRET="<random-secret>"
+   ```
+
+   `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are supplied to hosted Edge Functions. Never put the service-role key or webhook secret in app configuration or an `EXPO_PUBLIC_` variable.
+4. In the Supabase Dashboard, create a Database Webhook for `public.messages` on **INSERT**, targeting the `chat-push` function. Send `x-webhook-secret: <same-random-secret>`. Do not expose this secret to the mobile app.
+5. Configure the EAS project's iOS Push Notifications capability/APNs credentials and Android FCM v1 credentials. Build and test a development client or production build; remote push notifications are not available in Expo Go.
+
+The function re-reads the inserted message and current conversation membership from Supabase rather than trusting message text from the webhook payload. It skips deleted, demo, call, system, read-only, muted, blocked, and already-read messages, and sends only when both `push_enabled` and `notify_messages` allow delivery. Push content omits message text. Expo `DeviceNotRegistered` responses remove the stale token; successful deliveries are deduplicated per message, recipient, and installation.
+
+### Manual verification
+
+1. Apply the migration and deploy/configure the webhook and provider credentials.
+2. On a physical iOS or Android development build, sign in, enable Push notifications, and grant the OS permission. Confirm a row appears in `device_push_tokens` for the signed-in user.
+3. Send a chat message from a second account. Confirm a push arrives only when the recipient has enabled both push and message notifications and the conversation is unmuted and unread.
+4. Tap the notification. Confirm the app opens the corresponding chat only for the same signed-in recipient and an active conversation member.
+5. Disable Push notifications and confirm the installation token is removed. Sign out and confirm the current installation token is removed before the auth session ends.
+6. Test a blocked sender, muted/read conversation, deleted message, demo conversation, expired token, and duplicate webhook delivery. No message body should appear in the OS notification.
+
+Expo SDK 57 reference: <https://docs.expo.dev/versions/v57.0.0/sdk/notifications/>.
+
+## Phase 7D: LiveKit calling
+
+The `/call/[conversationId]` route provides an outgoing audio/video call screen and an incoming-call answer/decline screen. `src/features/calls/callService.ts` invokes the `livekit-call` Edge Function; no LiveKit API key or secret is included in the mobile app.
+
+### Server setup
+
+1. Create a LiveKit project and copy its WebSocket URL, API key, and API secret.
+2. Set these Supabase Edge Function secrets (the URL must use `wss://` in production):
+
+   ```powershell
+   npx supabase secrets set LIVEKIT_URL=wss://YOUR_PROJECT.livekit.cloud LIVEKIT_API_KEY=YOUR_API_KEY LIVEKIT_API_SECRET=YOUR_API_SECRET
+   ```
+
+   `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY` are supplied to deployed Supabase Edge Functions. Never add the LiveKit secret or service-role key to an `EXPO_PUBLIC_*` variable or the app bundle.
+3. Apply the migration `supabase/migrations/20261013070000_livekit_calls.sql` after the existing chat migration, then deploy the function:
+
+   ```powershell
+   npx supabase db push
+   npx supabase functions deploy livekit-call
+   ```
+
+   The function requires a valid Supabase user JWT (`verify_jwt = true`). It then independently verifies the user and checks direct-chat membership, adult eligibility, demo/official exclusions, block state, and the recipient's DM policy before creating or joining a room.
+
+### Connecting the chat caller
+
+From a chat action where the authenticated user is an active member of `conversationId`, navigate to the standalone call route:
+
+```tsx
+router.push({
+  pathname: '/call/[conversationId]',
+  params: { conversationId, mode: 'video' }, // use 'audio' for an audio-only call
+});
+```
+
+For an incoming-call notification action, the existing `NotificationLifecycle` handles the route. It expects the call's `call_sessions` row to exist, match the recipient and conversation, and still be answerable. The Expo push data has this shape:
+
+```json
+{
+  "type": "incoming_call",
+  "call_id": "<call-session-uuid>",
+  "conversation_id": "<conversation-uuid>",
+  "recipient_id": "<callee-user-uuid>",
+  "media_type": "video"
+}
+```
+
+The notification tap opens `/call/<conversationId>?callId=<call-session-uuid>&direction=incoming&mode=video`, where the recipient can answer or decline. Calls ring for 45 seconds. A caller screen can receive state changes while open through Supabase Realtime.
+
+The Edge Function sends an Expo push after creating the call, only if the recipient has `user_settings.push_enabled` enabled and has at least one registered `device_push_tokens` destination. Expo ticket acceptance is the delivery boundary: if push is disabled, there is no registered destination, or Expo cannot accept any ticket, the function marks the newly created call ended and returns a non-2xx error with a caller-visible explanation; it does not issue a room token. If only some device tickets are accepted, the call proceeds and the caller sees a warning. An accepted Expo ticket is not proof that the OS displayed the notification, so push credentials and physical-device delivery still need operational verification.
+
+### Eligibility and lifecycle
+
+- Only non-demo, non-official, adult users in a regular one-to-one conversation can call. Calls to groups and the read-only welcome conversation are rejected server-side.
+- Existing blocks are enforced in both directions. The recipient's `dm_policy` is enforced; `friends` requires mutual accepted follows.
+- Call session inserts/updates are server-only; authenticated participants can only read sessions covered by the chat membership RLS policy. The Realtime publication is enabled for the new table.
+- Start creates a unique room name and a one-hour room-scoped token. Accept mints a token only for the callee. Tokens can publish camera/microphone media for video calls and microphone audio only for audio calls; data publishing is disabled.
+- The client reports accepted/connected/ended/declined/missed lifecycle events. Stale ringing sessions expire after 45 seconds. LiveKit rooms close when empty according to the LiveKit project's room timeout.
+
+### Native build
+
+LiveKit requires a development/production native build and does not run in Expo Go. The required LiveKit Expo plugins and microphone/camera config are already in the app config. Rebuild after native configuration changes, for example:
+
+```powershell
+npx eas-cli@latest build --profile development --platform android
+```
+
+## Stories manual test
+
+The story flow uses the installed Expo SDK 57 modules `expo-image-picker`, `expo-image-manipulator`, `expo-file-system`, `expo-video`, and `expo-crypto`. It uses React Native `Image` for display because `expo-image` is not installed. No native package was added.
+
+### Database
+
+Apply the story migrations, then run the focused SQL test:
+
+```powershell
+npx supabase db reset
+npx supabase test db supabase/tests/stories_phase_9a.sql
+npx supabase test db supabase/tests/stories_phase_9b.sql
+```
+
+The migration creates a private `stories` bucket and RLS policies. A story is readable only if its active database row references the object and `can_view_story` allows the current account. Stories expire 24 hours after database insertion. The database rejects client writes to the expiry and creation timestamps.
+
+### Expired story cleanup
+
+The cleanup function removes media for stories expired for more than one hour, then deletes the story row and its view rows. Deploy the function and set a random shared secret:
+
+```powershell
+npx supabase functions deploy purge-expired-stories
+npx supabase secrets set STORY_PURGE_SECRET="<random-shared-secret>"
+```
+
+The Supabase Edge Function runtime supplies `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`. The shared secret is checked in the `x-story-purge-secret` header. Never put any of these values in app configuration or source control.
+
+To schedule the hourly request, enable `pg_cron` and `pg_net` in the Supabase Dashboard under **Database > Extensions**. Enable Vault if it is not already available. In the SQL editor, store the project URL, service role key, and the same shared secret in Vault. Replace the example values locally and do not commit them:
+
+```sql
+select vault.create_secret('https://<project-ref>.supabase.co', 'wimpex_project_url');
+select vault.create_secret('<service-role-key>', 'story_purge_service_role_key');
+select vault.create_secret('<random-shared-secret>', 'story_purge_secret');
+```
+
+Create the hourly job:
+
+```sql
+select cron.schedule(
+  'purge-expired-stories',
+  '0 * * * *',
+  $job$
+  select net.http_post(
+    url := (select decrypted_secret from vault.decrypted_secrets where name = 'wimpex_project_url')
+      || '/functions/v1/purge-expired-stories',
+    headers := jsonb_build_object(
+      'Content-Type', 'application/json',
+      'apikey', (select decrypted_secret from vault.decrypted_secrets where name = 'story_purge_service_role_key'),
+      'Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'story_purge_service_role_key'),
+      'x-story-purge-secret', (select decrypted_secret from vault.decrypted_secrets where name = 'story_purge_secret')
+    ),
+    body := '{}'::jsonb
+  );
+  $job$
+);
+```
+
+Confirm the job is listed in `cron.job`, then inspect `cron.job_run_details` after the next hour. Confirm function logs show a successful response. If your project does not expose Vault, `pg_cron`, or `pg_net`, configure the same authenticated hourly HTTP request with an external scheduler and keep the shared secret in that scheduler's secret store.
+
+### Device checklist
+
+Use two real accounts. Include an accepted follower, an account that does not follow, a private account, a close friend, a blocked account, and an under-18 account.
+
+1. Open Home and confirm the rail loads, the owner row is first, unseen stories appear before seen stories, and the rail refreshes after returning to Home and after one minute.
+2. Create an image story from the camera and gallery. Confirm a large photo is resized to fit 1080 by 1920, is saved as JPEG, the caption limit is 120, and the selected caption background persists in the viewer.
+3. Create videos at 15 seconds and 25 MB. Confirm a longer video shows `Stories can be up to 15 seconds. Choose a shorter video.` and an oversized video shows `This video is too large. Choose a video under 25 MB.`
+4. Check Everyone, Followers, and Close friends visibility, including a private author. Block each account in turn and confirm neither direction can read their stories or storage media.
+5. Open a story. Confirm a photo progress segment lasts five seconds, videos use their recorded duration, tap zones move backward or forward, holding pauses, swiping down closes, and changing the app or route pauses playback.
+6. Confirm a story is marked viewed after it has been visible for one second, own views are not counted, and refreshing does not increment an existing view.
+7. As the author, open the viewer list and paginate through viewers. Confirm other accounts cannot read that list.
+8. Reply to stories with Everyone and Followers permissions. Confirm the reply opens a direct chat, obeys DM policy, blocks, and the mutual-follow restriction for minors.
+9. Confirm a reply contains a story thumbnail and caption in chat, including after the story expires or is deleted. Confirm unreferenced media is purged.
+10. Open a deleted, expired, or hidden story deep link. Confirm it shows `This story is no longer available.` with a Close button.
+11. Turn on airplane mode during upload and close the app while uploading. Confirm failures are visible and no orphaned story is shown in the rail.
+
+### Current environment limitations
+
+The Supabase Cron schedule is not provisioned by the migration because it needs project-specific URL and secret values. The Dashboard extension, Vault secret, and Cron job setup above are required deployment steps. Story media referenced by a chat reply is retained after story expiry/deletion and remains private to active members of that direct conversation.
+
+## Live streaming test
+
+The live flow uses the installed LiveKit SDK and existing Expo native integration. No native packages were added.
+
+### App flow
+
+Open the **Live** tab to see active streams, or use **Go live** to start hosting. The database enforces adult-only hosting. Hosts connect with camera and microphone publishing grants; viewers receive subscribe-only grants. The Home feed shows active live rooms above the story rail.
+
+The live room pauses its connection when the screen loses focus or the app backgrounds. Hosts should end the stream before leaving; abandoned sessions are marked ended by the stale-stream reaper. Live streams are not recorded or replayed.
+
+Manual checks:
+
+1. Host from an adult account and confirm the preview appears before the stream becomes visible. Confirm a minor or demo account cannot host.
+2. Open the stream from Home and the Live tab as an accepted follower. Confirm a private host is hidden from non-followers.
+3. Confirm viewers can hear and see the host but cannot publish camera, microphone, or data.
+4. Send live chat from two viewers and confirm messages arrive over Realtime and are limited to 500 characters.
+5. As host, mute a viewer, ban a viewer, and delete a message. Confirm mute prevents new chat messages and a ban prevents rejoining.
+6. End the stream as host and confirm viewers are disconnected and returned to the Live list.
+7. Turn off `notify_live` for a follower and confirm no live notification is created for that follower.
+
+### Apply and test the database
+
+Use a local Supabase project with the CLI and Docker available:
+
+```powershell
+supabase start
+supabase db reset
+supabase test db supabase/tests/live_streams_security.sql
+```
+
+The migration creates `live_streams`, `live_messages`, `live_mutes`, and `live_bans`. Only authenticated users can read streams they host or can view, and messages for streams they can view. Writes and moderation use the RPCs instead of direct table access.
+
+### Configure the LiveKit functions
+
+Set these Edge Function secrets in the Supabase Dashboard or with the Supabase CLI:
+
+```powershell
+supabase secrets set LIVEKIT_URL=wss://your-livekit-host LIVEKIT_API_KEY=your-key LIVEKIT_API_SECRET=your-secret
+```
+
+`LIVEKIT_URL`, `LIVEKIT_API_KEY`, and `LIVEKIT_API_SECRET` use the same server-side names as `livekit-call`. Do not put the API key or secret in the Expo app. Deploy `live-token` and `live-moderate` with JWT verification enabled.
+
+The authenticated host calls `start_live(title)`, invokes `live-token` with `{ "streamId": "..." }`, connects and publishes camera/microphone, then calls `mark_live_started(streamId)`. Send `live_heartbeat(streamId)` periodically while hosting and call `end_live(streamId)` when done. A viewer gets a subscribe-only token from `live-token`; viewer messages go through `send_live_message(streamId, body)`. Subscribe to Postgres Changes on `live_streams` and `live_messages` in the `public` schema. Realtime authorization uses the same row policies as table reads.
+
+Moderation requests to `live-moderate` use `{ "action": "mute" | "ban" | "delete_message", "streamId": "...", ... }`. Mutes block chat for the selected duration. Bans block stream access and new token requests, and the function asks LiveKit to remove a connected participant. LiveKit token revocation on removal depends on the LiveKit server offering that capability. A warning in the response means the database ban was applied but the LiveKit removal did not complete.
+
+### Schedule stale stream cleanup
+
+The database reaper ends `starting` streams after two minutes without a successful start and `live` streams after 90 seconds without a heartbeat. It returns the number of rows ended. Supabase Cron uses `pg_cron`; enable the extension from **Database > Extensions** if it is not already enabled, then create a job from **Integrations > Cron** or run this SQL as a database administrator:
+
+```sql
+select cron.schedule(
+  'reap-stale-lives',
+  '* * * * *',
+  $$ select public.reap_stale_lives(); $$
+);
+```
+
+This schedules a database function directly, so it does not require an Edge Function secret or an HTTP call. Check job runs and failures in the Cron dashboard or `cron.job_run_details`.
+
+To remove the schedule:
+
+```sql
+select cron.unschedule('reap-stale-lives');
+```
+
+## Safe demo data
+
+Use a dedicated development Supabase project. The seed and cleanup commands require `SEED_ALLOWED=true` and an exact project-ref confirmation; they never load the app's `.env` file.
+
+Create an untracked `.env.seed` in the project root:
+
+```dotenv
+SEED_ALLOWED=true
+SUPABASE_URL=https://your-project-ref.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your-development-service-role-key
+DEMO_PASSWORD=your-strong-development-only-password
+```
+
+Do not commit or share this file. `.env.seed` is ignored by git. The service-role key bypasses row-level security and must only belong to a disposable development project. Both commands print the destination URL and require the exact project ref before changing data.
+
+Apply database migrations (including the demo-post tagging migration) and deploy the function:
+
+```powershell
+npx supabase db push
+npx supabase functions deploy demo-reply --no-verify-jwt
+```
+
+Set the function's webhook secret and leave demo replies disabled until testing:
+
+```powershell
+npx supabase secrets set DEMO_REPLY_WEBHOOK_SECRET=replace-with-a-random-secret DEMO_MODE=false
+```
+
+In the Supabase Dashboard, create a **Database Webhook** with:
+
+- Table: `public.messages`
+- Event: `INSERT`
+- Type: `Supabase Edge Functions`
+- Function: `demo-reply`
+- HTTP header: `x-webhook-secret: <the same random secret>`
+
+The function also checks `DEMO_MODE=true`, ignores messages from demo profiles, skips read-only conversations and non-text messages, and uses the source message ID as an idempotency key. Enable demo replies only on a development project:
+
+```powershell
+npx supabase secrets set DEMO_MODE=true
+```
+
+Seed the nine clearly labeled demo profiles, their welcome chats, and, when a video is needed, MP4 files placed in `scripts/seed/assets`. The script logs and skips video creation if that folder is absent or empty. To also create seeded conversations with your account, pass the email address associated with its existing Wimpex profile:
+
+```powershell
+npm run seed -- --me you@example.test
+```
+
+Without `--me`, the script creates demo profiles and their welcome chats only. Demo chat messages have stable IDs/client IDs, so rerunning the command does not duplicate them.
+
+Remove seed-tagged chat rows, demo-owned storage assets, and all profiles/auth users marked as demo:
+
+```powershell
+npm run seed:clean
+```
+
+Cleanup deletes tagged messages, reactions, memberships, and posts, plus demo profiles/auth users and their owned assets. It stops before deleting anything if a demo profile owns an untagged post, protecting data that was not created by the seed script. It keeps a seeded conversation if a non-demo message or an additional non-demo participant was added after seeding. Otherwise it removes that demo conversation. It also removes the read-only welcome thread generated for a demo profile, but leaves unrelated conversations untouched. Associated follow rows cascade when the demo profiles are removed.
+
+The test fixture includes adult profiles, a profile under 18 for policy testing, a profile that accepts no DMs, public profiles, and an account left without a follow relationship. Demo accounts use `@example.test` addresses and must not be used as real accounts.
