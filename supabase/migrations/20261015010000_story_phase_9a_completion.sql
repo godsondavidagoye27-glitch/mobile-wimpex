@@ -52,6 +52,7 @@ as $$
 declare
   recent_count integer;
   active_count integer;
+  expected_media_path text;
 begin
   if tg_op = 'INSERT' then
     if auth.uid() is not null and new.author_id <> auth.uid() then
@@ -61,13 +62,17 @@ begin
     new.created_at := clock_timestamp();
     new.expires_at := new.created_at + interval '24 hours';
 
-    if new.media_path <> new.author_id::text || '/' || new.id::text
-      || case when new.kind = 'image' then '.jpg' else '.mp4' end
+    if new.kind = 'image' then
+      expected_media_path := new.author_id::text || '/' || new.id::text || '.jpg';
+    elsif new.kind = 'video' then
+      expected_media_path := new.author_id::text || '/' || new.id::text || '.mp4';
+    end if;
+
+    if new.media_path <> expected_media_path
       and not (
         new.kind = 'video'
         and new.media_path = new.author_id::text || '/' || new.id::text || '.mov'
-      )
-    then
+      ) then
       raise exception 'Story media must use the author and story identifiers.';
     end if;
 
