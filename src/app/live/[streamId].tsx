@@ -191,6 +191,7 @@ export default function LiveStreamScreen() {
   const streamId = Array.isArray(params.streamId) ? params.streamId[0] : params.streamId;
   const [stream, setStream] = useState<LiveStreamRpcRow | null>(null);
   const [connection, setConnection] = useState<LiveConnection | null>(null);
+  const [connectionIssuedAt, setConnectionIssuedAt] = useState<number | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const [messages, setMessages] = useState<LiveMessageRow[]>([]);
   const [draft, setDraft] = useState('');
@@ -205,6 +206,7 @@ export default function LiveStreamScreen() {
   const startConfirmed = useRef(false);
   const ending = useRef(false);
   const streamIsHost = Boolean(userId && stream?.host_id === userId);
+  const hasConnectionToken = Boolean(connection?.token);
 
   useFocusEffect(
     useCallback(() => {
@@ -233,7 +235,10 @@ export default function LiveStreamScreen() {
         setUserId(auth.user.id);
         setStream(liveStream);
         const liveConnection = await requestLiveConnection(streamId);
-        if (mounted) setConnection(liveConnection);
+        if (mounted) {
+          setConnection(liveConnection);
+          setConnectionIssuedAt(Date.now());
+        }
       } catch (caught) {
         if (mounted) setError(caught instanceof Error ? caught.message : 'Could not connect to this live stream.');
       } finally {
@@ -242,6 +247,36 @@ export default function LiveStreamScreen() {
     })();
     return () => { mounted = false; };
   }, [streamId]);
+
+  useEffect(() => {
+    if (!streamId || !connection || connectionIssuedAt === null || !focused || !appIsActive || ended) {
+      return undefined;
+    }
+    let mounted = true;
+    let timeout: ReturnType<typeof setTimeout>;
+    const scheduleRefresh = (delay: number) => {
+      timeout = setTimeout(() => { void refreshConnection(); }, delay);
+    };
+    const refreshConnection = async () => {
+      try {
+        const refreshed = await requestLiveConnection(streamId);
+        if (!mounted) return;
+        setConnection(refreshed);
+        setConnectionIssuedAt(Date.now());
+        setError('');
+      } catch (caught) {
+        if (!mounted) return;
+        const detail = caught instanceof Error ? caught.message : 'Try again shortly.';
+        setError(`Live connection token refresh failed: ${detail}`);
+        scheduleRefresh(30_000);
+      }
+    };
+    scheduleRefresh(Math.max(0, connectionIssuedAt + 8 * 60_000 - Date.now()));
+    return () => {
+      mounted = false;
+      clearTimeout(timeout);
+    };
+  }, [appIsActive, connection, connectionIssuedAt, ended, focused, streamId]);
 
   useEffect(() => {
     if (!streamId) return undefined;
@@ -276,7 +311,7 @@ export default function LiveStreamScreen() {
   }, [streamId]);
 
   useEffect(() => {
-    if (!connection?.token || !focused || !appIsActive) return undefined;
+    if (!hasConnectionToken || !focused || !appIsActive) return undefined;
     let mounted = true;
     void AudioSession.startAudioSession()
       .then(() => { if (mounted) setAudioReady(true); })
@@ -288,7 +323,7 @@ export default function LiveStreamScreen() {
       setAudioReady(false);
       void AudioSession.stopAudioSession();
     };
-  }, [appIsActive, connection?.token, focused]);
+  }, [appIsActive, focused, hasConnectionToken]);
 
   useEffect(() => {
     if (!streamId || !streamIsHost || !startConfirmed.current || ended) return undefined;
@@ -381,7 +416,8 @@ export default function LiveStreamScreen() {
 
   const room = connection && audioReady && focused && appIsActive && stream && !ended ? (
       <LiveKitRoom
-        serverUrl={connection.serverUrl}
+          key={connection.token}
+          serverUrl={connection.serverUrl}
         token={connection.token}
         connect
         audio={streamIsHost}

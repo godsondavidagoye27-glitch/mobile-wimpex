@@ -160,6 +160,40 @@ export type CommunityMemberRpcRow = {
   joined_at: string;
 };
 export type CommunityListRpcRow = Omit<CommunityRow, 'interest_match'>;
+export type CommunityPostRpcRow = {
+  id: string;
+  community_id: string;
+  author_id: string;
+  username: string;
+  display_name: string;
+  avatar_url: string | null;
+  body: string;
+  media_path: string | null;
+  media_kind: 'image' | 'video' | null;
+  pinned_at: string | null;
+  created_at: string;
+  is_mine: boolean;
+};
+export type CommunityMessageRpcRow = {
+  id: string;
+  community_id: string;
+  author_id: string;
+  username: string;
+  display_name: string;
+  body: string;
+  created_at: string;
+  is_mine: boolean;
+};
+export type CommunityPostReportRpcRow = {
+  id: string;
+  post_id: string;
+  post_body: string;
+  reporter_id: string;
+  reporter_username: string;
+  reason: string;
+  details: string;
+  created_at: string;
+};
 
 export type StoryRailRow = {
   author_id: string;
@@ -667,6 +701,105 @@ export type Database = {
           };
           Relationships: Relationships;
         };
+        community_posts: {
+          Row: {
+            id: string;
+            community_id: string;
+            author_id: string;
+            body: string;
+            media_path: string | null;
+            media_kind: 'image' | 'video' | null;
+            pinned_at: string | null;
+            removed_at: string | null;
+            removed_by: string | null;
+            created_at: string;
+          };
+          Insert: {
+            id?: string;
+            community_id: string;
+            author_id: string;
+            body?: string;
+            media_path?: string | null;
+            media_kind?: 'image' | 'video' | null;
+            pinned_at?: string | null;
+            removed_at?: string | null;
+            removed_by?: string | null;
+            created_at?: string;
+          };
+          Update: {
+            id?: string;
+            community_id?: string;
+            author_id?: string;
+            body?: string;
+            media_path?: string | null;
+            media_kind?: 'image' | 'video' | null;
+            pinned_at?: string | null;
+            removed_at?: string | null;
+            removed_by?: string | null;
+            created_at?: string;
+          };
+          Relationships: Relationships;
+        };
+        community_post_reports: {
+          Row: {
+            id: string;
+            post_id: string;
+            reporter_id: string;
+            reason: 'spam' | 'harassment' | 'hate' | 'sexual_content' | 'violence' | 'other';
+            details: string;
+            status: 'open' | 'resolved';
+            resolved_by: string | null;
+            resolved_at: string | null;
+            created_at: string;
+          };
+          Insert: {
+            id?: string;
+            post_id: string;
+            reporter_id: string;
+            reason: 'spam' | 'harassment' | 'hate' | 'sexual_content' | 'violence' | 'other';
+            details?: string;
+            status?: 'open' | 'resolved';
+            resolved_by?: string | null;
+            resolved_at?: string | null;
+            created_at?: string;
+          };
+          Update: {
+            id?: string;
+            post_id?: string;
+            reporter_id?: string;
+            reason?: 'spam' | 'harassment' | 'hate' | 'sexual_content' | 'violence' | 'other';
+            details?: string;
+            status?: 'open' | 'resolved';
+            resolved_by?: string | null;
+            resolved_at?: string | null;
+            created_at?: string;
+          };
+          Relationships: Relationships;
+        };
+        community_messages: {
+          Row: {
+            id: string;
+            community_id: string;
+            author_id: string;
+            body: string;
+            created_at: string;
+          };
+          Insert: {
+            id?: string;
+            community_id: string;
+            author_id: string;
+            body: string;
+            created_at?: string;
+          };
+          Update: {
+            id?: string;
+            community_id?: string;
+            author_id?: string;
+            body?: string;
+            created_at?: string;
+          };
+          Relationships: Relationships;
+        };
         Relationships: Relationships;
       };
       conversations: {
@@ -1086,6 +1219,17 @@ export type Database = {
         Returns: SuggestedPersonRpcRow[];
       };
       can_view_community: { Args: { p_community_id: string; p_viewer_id?: string }; Returns: boolean };
+      create_community_post: {
+        Args: { p_community_id: string; p_body: string; p_media_path?: string | null; p_media_kind?: string | null };
+        Returns: string;
+      };
+      get_community_posts: { Args: { p_community_id: string; p_page_size?: number }; Returns: CommunityPostRpcRow[] };
+      moderate_community_post: { Args: { p_post_id: string; p_action: string }; Returns: undefined };
+      report_community_post: { Args: { p_post_id: string; p_reason: string; p_details?: string }; Returns: string };
+      get_community_post_reports: { Args: { p_community_id: string; p_page_size?: number }; Returns: CommunityPostReportRpcRow[] };
+      resolve_community_post_report: { Args: { p_report_id: string }; Returns: undefined };
+      send_community_message: { Args: { p_community_id: string; p_body: string }; Returns: string };
+      get_community_messages: { Args: { p_community_id: string; p_page_size?: number }; Returns: CommunityMessageRpcRow[] };
       community_can_create_adults_only: { Args: Record<string, never>; Returns: boolean };
       community_name_available: { Args: { p_name: string }; Returns: boolean };
       create_community: {

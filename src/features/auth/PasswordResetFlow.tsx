@@ -7,7 +7,6 @@ import {
   StyleSheet,
   Text,
   TextInput,
-  TouchableWithoutFeedback,
   View,
 } from 'react-native';
 import Animated, {
@@ -311,8 +310,7 @@ export function PasswordResetFlow({
   };
 
   return (
-    <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
-      <View style={styles.container}>
+    <View style={styles.container}>
       <View style={styles.progressTrack}>
         <Animated.View
           layout={reduceMotion ? undefined : LinearTransition.duration(500)}
@@ -452,8 +450,7 @@ export function PasswordResetFlow({
           )}
         </Pressable>
       </View>
-      </View>
-    </TouchableWithoutFeedback>
+    </View>
   );
 }
 

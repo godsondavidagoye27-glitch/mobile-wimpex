@@ -534,6 +534,13 @@ To remove the schedule:
 select cron.unschedule('reap-stale-lives');
 ```
 
+### Scheduled jobs checklist
+
+- **Story cleanup:** Apply migrations and deploy `purge-expired-stories`. In **Database > Extensions**, enable `pg_cron`, `pg_net`, and Vault. In **SQL Editor**, create the Vault secrets `wimpex_project_url`, `story_purge_service_role_key`, and `story_purge_secret`. In **Integrations > Cron**, schedule the hourly `purge-expired-stories` HTTP request with the headers shown above. Verify `cron.job`, `cron.job_run_details`, and the Edge Function logs.
+- **Stale live cleanup:** Apply the live-stream migration. In **Database > Extensions**, enable `pg_cron`. In **Integrations > Cron**, schedule `select public.reap_stale_lives();` to run every minute. Verify the job and its runs in the Cron dashboard or `cron.job_run_details`.
+
+The `live-token` Edge Function issues tokens with a 10-minute TTL; the live client refreshes them before expiry.
+
 ## Safe demo data
 
 Use a dedicated development Supabase project. The seed and cleanup commands require `SEED_ALLOWED=true` and an exact project-ref confirmation; they never load the app's `.env` file.

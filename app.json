@@ -14,15 +14,29 @@
       "infoPlist": {
         "NSCameraUsageDescription": "Allow Wimpex to access your camera for photos, videos, and calls.",
         "NSMicrophoneUsageDescription": "Allow Wimpex to access your microphone for voice messages and calls."
-      }
+      },
+      "bitcode": false
     },
     "android": {
       "package": "app.wimpex.mobile",
+      "softwareKeyboardLayoutMode": "resize",
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO",
         "android.permission.FOREGROUND_SERVICE",
-        "android.permission.FOREGROUND_SERVICE_MICROPHONE"
+        "android.permission.FOREGROUND_SERVICE_MICROPHONE",
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_MICROPHONE",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
+        "android.permission.ACCESS_NETWORK_STATE",
+        "android.permission.INTERNET",
+        "android.permission.SYSTEM_ALERT_WINDOW",
+        "android.permission.WAKE_LOCK",
+        "android.permission.BLUETOOTH"
       ],
       "adaptiveIcon": {
         "backgroundColor": "#000000",
@@ -72,6 +86,12 @@
         "projectId": "6b332828-dadc-4f04-8ab7-18fdae0fcb6a"
       }
     },
-    "owner": "wimpycorp"
+    "owner": "wimpycorp",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/6b332828-dadc-4f04-8ab7-18fdae0fcb6a"
+    }
   }
 }

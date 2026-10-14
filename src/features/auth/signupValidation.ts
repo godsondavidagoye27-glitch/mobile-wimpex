@@ -3,6 +3,50 @@ export type SignupValidationErrors = {
   password?: string;
 };
 
+const reservedUsernames = new Set([
+  'wimpex', 'admin', 'support', 'help', 'official', 'moderator', 'null', 'undefined',
+  'api', 'login', 'logout', 'signup', 'sign-up', 'register', 'account', 'profile',
+  'settings', 'notifications', 'notification', 'message', 'messages', 'chat', 'chats',
+  'search', 'discover', 'explore', 'about', 'terms', 'privacy', 'report', 'block',
+  'follow', 'followers', 'following', 'live', 'video', 'videos', 'post', 'posts',
+  'community', 'communities', 'create', 'verify', 'email', 'auth', 'feed', 'home',
+]);
+
+type SignupErrorLike = {
+  code?: unknown;
+  message?: unknown;
+  details?: unknown;
+  hint?: unknown;
+};
+
+function errorText(value: unknown) {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+export function getSignupErrorMessage(error: unknown) {
+  const candidate: SignupErrorLike = error && typeof error === 'object'
+    ? error as SignupErrorLike
+    : {};
+  const code = errorText(candidate.code);
+  const message = errorText(candidate.message) || (error instanceof Error ? error.message : '');
+  const details = errorText(candidate.details);
+  const hint = errorText(candidate.hint);
+  const searchable = `${code} ${message} ${details} ${hint}`;
+
+  if (code === '23505') return 'That username is taken. Try another.';
+  if (code === '23514') return 'You must be 13 or older to join Wimpex.';
+  if (code === '42501') return 'You do not have permission to complete this step.';
+  if (/network|fetch|offline|connection|internet|failed to fetch|authretryablefetcherror/i.test(searchable)) {
+    return 'No connection. Check your internet and try again.';
+  }
+
+  const explanation = [message, details, hint, code && `Code: ${code}`]
+    .filter(Boolean)
+    .join(' ');
+  return explanation || (typeof error === 'string' && error.trim())
+    || 'Unable to complete sign up. Try again.';
+}
+
 export function getPasswordStrength(password: string) {
   const rules = [
     password.length >= 8,
@@ -69,6 +113,10 @@ export function isValidUsername(username: string) {
   return /^[a-z0-9._]{3,20}$/.test(username);
 }
 
+export function isReservedUsername(username: string) {
+  return reservedUsernames.has(username.trim().toLowerCase());
+}
+
 export function validateBirthday(
   month: number | null,
   day: number | null,
@@ -86,6 +134,7 @@ export function validateBirthday(
 }
 
 export function validateProfile(username: string, displayName: string) {
+  if (isReservedUsername(username)) return 'That username is not available.';
   if (!isValidUsername(username)) {
     return 'Use 3 to 20 letters, numbers, dots or underscores.';
   }

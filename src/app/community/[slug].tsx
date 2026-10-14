@@ -13,6 +13,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { VideoView, useVideoPlayer } from 'expo-video';
 import { Icon } from '../../components/Icon';
 import {
   canBanCommunityMember,
@@ -22,8 +23,20 @@ import {
   canTransferCommunityOwnership,
 } from '../../features/communities/communityPermissions';
 import { getSupabaseClient } from '../../lib/supabase';
+import {
+  getCommunityMessages,
+  getCommunityPostReports,
+  getCommunityPosts,
+  moderateCommunityPost,
+  reportCommunityPost,
+  resolveCommunityPostReport,
+  sendCommunityMessage,
+  type CommunityPost,
+} from '../../features/communities/communityContentService';
 import { theme } from '../../theme/theme';
 import type {
+  CommunityMessageRpcRow,
+  CommunityPostReportRpcRow,
   CommunityDetailRpcRow,
   CommunityMemberRpcRow,
   SearchPersonRpcRow,
@@ -31,51 +44,15 @@ import type {
 
 type CommunityTab = 'Posts' | 'About' | 'Members' | 'Chat';
 type MemberCursor = { joinedAt: string; id: string; status: CommunityMemberRpcRow['status'] };
-type CommunityPostItem = {
-  id: string;
-  author: string;
-  username: string;
-  body: string;
-  createdAt: string;
-  likes: number;
-  liked: boolean;
-  replies: number;
-};
-type CommunityChatMessage = {
-  id: string;
-  author: string;
-  body: string;
-  time: string;
-  mine: boolean;
-};
 const pageSize = 20;
 const communityTabs: CommunityTab[] = ['Posts', 'About', 'Members', 'Chat'];
-const defaultCommunityPosts: CommunityPostItem[] = [
-  {
-    id: 'c-post-1',
-    author: 'Ada Moreau',
-    username: '@ada',
-    body: 'Welcome to the community! Share your favorite setup tips and wins for the next build sprint.',
-    createdAt: '2h ago',
-    likes: 18,
-    liked: true,
-    replies: 5,
-  },
-  {
-    id: 'c-post-2',
-    author: 'Noah Patel',
-    username: '@noah',
-    body: 'Looking for feedback on our onboarding flow. What should we prioritize next?',
-    createdAt: '5h ago',
-    likes: 12,
-    liked: false,
-    replies: 3,
-  },
-];
-const defaultCommunityChat: CommunityChatMessage[] = [
-  { id: 'chat-1', author: 'Ada', body: 'We are live with the new launch checklist.', time: '9:42 AM', mine: false },
-  { id: 'chat-2', author: 'You', body: 'Nice! I can take the QA pass on the privacy settings.', time: '9:44 AM', mine: true },
-];
+
+function CommunityPostVideo({ uri }: { uri: string }) {
+  const player = useVideoPlayer(uri, (videoPlayer) => {
+    videoPlayer.loop = true;
+  });
+  return <VideoView player={player} style={styles.communityPostMedia} nativeControls />;
+}
 
 function initials(name: string) {
   return name.trim().split(/\s+/).slice(0, 2).map((part) => part[0]?.toUpperCase() ?? '').join('') || '?';
@@ -113,16 +90,23 @@ export default function CommunityScreen() {
   const [inviteResults, setInviteResults] = useState<SearchPersonRpcRow[]>([]);
   const [inviteLoading, setInviteLoading] = useState(false);
   const [inviteError, setInviteError] = useState('');
-  const [communityPosts, setCommunityPosts] = useState<CommunityPostItem[]>(defaultCommunityPosts);
-  const [postDraft, setPostDraft] = useState('');
-  const [composerOpen, setComposerOpen] = useState(false);
+  const [communityPosts, setCommunityPosts] = useState<CommunityPost[]>([]);
+  const [postsLoading, setPostsLoading] = useState(false);
+  const [postsError, setPostsError] = useState('');
   const [chatDraft, setChatDraft] = useState('');
-  const [chatMessages, setChatMessages] = useState<CommunityChatMessage[]>(defaultCommunityChat);
+  const [chatMessages, setChatMessages] = useState<CommunityMessageRpcRow[]>([]);
+  const [chatLoading, setChatLoading] = useState(false);
+  const [chatSending, setChatSending] = useState(false);
+  const [chatError, setChatError] = useState('');
+  const [communityReports, setCommunityReports] = useState<CommunityPostReportRpcRow[]>([]);
+  const [reportsOpen, setReportsOpen] = useState(false);
+  const [reportsLoading, setReportsLoading] = useState(false);
   const detailController = useRef<AbortController | null>(null);
   const membersController = useRef<AbortController | null>(null);
   const inviteController = useRef<AbortController | null>(null);
   const memberCursor = useRef<MemberCursor | null>(null);
   const membershipStatus = community?.status ?? null;
+  const communityId = community?.id;
   const isActiveMember = membershipStatus === 'active';
   const isPrivateLocked = !!community && community.visibility === 'private' && !isActiveMember;
   const rules = useMemo(() => (
@@ -158,6 +142,32 @@ export default function CommunityScreen() {
     }
   }, [slug]);
 
+  const loadPosts = useCallback(async () => {
+    if (!communityId) return;
+    setPostsLoading(true);
+    setPostsError('');
+    try {
+      setCommunityPosts(await getCommunityPosts(communityId));
+    } catch (caught) {
+      setPostsError(readableError(caught));
+    } finally {
+      setPostsLoading(false);
+    }
+  }, [communityId]);
+
+  const loadChat = useCallback(async () => {
+    if (!communityId || !isActiveMember) return;
+    setChatLoading(true);
+    setChatError('');
+    try {
+      setChatMessages(await getCommunityMessages(communityId));
+    } catch (caught) {
+      setChatError(readableError(caught));
+    } finally {
+      setChatLoading(false);
+    }
+  }, [communityId, isActiveMember]);
+
   useEffect(() => {
     const timer = setTimeout(() => void loadCommunity(), 0);
     return () => {
@@ -165,6 +175,46 @@ export default function CommunityScreen() {
       detailController.current?.abort();
     };
   }, [loadCommunity, retryToken]);
+
+  useEffect(() => {
+    if (!communityId || isPrivateLocked) return undefined;
+    const initialLoadTimer = setTimeout(() => {
+      if (activeTab === 'Posts') void loadPosts();
+      if (activeTab === 'Chat' && isActiveMember) void loadChat();
+    }, 0);
+
+    const channel = getSupabaseClient()
+      .channel(`community-content:${communityId}`)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'community_posts',
+        filter: `community_id=eq.${communityId}`,
+      }, () => {
+        if (activeTab === 'Posts') void loadPosts();
+      })
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'community_messages',
+        filter: `community_id=eq.${communityId}`,
+      }, () => {
+        if (activeTab === 'Chat' && isActiveMember) void loadChat();
+      })
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'community_members',
+        filter: `community_id=eq.${communityId}`,
+      }, () => {
+        void loadCommunity(true);
+      })
+      .subscribe();
+    return () => {
+      clearTimeout(initialLoadTimer);
+      void getSupabaseClient().removeChannel(channel);
+    };
+  }, [activeTab, communityId, isActiveMember, isPrivateLocked, loadChat, loadCommunity, loadPosts]);
 
   useEffect(() => {
     const timer = setTimeout(() => setMemberQuery(memberInput.trim()), 300);
@@ -545,126 +595,148 @@ export default function CommunityScreen() {
     </View>
   );
 
-  const publishCommunityPost = () => {
-    const body = postDraft.trim();
-    if (!body) {
-      Alert.alert('Write a post first', 'Share a quick update with the community before posting.');
+  const sendMessage = async () => {
+    const body = chatDraft.trim();
+    if (!body || !community || chatSending) return;
+    setChatSending(true);
+    setChatError('');
+    try {
+      await sendCommunityMessage(community.id, body);
+      setChatDraft('');
+      await loadChat();
+    } catch (caught) {
+      setChatError(readableError(caught));
+    } finally {
+      setChatSending(false);
+    }
+  };
+
+  const moderatePost = async (post: CommunityPost, action: 'remove' | 'pin') => {
+    try {
+      await moderateCommunityPost(post.id, action);
+      await loadPosts();
+    } catch (caught) {
+      Alert.alert('Could not moderate post', readableError(caught));
+    }
+  };
+
+  const reportPost = (post: CommunityPost) => {
+    Alert.alert('Report post', 'Choose the reason that best describes the issue.', [
+      ...(['spam', 'harassment', 'hate', 'sexual_content', 'violence', 'other'] as const).map((reason) => ({
+        text: reason.replace('_', ' '),
+        onPress: () => {
+          void reportCommunityPost(post.id, reason)
+            .then(() => Alert.alert('Report received', 'A community moderator will review this post.'))
+            .catch((caught: unknown) => Alert.alert('Could not report post', readableError(caught)));
+        },
+      })),
+      { text: 'Cancel', style: 'cancel' as const },
+    ]);
+  };
+
+  const showPostActions = (post: CommunityPost) => {
+    if (!community?.can_moderate) {
+      reportPost(post);
       return;
     }
+    Alert.alert('Post moderation', undefined, [
+      {
+        text: post.pinned_at ? 'Unpin post' : 'Pin post',
+        onPress: () => void moderatePost(post, 'pin'),
+      },
+      {
+        text: 'Remove post',
+        style: 'destructive',
+        onPress: () => Alert.alert('Remove post?', 'This post will no longer be visible to community members.', [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Remove', style: 'destructive', onPress: () => void moderatePost(post, 'remove') },
+        ]),
+      },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  };
+
+  const openReports = async () => {
     if (!community) return;
-    const nextPost: CommunityPostItem = {
-      id: `community-post-${Date.now()}`,
-      author: community.owner_display_name || 'You',
-      username: community.owner_username ? `@${community.owner_username}` : '@you',
-      body,
-      createdAt: 'now',
-      likes: 0,
-      liked: false,
-      replies: 0,
-    };
-    setCommunityPosts((current) => [nextPost, ...current]);
-    setPostDraft('');
-    setComposerOpen(false);
+    setCommunityActionsOpen(false);
+    setReportsLoading(true);
+    try {
+      setCommunityReports(await getCommunityPostReports(community.id));
+      setReportsOpen(true);
+    } catch (caught) {
+      Alert.alert('Could not load reports', readableError(caught));
+    } finally {
+      setReportsLoading(false);
+    }
   };
 
-  const sendCommunityMessage = () => {
-    const body = chatDraft.trim();
-    if (!body) return;
-    const nextMessage: CommunityChatMessage = {
-      id: `community-chat-${Date.now()}`,
-      author: 'You',
-      body,
-      time: 'Now',
-      mine: true,
-    };
-    setChatMessages((current) => [...current, nextMessage]);
-    setChatDraft('');
+  const resolveReport = async (report: CommunityPostReportRpcRow) => {
+    try {
+      await resolveCommunityPostReport(report.id);
+      setCommunityReports((current) => current.filter((item) => item.id !== report.id));
+    } catch (caught) {
+      Alert.alert('Could not resolve report', readableError(caught));
+    }
   };
 
-  const renderCommunityPost = ({ item }: { item: CommunityPostItem }) => (
+  const renderCommunityPost = ({ item }: { item: CommunityPost }) => (
     <View style={styles.postCard}>
       <View style={styles.postHeader}>
         <View style={styles.memberAvatar}>
-          <Text style={styles.memberInitials}>{initials(item.author)}</Text>
+          {item.avatar_url
+            ? <Image source={{ uri: item.avatar_url }} style={styles.memberAvatarImage} />
+            : <Text style={styles.memberInitials}>{initials(item.display_name)}</Text>}
         </View>
         <View style={styles.postMetaWrap}>
-          <Text style={styles.memberName}>{item.author}</Text>
-          <Text style={styles.memberSub}>{item.username} · {item.createdAt}</Text>
+          <Text style={styles.memberName}>{item.display_name}</Text>
+          <Text style={styles.memberSub}>@{item.username} · {new Date(item.created_at).toLocaleString()}</Text>
         </View>
-      </View>
-      <Text style={styles.postBody}>{item.body}</Text>
-      <View style={styles.postToolbar}>
-        <Pressable
-          onPress={() => setCommunityPosts((current) => current.map((post) => (
-            post.id === item.id
-              ? { ...post, liked: !post.liked, likes: Math.max(0, post.likes + (post.liked ? -1 : 1)) }
-              : post
-          )))}
-          style={styles.toolbarButton}
-        >
-          <Icon name="heart" size={20} color={item.liked ? theme.colors.danger : theme.colors.textMuted} filled={item.liked} />
-          <Text style={[styles.toolbarText, item.liked && styles.toolbarTextActive]}>{item.likes}</Text>
+        {item.pinned_at ? <Icon name="pin" size={20} color={theme.colors.primary} /> : null}
+        <Pressable onPress={() => showPostActions(item)} accessibilityRole="button" accessibilityLabel="Post options">
+          <Icon name={community?.can_moderate ? 'more' : 'flag'} size={20} color={theme.colors.textMuted} />
         </Pressable>
-        <View style={styles.toolbarButton}>
-          <Icon name="comment" size={20} color={theme.colors.textMuted} />
-          <Text style={styles.toolbarText}>{item.replies}</Text>
-        </View>
-        <View style={styles.toolbarButton}>
-          <Icon name="share" size={20} color={theme.colors.textMuted} />
-          <Text style={styles.toolbarText}>Share</Text>
-        </View>
       </View>
+      {item.body ? <Text style={styles.postBody}>{item.body}</Text> : null}
+      {item.media_url && item.media_kind === 'image'
+        ? <Image source={{ uri: item.media_url }} style={styles.communityPostMedia} resizeMode="cover" />
+        : item.media_url && item.media_kind === 'video'
+          ? <CommunityPostVideo uri={item.media_url} />
+          : null}
     </View>
   );
 
   const renderTabContent = () => {
     if (!community) return null;
     if (activeTab === 'Posts') {
-      if (!isActiveMember) {
-        return (
-          <View style={styles.emptyState}>
-            <Text style={styles.emptyText}>Join this community to post and react.</Text>
-          </View>
-        );
-      }
       return (
         <View style={styles.postsLayout}>
-          <Pressable onPress={() => setComposerOpen(true)} style={styles.createPostButton} accessibilityRole="button" accessibilityLabel="Create community post">
-            <Icon name="plus" size={20} color={theme.colors.primary} />
-            <Text style={styles.createPostLabel}>Share an update</Text>
-          </Pressable>
+          {isActiveMember ? (
+            <Pressable
+              onPress={() => router.push({ pathname: '/community/create-post', params: { slug: community.slug } })}
+              style={styles.createPostButton}
+              accessibilityRole="button"
+              accessibilityLabel="Create community post"
+            >
+              <Icon name="plus" size={20} color={theme.colors.primary} />
+              <Text style={styles.createPostLabel}>Share an update</Text>
+            </Pressable>
+          ) : <Text style={styles.joinPrompt}>Join this community to create a post.</Text>}
+          {postsError ? (
+            <View style={styles.errorBox}>
+              <Text style={styles.errorText}>Posts could not be loaded.</Text>
+              <Pressable onPress={() => void loadPosts()}><Text style={styles.retryText}>Retry</Text></Pressable>
+            </View>
+          ) : null}
           <FlatList
             data={communityPosts}
             renderItem={renderCommunityPost}
             keyExtractor={(item) => item.id}
             contentContainerStyle={styles.postsList}
-            ListEmptyComponent={<Text style={styles.emptyText}>No posts yet.</Text>}
+            ListEmptyComponent={!postsLoading && !postsError ? <Text style={styles.emptyText}>No posts yet.</Text> : null}
+            ListFooterComponent={postsLoading ? <ActivityIndicator color={theme.colors.primary} style={styles.inlineLoader} /> : null}
+            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void loadPosts()} tintColor={theme.colors.primary} />}
             showsVerticalScrollIndicator={false}
           />
-          <Modal visible={composerOpen} transparent animationType="slide" onRequestClose={() => setComposerOpen(false)}>
-            <View style={styles.inviteBackdrop}>
-              <View style={styles.inviteSheet}>
-                <View style={styles.inviteHeader}>
-                  <Text style={styles.modalTitle}>New post</Text>
-                  <Pressable onPress={() => setComposerOpen(false)} accessibilityRole="button" accessibilityLabel="Close composer">
-                    <Icon name="close" size={20} color={theme.colors.white} />
-                  </Pressable>
-                </View>
-                <TextInput
-                  value={postDraft}
-                  onChangeText={setPostDraft}
-                  placeholder="Share something with the community"
-                  placeholderTextColor={theme.colors.textMuted}
-                  multiline
-                  style={styles.postComposerInput}
-                  textAlignVertical="top"
-                />
-                <Pressable onPress={publishCommunityPost} style={styles.publishButton} accessibilityRole="button">
-                  <Text style={styles.publishText}>Post</Text>
-                </Pressable>
-              </View>
-            </View>
-          </Modal>
         </View>
       );
     }
@@ -706,13 +778,28 @@ export default function CommunityScreen() {
             <Text style={styles.sectionHeading}>Community chat</Text>
             <Text style={styles.chatPeople}>{chatMessages.length} messages</Text>
           </View>
-          {chatMessages.map((message) => (
-            <View key={message.id} style={[styles.chatBubble, message.mine ? styles.chatBubbleMine : styles.chatBubbleOther]}>
-              <Text style={styles.chatAuthor}>{message.author}</Text>
-              <Text style={styles.chatBody}>{message.body}</Text>
-              <Text style={styles.chatTime}>{message.time}</Text>
+          {chatError ? (
+            <View style={styles.errorBox}>
+              <Text style={styles.errorText}>Community chat could not be loaded or sent.</Text>
+              <Pressable onPress={() => void loadChat()}><Text style={styles.retryText}>Retry</Text></Pressable>
             </View>
-          ))}
+          ) : null}
+          {chatLoading
+            ? <ActivityIndicator color={theme.colors.primary} style={styles.inlineLoader} />
+            : <FlatList
+                data={chatMessages}
+                keyExtractor={(item) => item.id}
+                contentContainerStyle={styles.chatMessages}
+                ListEmptyComponent={<Text style={styles.emptyText}>No messages yet. Start the conversation.</Text>}
+                renderItem={({ item }) => (
+                  <View style={[styles.chatBubble, item.is_mine ? styles.chatBubbleMine : styles.chatBubbleOther]}>
+                    <Text style={styles.chatAuthor}>{item.is_mine ? 'You' : item.display_name}</Text>
+                    <Text style={styles.chatBody}>{item.body}</Text>
+                    <Text style={styles.chatTime}>{new Date(item.created_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</Text>
+                  </View>
+                )}
+                showsVerticalScrollIndicator={false}
+              />}
           <View style={styles.chatComposer}>
             <TextInput
               value={chatDraft}
@@ -721,9 +808,17 @@ export default function CommunityScreen() {
               placeholderTextColor={theme.colors.textMuted}
               style={styles.chatInput}
               autoCapitalize="sentences"
+              maxLength={1000}
             />
-            <Pressable onPress={sendCommunityMessage} accessibilityRole="button" accessibilityLabel="Send community chat message">
-              <Icon name="send" size={20} color={theme.colors.primary} />
+            <Pressable
+              onPress={() => void sendMessage()}
+              disabled={chatSending || !chatDraft.trim()}
+              accessibilityRole="button"
+              accessibilityLabel="Send community chat message"
+            >
+              {chatSending
+                ? <ActivityIndicator size="small" color={theme.colors.primary} />
+                : <Icon name="send" size={20} color={theme.colors.primary} />}
             </Pressable>
           </View>
         </View>
@@ -881,12 +976,17 @@ export default function CommunityScreen() {
           <View style={styles.actionSheet}>
             <Text style={styles.modalTitle}>{community?.name}</Text>
             {community?.can_moderate ? (
-              <Pressable style={styles.modalAction} onPress={() => {
-                setCommunityActionsOpen(false);
-                openEdit();
-              }}>
-                <Text style={styles.modalActionText}>Edit community</Text>
-              </Pressable>
+              <>
+                <Pressable style={styles.modalAction} onPress={() => {
+                  setCommunityActionsOpen(false);
+                  openEdit();
+                }}>
+                  <Text style={styles.modalActionText}>Edit community</Text>
+                </Pressable>
+                <Pressable style={styles.modalAction} onPress={() => void openReports()}>
+                  <Text style={styles.modalActionText}>{reportsLoading ? 'Loading reports…' : 'Review post reports'}</Text>
+                </Pressable>
+              </>
             ) : null}
             {leaveAllowed ? (
               <Pressable style={styles.modalAction} onPress={() => {
@@ -915,6 +1015,36 @@ export default function CommunityScreen() {
             </Pressable>
           </View>
         </Pressable>
+      </Modal>
+
+      <Modal visible={reportsOpen} transparent animationType="slide" onRequestClose={() => setReportsOpen(false)}>
+        <View style={styles.inviteBackdrop}>
+          <View style={styles.inviteSheet}>
+            <View style={styles.inviteHeader}>
+              <Text style={styles.modalTitle}>Open post reports</Text>
+              <Pressable onPress={() => setReportsOpen(false)} accessibilityRole="button" accessibilityLabel="Close reports">
+                <Icon name="close" size={20} color={theme.colors.white} />
+              </Pressable>
+            </View>
+            <FlatList
+              data={communityReports}
+              keyExtractor={(item) => item.id}
+              contentContainerStyle={styles.reportList}
+              ListEmptyComponent={<Text style={styles.emptyText}>No open reports.</Text>}
+              renderItem={({ item }) => (
+                <View style={styles.reportCard}>
+                  <Text style={styles.reportReason}>{item.reason.replace('_', ' ')}</Text>
+                  <Text style={styles.memberSub}>Reported by @{item.reporter_username}</Text>
+                  <Text style={styles.reportPostBody}>{item.post_body || 'Media post'}</Text>
+                  {item.details ? <Text style={styles.reportDetails}>{item.details}</Text> : null}
+                  <Pressable onPress={() => void resolveReport(item)} style={styles.resolveButton} accessibilityRole="button">
+                    <Text style={styles.acceptText}>Resolve report</Text>
+                  </Pressable>
+                </View>
+              )}
+            />
+          </View>
+        </View>
       </Modal>
 
       <Modal visible={inviteOpen} transparent animationType="slide" onRequestClose={() => setInviteOpen(false)}>
@@ -1043,21 +1173,22 @@ const styles = StyleSheet.create({
   inviteSheet: { height: '75%', borderTopLeftRadius: 22, borderTopRightRadius: 22, backgroundColor: '#111418', paddingHorizontal: 18, paddingTop: 18 },
   inviteHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   postsLayout: { flex: 1, paddingHorizontal: 16, paddingTop: 12 },
-  postsList: { paddingBottom: 20, gap: 12 },
+  postsList: { paddingBottom: 20, gap: 12, flexGrow: 1 },
   createPostButton: { flexDirection: 'row', alignItems: 'center', gap: 8, alignSelf: 'flex-start', backgroundColor: '#142A38', borderRadius: 14, paddingHorizontal: 12, paddingVertical: 10, marginBottom: 12 },
   createPostLabel: { color: theme.colors.primary, fontWeight: '700' },
+  joinPrompt: { color: theme.colors.textMuted, fontSize: 13, marginBottom: 12 },
   postCard: { backgroundColor: '#131A20', borderRadius: 16, borderWidth: 1, borderColor: theme.colors.line, padding: 14 },
   postHeader: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   postMetaWrap: { flex: 1 },
   postBody: { color: theme.colors.white, fontSize: 14, lineHeight: 22, marginTop: 12 },
-  postToolbar: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 12 },
-  toolbarButton: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 4 },
-  toolbarText: { color: theme.colors.textMuted, fontSize: 12, fontWeight: '600' },
-  toolbarTextActive: { color: theme.colors.danger },
-  emptyState: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 28 },
-  postComposerInput: { minHeight: 140, color: theme.colors.white, borderWidth: 1, borderColor: theme.colors.line, borderRadius: 14, padding: 12, marginTop: 14, marginBottom: 12, textAlignVertical: 'top' },
-  publishButton: { backgroundColor: theme.colors.primary, borderRadius: 14, alignItems: 'center', justifyContent: 'center', paddingVertical: 12 },
-  publishText: { color: '#061922', fontWeight: '800' },
+  communityPostMedia: { width: '100%', height: 260, backgroundColor: theme.colors.surface, borderRadius: 12, marginTop: 12 },
+  reportList: { paddingBottom: 24, flexGrow: 1 },
+  reportCard: { paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: theme.colors.line, gap: 6 },
+  reportReason: { color: theme.colors.white, fontWeight: '800', fontSize: 14, textTransform: 'capitalize' },
+  reportPostBody: { color: theme.colors.white, fontSize: 13, lineHeight: 19, marginTop: 6 },
+  reportDetails: { color: theme.colors.textMuted, fontSize: 12, lineHeight: 18 },
+  resolveButton: { alignSelf: 'flex-start', paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10, backgroundColor: '#142A38', marginTop: 4 },
+  chatMessages: { paddingBottom: 12, flexGrow: 1, justifyContent: 'flex-end' },
   chatWrap: { flex: 1, padding: 16 },
   chatHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
   chatPeople: { color: theme.colors.textMuted, fontSize: 12 },

@@ -10,7 +10,6 @@ import {
   StyleSheet,
   Text,
   TextInput,
-  TouchableWithoutFeedback,
   View,
 } from 'react-native';
 import Animated, {
@@ -30,7 +29,9 @@ import { runWithMinimumDuration } from './authTiming';
 import { createEmptyOtp, isOtpComplete, normalizeOtpDigits, OTP_CELL_WIDTH, OTP_LENGTH } from './constants';
 import {
   calculateAge,
+  getSignupErrorMessage,
   getPasswordStrength,
+  isReservedUsername,
   validateBirthday,
   validateCredentials,
   validateInterests,
@@ -44,12 +45,8 @@ const interests = ['Music', 'Food', 'Sport', 'Travel', 'Gaming', 'Art', 'Tech', 
 type ButtonState = 'idle' | 'loading' | 'success';
 type UsernameStatus = 'idle' | 'checking' | 'available' | 'taken' | 'failed';
 
-function getErrorMessage(error: unknown) {
-  return error instanceof Error ? error.message : 'Unable to complete sign up. Try again.';
-}
-
 function isNetworkError(error: unknown) {
-  return /network|fetch|offline|connection|internet/i.test(getErrorMessage(error));
+  return getSignupErrorMessage(error).startsWith('No connection.');
 }
 
 function isRateLimitError(error: unknown) {
@@ -214,6 +211,7 @@ export function SignUpFlow({
     transform: [{ translateX: codeShake.value }],
   }));
   const step = flow.currentStep;
+  const previousStep = useRef(step);
   const isSocial = flow.flowType === 'social';
   const birthdayStep = isSocial ? 0 : 1;
   const codeStep = isSocial ? -1 : 2;
@@ -230,13 +228,15 @@ export function SignUpFlow({
 
   useEffect(() => {
     if (!flow.hasHydrated) return;
+    if (previousStep.current === step) return;
+    previousStep.current = step;
+    Keyboard.dismiss();
     const timer = setTimeout(() => {
-      if (step === 0 && !isSocial) emailRef.current?.focus();
       if (step === profileStep) usernameRef.current?.focus();
       if (step === codeStep) inputRefs.current[0]?.focus();
     }, 120);
     return () => clearTimeout(timer);
-  }, [codeStep, flow.hasHydrated, isSocial, profileStep, step]);
+  }, [codeStep, flow.hasHydrated, profileStep, step]);
 
   useEffect(() => {
     if (step !== codeStep) return;
@@ -255,12 +255,16 @@ export function SignUpFlow({
   const currentUsernameStatus =
     flow.username.length < 3
       ? 'idle'
+      : isReservedUsername(flow.username)
+        ? 'taken'
       : usernameStatusFor === flow.username
         ? usernameStatus
         : 'checking';
   const currentUsernameStatusText =
     flow.username.length < 3
       ? ''
+      : isReservedUsername(flow.username)
+        ? 'That username is not available.'
       : usernameStatusFor === flow.username
         ? usernameStatusText
         : 'Checking';
@@ -269,6 +273,7 @@ export function SignUpFlow({
     if (step !== profileStep) return;
     const candidate = flow.username.toLowerCase();
     if (candidate.length < 3) return;
+    if (isReservedUsername(candidate)) return;
 
     let active = true;
     const timer = setTimeout(() => {
@@ -287,10 +292,11 @@ export function SignUpFlow({
           setUsernameStatusText(
             available ? 'Available' : 'That username is taken. Try another.',
           );
-        } catch {
+        } catch (error) {
           if (!active) return;
+          if (__DEV__) console.error('Could not check signup username availability.', error);
           setUsernameStatus('failed');
-          setUsernameStatusText('Could not check this username. Try again.');
+          setUsernameStatusText(getSignupErrorMessage(error));
         }
       })();
     }, 450);
@@ -328,6 +334,7 @@ export function SignUpFlow({
       await new Promise<void>((resolve) => setTimeout(resolve, 350));
       advance();
     } catch (error) {
+      if (__DEV__) console.error('Signup action failed.', error);
       onError(error);
     } finally {
       setButtonState('idle');
@@ -374,7 +381,7 @@ export function SignUpFlow({
           setScreenError(
             isNetworkError(error)
               ? 'No connection. Check your internet and try again.'
-              : getErrorMessage(error),
+              : getSignupErrorMessage(error),
           );
         },
       );
@@ -395,7 +402,7 @@ export function SignUpFlow({
               await onUnderage();
               return () => undefined;
             },
-            (error) => setScreenError(getErrorMessage(error)),
+            (error) => setScreenError(getSignupErrorMessage(error)),
           );
         }
         return;
@@ -411,7 +418,7 @@ export function SignUpFlow({
           }
           flow.setSignupData({ currentStep: isSocial ? 1 : 2 });
         },
-        (error) => setScreenError(getErrorMessage(error)),
+        (error) => setScreenError(getSignupErrorMessage(error)),
       );
       return;
     }
@@ -444,7 +451,13 @@ export function SignUpFlow({
             name: username,
           });
           if (error) throw error;
-          if (!data) throw new Error('That username is taken. Try another.');
+          if (!data) {
+            throw new Error(
+              isReservedUsername(username)
+                ? 'That username is not available.'
+                : 'That username is taken. Try another.',
+            );
+          }
           return () => {
             flow.setSignupData({ username, currentStep: interestsStep });
             setUsernameError('');
@@ -453,7 +466,7 @@ export function SignUpFlow({
         (error) => {
           const message = isNetworkError(error)
             ? 'Could not check this username. Try again.'
-            : getErrorMessage(error);
+            : getSignupErrorMessage(error);
           setUsernameError(message);
           setUsernameStatus(message.includes('taken') ? 'taken' : 'failed');
           setUsernameStatusText(message);
@@ -464,12 +477,14 @@ export function SignUpFlow({
 
     if (step === interestsStep) {
       if (!validateInterests(flow.interests)) return;
+      setFinishError('');
       await performAction(
         async () => {
           const client = getSupabaseClient();
-          const { data: userData, error: userError } = await client.auth.getUser();
-          if (userError) throw userError;
-          if (!userData.user) throw new Error('Your session expired. Log in and try again.');
+          const { data: sessionData, error: sessionError } = await client.auth.getSession();
+          if (sessionError) throw sessionError;
+          const user = sessionData.session?.user;
+          if (!user) throw new Error('Your session expired. Log in and try again.');
 
           let avatarUrl: string | null = null;
           if (flow.avatarUri) {
@@ -478,14 +493,14 @@ export function SignUpFlow({
             const photoBlob = await photo.blob();
             const { error: uploadError } = await client.storage
               .from('avatars')
-              .upload(`${userData.user.id}/avatar.jpg`, photoBlob, {
+              .upload(`${user.id}/avatar.jpg`, photoBlob, {
                 contentType: 'image/jpeg',
                 upsert: true,
               });
             if (uploadError) throw uploadError;
             avatarUrl = client.storage
               .from('avatars')
-              .getPublicUrl(`${userData.user.id}/avatar.jpg`).data.publicUrl;
+              .getPublicUrl(`${user.id}/avatar.jpg`).data.publicUrl;
           }
 
           if (flow.birthMonth === null || flow.birthDay === null || flow.birthYear === null) {
@@ -497,25 +512,36 @@ export function SignUpFlow({
           )
             .toISOString()
             .slice(0, 10);
-          const { error: profileError } = await client.from('profiles').upsert(
-            {
-              id: userData.user.id,
-              username: flow.username,
-              display_name: flow.displayName.trim(),
-              avatar_url: avatarUrl,
-              date_of_birth: dateOfBirth,
-            },
-            { onConflict: 'id' },
-          );
+          const profile = {
+            id: user.id,
+            username: flow.username,
+            display_name: flow.displayName.trim(),
+            avatar_url: avatarUrl,
+            date_of_birth: dateOfBirth,
+          };
+          const { error: profileError } = await client.from('profiles').insert(profile);
           if (profileError) {
-            if (isSocial && profileError.code === '23514') {
-              await onUnderage();
+            if (profileError.code === '23505') {
+              const { data: existingProfile, error: lookupError } = await client
+                .from('profiles')
+                .select('username, display_name, avatar_url, date_of_birth')
+                .eq('id', user.id)
+                .maybeSingle();
+              if (lookupError) throw lookupError;
+              const isSameProfile = existingProfile
+                && existingProfile.username === profile.username
+                && existingProfile.display_name === profile.display_name
+                && existingProfile.avatar_url === profile.avatar_url
+                && existingProfile.date_of_birth === profile.date_of_birth;
+              if (!isSameProfile) throw profileError;
+            } else {
+              if (isSocial && profileError.code === '23514') await onUnderage();
+              throw profileError;
             }
-            throw profileError;
           }
 
           const profileInterests = flow.interests.map((interest) => ({
-            profile_id: userData.user.id,
+            profile_id: user.id,
             interest,
           }));
           const { error: interestsError } = await client
@@ -537,11 +563,7 @@ export function SignUpFlow({
             setUsernameError('That username is taken. Try another.');
             return;
           }
-          setFinishError(
-            isNetworkError(error)
-              ? 'No connection. Check your internet and try again.'
-              : getErrorMessage(error),
-          );
+          setFinishError(getSignupErrorMessage(error));
         },
       );
     }
@@ -569,6 +591,7 @@ export function SignUpFlow({
       flow.setSignupData({ currentStep: 3 });
       setCode(createEmptyOtp());
     } catch (error) {
+      if (__DEV__) console.error('Signup email verification failed.', error);
       setCodeError(
         isRateLimitError(error)
           ? 'Too many attempts. Wait a minute and try again.'
@@ -621,7 +644,7 @@ export function SignUpFlow({
           ? 'Too many attempts. Wait a minute and try again.'
           : isNetworkError(error)
             ? 'No connection. Check your internet and try again.'
-            : getErrorMessage(error),
+            : getSignupErrorMessage(error),
       );
     } finally {
       setResendBusy(false);
@@ -646,7 +669,7 @@ export function SignUpFlow({
         flow.setSignupData({ avatarUri: result.assets[0].uri });
       }
     } catch (error) {
-      setPickerError(getErrorMessage(error));
+      setPickerError(getSignupErrorMessage(error));
     }
   };
 
@@ -710,7 +733,14 @@ export function SignUpFlow({
             <View>
               <Text accessibilityRole="alert" style={styles.errorText}>{screenError}</Text>
               {screenError === 'An account with this email already exists. Log in instead.' ? (
-                <Pressable onPress={onSwitchToLogin} accessibilityRole="button" style={styles.inlineAction}>
+                <Pressable
+                  onPress={() => {
+                    Keyboard.dismiss();
+                    onSwitchToLogin();
+                  }}
+                  accessibilityRole="button"
+                  style={styles.inlineAction}
+                >
                   <Text style={styles.linkText}>Log in</Text>
                 </Pressable>
               ) : null}
@@ -953,8 +983,7 @@ export function SignUpFlow({
   }
 
   return (
-    <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
-      <View style={styles.container}>
+    <View style={styles.container}>
         <View style={styles.progressTrack}>
           <Animated.View
             layout={reduceMotion ? undefined : LinearTransition.duration(500)}
@@ -992,8 +1021,7 @@ export function SignUpFlow({
             )}
           </Pressable>
         </View>
-      </View>
-    </TouchableWithoutFeedback>
+    </View>
   );
 }
 

@@ -1,5 +1,5 @@
 import { router } from 'expo-router';
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Icon, type AppIconName } from '../components/Icon';
 import { theme } from '../theme/theme';
 
@@ -16,12 +16,15 @@ export default function CreateModalRoute() {
       router.replace('/create-story');
       return;
     }
-    if (key === 'video' || key === 'community') {
+    if (key === 'video') {
       router.replace('/create-post');
       return;
     }
-
-    Alert.alert('Live', 'Live is not available yet.');
+    if (key === 'live') {
+      router.replace('/live/create');
+      return;
+    }
+    router.replace('/community/create-post');
   };
 
   return (

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   calculateAge,
   changePasswordResetStep,
+  getSignupErrorMessage,
   getPasswordStrength,
   isValidUsername,
   validateBirthday,
@@ -56,6 +57,35 @@ describe('signup validation', () => {
     expect(isValidUsername('ab')).toBe(false);
     expect(isValidUsername('a'.repeat(21))).toBe(false);
     expect(isValidUsername('bad-name')).toBe(false);
+  });
+
+  it('rejects reserved profile names before submission', () => {
+    expect(validateProfile('admin', 'Name')).toBe('That username is not available.');
+    expect(validateProfile('WIMPEX', 'Name')).toBe('That username is not available.');
+    expect(validateProfile('normal_name', 'Name')).toBeUndefined();
+  });
+
+  it('extracts useful signup errors from Supabase error objects', () => {
+    expect(getSignupErrorMessage({ code: '23505', message: 'duplicate key' })).toBe(
+      'That username is taken. Try another.',
+    );
+    expect(getSignupErrorMessage({ code: '23514', details: 'age constraint' })).toBe(
+      'You must be 13 or older to join Wimpex.',
+    );
+    expect(getSignupErrorMessage({ code: '42501' })).toBe(
+      'You do not have permission to complete this step.',
+    );
+    expect(getSignupErrorMessage({ message: 'Network request failed' })).toBe(
+      'No connection. Check your internet and try again.',
+    );
+    expect(getSignupErrorMessage({
+      message: 'Database rejected signup.',
+      details: 'A required policy is missing.',
+      hint: 'Apply the profile migration.',
+      code: 'P0001',
+    })).toBe(
+      'Database rejected signup. A required policy is missing. Apply the profile migration. Code: P0001',
+    );
   });
 
   it('validates credentials, dates, profile details, and interests', () => {

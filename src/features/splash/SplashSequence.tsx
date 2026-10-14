@@ -1,7 +1,9 @@
 import { router } from 'expo-router';
-import { Component, useCallback, useEffect, useMemo, useState, type ErrorInfo, type ReactNode } from 'react';
+import { Component, useCallback, useEffect, useMemo, useRef, useState, type ErrorInfo, type ReactNode } from 'react';
 import {
   ActivityIndicator,
+  Keyboard,
+  KeyboardAvoidingView,
   PanResponder,
   Pressable,
   Platform,
@@ -81,6 +83,9 @@ function LoginField({
   keyboardType,
   secureTextEntry,
   error,
+  inputRef,
+  onSubmitEditing,
+  returnKeyType,
 }: {
   label: string;
   value: string;
@@ -88,6 +93,9 @@ function LoginField({
   keyboardType?: 'email-address';
   secureTextEntry?: boolean;
   error?: string;
+  inputRef?: React.RefObject<TextInput | null>;
+  onSubmitEditing?: () => void;
+  returnKeyType: 'next' | 'done';
 }) {
   const [focused, setFocused] = useState(false);
   const [visible, setVisible] = useState(false);
@@ -110,16 +118,18 @@ function LoginField({
     <Animated.View style={shakeStyle}>
       <View style={[styles.field, focused && styles.fieldFocused, error && styles.fieldError]}>
         <TextInput
+          ref={inputRef}
           value={value}
           onChangeText={onChangeText}
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
+          onSubmitEditing={onSubmitEditing}
           keyboardType={keyboardType}
           autoCapitalize="none"
           autoCorrect={false}
           secureTextEntry={secureTextEntry && !visible}
           keyboardAppearance="dark"
-          returnKeyType="next"
+          returnKeyType={returnKeyType}
           accessibilityLabel={label}
           style={[styles.input, floated && styles.inputFloated, secureTextEntry && styles.passwordInput]}
         />
@@ -305,6 +315,7 @@ const finishStyles = StyleSheet.create({
 
 export function SplashSequence() {
   const { height } = useWindowDimensions();
+  const [authCardHeight] = useState(() => height * 0.7);
   const reduceMotion = useReducedMotion();
   const signupStep = useAuthFlow((state) => state.currentStep);
   const signupFlowType = useAuthFlow((state) => state.flowType);
@@ -329,6 +340,8 @@ export function SplashSequence() {
   const [password, setPassword] = useState('');
   const [errors, setErrors] = useState<Partial<Record<LoginFieldName, string>>>({});
   const [authError, setAuthError] = useState('');
+  const loginEmailRef = useRef<TextInput>(null);
+  const loginPasswordRef = useRef<TextInput>(null);
   const [buttonState, setButtonState] = useState<'idle' | 'loading' | 'success'>('idle');
   const [toast, setToast] = useState('');
   const [segmentWidth, setSegmentWidth] = useState(0);
@@ -482,6 +495,7 @@ export function SplashSequence() {
   );
 
   const openAuth = (mode: AuthMode) => {
+    Keyboard.dismiss();
     setAuthMode(mode);
     setResetOpen(false);
     setResetStep(0);
@@ -503,6 +517,7 @@ export function SplashSequence() {
   }, [signupFlowType, signupHydrated, signupStep]);
 
   const handleAuthBack = () => {
+    Keyboard.dismiss();
     if (resetOpen) {
       if (resetStep > 0) {
         setResetStep(changePasswordResetStep(resetStep, 'back'));
@@ -523,6 +538,7 @@ export function SplashSequence() {
   };
 
   const closeAuth = () => {
+    Keyboard.dismiss();
     setResetOpen(false);
     setResetStep(0);
     if (skiaFailed) {
@@ -552,6 +568,7 @@ export function SplashSequence() {
     displayName: string;
     avatarUri: string | null;
   }) => {
+    Keyboard.dismiss();
     useAuthFlow.getState().resetSignup();
     setSignupData({
       flowType: 'social',
@@ -566,6 +583,7 @@ export function SplashSequence() {
 
   const submitSocialSignIn = async (provider: 'google' | 'apple') => {
     if (socialState !== 'idle') return;
+    Keyboard.dismiss();
     setSocialState('loading');
     setAuthError('');
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch((error: unknown) => {
@@ -615,6 +633,7 @@ export function SplashSequence() {
   };
 
   const submitLogin = async () => {
+    Keyboard.dismiss();
     const nextErrors: Partial<Record<LoginFieldName, string>> = {};
     if (!/^\S+@\S+\.\S+$/.test(email)) nextErrors.email = 'Enter a valid email address.';
     if (password.length < 8) nextErrors.password = 'Password must be at least 8 characters.';
@@ -719,9 +738,14 @@ export function SplashSequence() {
       </Animated.View>
 
       <Animated.View
-        style={[styles.authCard, { height: height * 0.7 }, cardStyle]}
+        style={[styles.authCard, { height: authCardHeight, maxHeight: '100%' }, cardStyle]}
         pointerEvents={authOpen ? 'auto' : 'none'}
       >
+        <KeyboardAvoidingView
+          style={styles.authCardKeyboard}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          enabled={authOpen}
+        >
         <View style={styles.authHeader}>
           <Pressable onPress={handleAuthBack} style={styles.backButton} accessibilityRole="button" accessibilityLabel="Back">
             <Icon name="back" size={20} color={theme.colors.white} />
@@ -737,7 +761,10 @@ export function SplashSequence() {
             <View style={styles.segment} onLayout={(event) => setSegmentWidth(event.nativeEvent.layout.width)}>
               <Animated.View style={[styles.segmentPill, segmentPillStyle]} />
               <Pressable
-                onPress={() => setAuthMode('login')}
+                onPress={() => {
+                  Keyboard.dismiss();
+                  setAuthMode('login');
+                }}
                 style={styles.segmentButton}
                 accessibilityRole="button"
                 accessibilityState={{ selected: authMode === 'login' }}
@@ -746,6 +773,7 @@ export function SplashSequence() {
               </Pressable>
               <Pressable
                 onPress={() => {
+                  Keyboard.dismiss();
                   setAuthMode('signup');
                   setSignupData({ flowType: 'email' });
                   setErrors({});
@@ -768,6 +796,7 @@ export function SplashSequence() {
             setStep={setResetStep}
             onToast={showToast}
             onFinished={() => {
+              Keyboard.dismiss();
               setResetOpen(false);
               setResetStep(0);
               setSignupFinish({
@@ -784,10 +813,12 @@ export function SplashSequence() {
               style={styles.authBody}
               contentContainerStyle={styles.authBodyContent}
               keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
               showsVerticalScrollIndicator={false}
             >
               <LoginField
                 label="Email"
+                inputRef={loginEmailRef}
                 value={email}
                 onChangeText={(value) => {
                   setEmail(value);
@@ -795,9 +826,12 @@ export function SplashSequence() {
                 }}
                 keyboardType="email-address"
                 error={errors.email}
+                returnKeyType="next"
+                onSubmitEditing={() => loginPasswordRef.current?.focus()}
               />
               <LoginField
                 label="Password"
+                inputRef={loginPasswordRef}
                 value={password}
                 onChangeText={(value) => {
                   setPassword(value);
@@ -805,9 +839,12 @@ export function SplashSequence() {
                 }}
                 secureTextEntry
                 error={errors.password}
+                returnKeyType="done"
+                onSubmitEditing={() => void submitLogin()}
               />
               <Pressable
                 onPress={() => {
+                  Keyboard.dismiss();
                   setResetStep(0);
                   setResetOpen(true);
                   setAuthError('');
@@ -882,11 +919,15 @@ export function SplashSequence() {
         ) : (
           <SignUpFlow
             onToast={showToast}
-            onSwitchToLogin={() => setAuthMode('login')}
+            onSwitchToLogin={() => {
+              Keyboard.dismiss();
+              setAuthMode('login');
+            }}
             onFinished={(displayName, username) => setSignupFinish({ displayName, username })}
             onUnderage={deleteUnderageSocialAccount}
           />
         )}
+        </KeyboardAvoidingView>
       </Animated.View>
 
       {signupFinish ? (
@@ -955,6 +996,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 16,
     paddingBottom: 18,
+  },
+  authCardKeyboard: {
+    flex: 1,
+    minHeight: 0,
   },
   authHeader: {
     flexDirection: 'row',
