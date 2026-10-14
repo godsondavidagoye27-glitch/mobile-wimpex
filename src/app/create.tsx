@@ -3,7 +3,7 @@ import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Icon, type AppIconName } from '../components/Icon';
 import { theme } from '../theme/theme';
 
-const createOptions: Array<{ key: string; title: string; description: string; icon: AppIconName }> = [
+const createOptions: { key: string; title: string; description: string; icon: AppIconName }[] = [
   { key: 'video', title: 'Video', description: 'Record or upload a clip', icon: 'video' },
   { key: 'story', title: 'Story', description: 'Share a quick update', icon: 'sparkles' },
   { key: 'live', title: 'Live', description: 'Go live with your audience', icon: 'live' },
@@ -12,12 +12,16 @@ const createOptions: Array<{ key: string; title: string; description: string; ic
 
 export default function CreateModalRoute() {
   const handlePress = (key: string) => {
+    if (key === 'story') {
+      router.replace('/create-story');
+      return;
+    }
     if (key === 'video' || key === 'community') {
       router.replace('/create-post');
       return;
     }
 
-    Alert.alert(key === 'story' ? 'Story' : 'Live', key === 'story' ? 'Story is not available yet.' : 'Live is not available yet.');
+    Alert.alert('Live', 'Live is not available yet.');
   };
 
   return (

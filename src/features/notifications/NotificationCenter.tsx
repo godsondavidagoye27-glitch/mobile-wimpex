@@ -24,6 +24,7 @@ type NotificationRow = {
   post_id: string | null;
   comment_id: string | null;
   community_id: string | null;
+  live_stream_id: string | null;
   read_at: string | null;
   created_at: string;
   actor: { username: string; display_name: string; avatar_url: string | null } | null;
@@ -34,7 +35,7 @@ type NotificationSection = {
   data: NotificationRow[];
 };
 
-const notificationSelect = 'id,user_id,actor_id,type,post_id,comment_id,community_id,read_at,created_at';
+const notificationSelect = 'id,user_id,actor_id,type,post_id,comment_id,community_id,live_stream_id,read_at,created_at';
 
 function initials(displayName: string) {
   return displayName.trim().split(/\s+/).slice(0, 2).map((part) => part[0]?.toUpperCase() ?? '').join('');
@@ -210,6 +211,26 @@ export function NotificationCenter() {
     }
     if (notification.type === 'follow_request') {
       router.push('/follow-requests');
+      return;
+    }
+    if (notification.type === 'live') {
+      if (!notification.live_stream_id) {
+        setError('This live stream is no longer available.');
+        return;
+      }
+      try {
+        const { data, error: streamError } = await getSupabaseClient().rpc('get_live_stream', {
+          p_stream_id: notification.live_stream_id,
+        });
+        if (streamError) throw streamError;
+        if (!data?.length) {
+          setError('This live stream is no longer available.');
+          return;
+        }
+        router.push({ pathname: '/live/[streamId]', params: { streamId: notification.live_stream_id } });
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : 'Unable to open this live stream.');
+      }
       return;
     }
     if (

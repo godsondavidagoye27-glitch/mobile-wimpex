@@ -21,11 +21,13 @@ import {
   getPushPermissionGranted,
   syncPushTokenForCurrentSession,
 } from '../features/notifications/pushNotifications';
+import { preferenceStorage } from '../lib/storage';
 import { getSupabaseClient } from '../lib/supabase';
-import { theme } from '../theme/theme';
+import { resolveThemeMode, theme, type AppThemeMode } from '../theme/theme';
 import type { Database, ProfileRpcRow } from '../types/database';
 
 type PrivacyPolicy = 'everyone' | 'friends' | 'none';
+type StoryReplyPolicy = 'everyone' | 'followers' | 'off';
 type NotificationSettingKey =
   | 'push_enabled'
   | 'notify_likes'
@@ -45,6 +47,7 @@ type SettingsValues = {
   show_online_status: boolean;
   show_liked_videos: boolean;
   personalized_recommendations: boolean;
+  story_replies: StoryReplyPolicy;
 };
 
 const defaultSettings: SettingsValues = {
@@ -57,6 +60,7 @@ const defaultSettings: SettingsValues = {
   show_online_status: true,
   show_liked_videos: false,
   personalized_recommendations: true,
+  story_replies: 'everyone',
 };
 
 const messagePolicies: { value: PrivacyPolicy; label: string }[] = [
@@ -76,12 +80,18 @@ export default function SettingsScreen() {
   const [isMinor, setIsMinor] = useState(false);
   const [pushPermissionGranted, setPushPermissionGranted] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [themeMode, setThemeMode] = useState<AppThemeMode>('dark');
   const [error, setError] = useState('');
   const [policyOpen, setPolicyOpen] = useState(false);
+  const [storyRepliesOpen, setStoryRepliesOpen] = useState(false);
   const [dialog, setDialog] = useState<'logout' | 'delete' | null>(null);
   const [typedUsername, setTypedUsername] = useState('');
   const [saving, setSaving] = useState(false);
   const followRequestCount = useFollowRequestCount(profile !== null);
+
+  useEffect(() => {
+    void preferenceStorage.getItem('wimpex.app.theme-mode').then((value) => setThemeMode(resolveThemeMode(value))).catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -94,7 +104,7 @@ export default function SettingsScreen() {
         const [profileResult, settingsResult, birthResult] = await Promise.all([
           client.rpc('get_profile', { p_username: null }),
           client.from('user_settings')
-            .select('push_enabled,notify_likes,notify_comments,notify_followers,notify_messages,notify_live,show_online_status,show_liked_videos,personalized_recommendations')
+            .select('push_enabled,notify_likes,notify_comments,notify_followers,notify_messages,notify_live,show_online_status,show_liked_videos,personalized_recommendations,story_replies')
             .eq('user_id', authResult.user.id)
             .maybeSingle(),
           client.from('profiles').select('date_of_birth').eq('id', authResult.user.id).maybeSingle(),
@@ -215,6 +225,16 @@ export default function SettingsScreen() {
     }
   };
 
+  const persistTheme = async (value: boolean) => {
+    const nextMode: AppThemeMode = value ? 'light' : 'dark';
+    setThemeMode(nextMode);
+    try {
+      await preferenceStorage.setItem('wimpex.app.theme-mode', nextMode);
+    } catch (caught) {
+      setError(`Could not save appearance preference. ${errorMessage(caught)}`);
+    }
+  };
+
   const persistPrivacy = async (value: boolean) => {
     if (!profile) return;
     setError('');
@@ -241,6 +261,25 @@ export default function SettingsScreen() {
       setProfile((current) => current ? { ...current, dm_policy: value } : current);
     } catch (caught) {
       setError(`Could not update who can message you. ${errorMessage(caught)}`);
+    }
+  };
+
+  const persistStoryReplyPolicy = async (value: StoryReplyPolicy) => {
+    setStoryRepliesOpen(false);
+    if (!profile) return;
+    const safeValue = isMinor ? 'followers' : value;
+    const previous = settings.story_replies;
+    setSettings((current) => ({ ...current, story_replies: safeValue }));
+    setError('');
+    try {
+      const { error: saveError } = await getSupabaseClient().from('user_settings').upsert(
+        { user_id: profile.id, story_replies: safeValue },
+        { onConflict: 'user_id' },
+      );
+      if (saveError) throw saveError;
+    } catch (caught) {
+      setSettings((current) => ({ ...current, story_replies: previous }));
+      setError(`Could not save who can reply to your stories. ${errorMessage(caught)}`);
     }
   };
 
@@ -332,11 +371,24 @@ export default function SettingsScreen() {
         <Text style={styles.sectionTitle}>Privacy</Text>
         {renderRow('Private account', 'shield', renderSwitch(profile.is_private, (value) => void persistPrivacy(value)), undefined, saving)}
         {renderRow('Who can message me', 'message', <View style={styles.valueWrap}><Text style={styles.valueText}>{messagePolicyLabel}</Text><Icon name="chevronRight" size={20} color={theme.colors.textMuted} /></View>, () => setPolicyOpen(true))}
+        {renderRow('Close friends', 'groups', <Icon name="chevronRight" size={20} color={theme.colors.textMuted} />, () => router.push('/close-friends'))}
+        {renderRow(
+          'Who can reply to my stories',
+          'message',
+          <View style={styles.valueWrap}>
+            <Text style={styles.valueText}>{isMinor ? 'Followers' : settings.story_replies[0].toUpperCase() + settings.story_replies.slice(1)}</Text>
+            <Icon name="chevronRight" size={20} color={theme.colors.textMuted} />
+          </View>,
+          () => setStoryRepliesOpen(true),
+        )}
         {renderRow('Show my online status', 'eye', renderSwitch(settings.show_online_status, (value) => void persistNotification('show_online_status', value), isMinor), undefined, isMinor)}
         {renderRow('Show my liked videos', 'heart', renderSwitch(settings.show_liked_videos, (value) => void persistPreference('show_liked_videos', value)))}
         {renderRow('Follow requests', 'user', <View style={styles.valueWrap}>{followRequestCount > 0 ? <Text style={styles.badgeText}>{followRequestCount}</Text> : null}<Icon name="chevronRight" size={20} color={theme.colors.textMuted} /></View>, () => router.push('/follow-requests'))}
         {renderRow('Blocked users', 'ban', <Icon name="chevronRight" size={20} color={theme.colors.textMuted} />, () => router.push('/blocked-users'))}
         {renderRow('Personalized recommendations', 'sparkles', renderSwitch(settings.personalized_recommendations, (value) => void persistPreference('personalized_recommendations', value)))}
+
+        <Text style={styles.sectionTitle}>Appearance</Text>
+        {renderRow('Light theme', themeMode === 'light' ? 'sun' : 'moon', renderSwitch(themeMode === 'light', (value) => void persistTheme(value)))}
 
         <Text style={styles.sectionTitle}>Notifications</Text>
         {renderRow('Push notifications', 'bell', renderSwitch(settings.push_enabled && pushPermissionGranted, (value) => void persistNotification('push_enabled', value)))}
@@ -368,6 +420,24 @@ export default function SettingsScreen() {
             </Pressable>
           ))}
           <Pressable style={styles.sheetCancel} onPress={() => setPolicyOpen(false)}><Text style={styles.cancelText}>Cancel</Text></Pressable>
+        </View>
+      </Modal>
+
+      <Modal transparent animationType="slide" visible={storyRepliesOpen} onRequestClose={() => setStoryRepliesOpen(false)}>
+        <Pressable style={styles.modalOverlay} onPress={() => setStoryRepliesOpen(false)} />
+        <View style={styles.sheet}>
+          <Text style={styles.sheetTitle}>Who can reply to my stories</Text>
+          {(isMinor ? [{ value: 'followers' as const, label: 'Followers' }] : [
+            { value: 'everyone' as const, label: 'Everyone' },
+            { value: 'followers' as const, label: 'Followers' },
+            { value: 'off' as const, label: 'Off' },
+          ]).map((item) => (
+            <Pressable key={item.value} style={styles.sheetRow} onPress={() => void persistStoryReplyPolicy(item.value)}>
+              <Text style={styles.sheetRowLabel}>{item.label}</Text>
+              {settings.story_replies === item.value ? <Icon name="check" size={20} color={theme.colors.primary} /> : null}
+            </Pressable>
+          ))}
+          <Pressable style={styles.sheetCancel} onPress={() => setStoryRepliesOpen(false)}><Text style={styles.cancelText}>Cancel</Text></Pressable>
         </View>
       </Modal>
 

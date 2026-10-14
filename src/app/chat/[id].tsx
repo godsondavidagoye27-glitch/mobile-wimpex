@@ -6,6 +6,7 @@ import {
   Alert,
   Animated,
   FlatList,
+  Image,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -20,7 +21,9 @@ import {
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import * as Crypto from 'expo-crypto';
+import { VideoView, useVideoPlayer } from 'expo-video';
 import { Icon } from '../../components/Icon';
+import { getStoryReplyPreviewUrl } from '../../features/stories/storyService';
 import { ChatMediaComposer } from '../../features/chats/ChatMediaComposer';
 import { ChatMediaMessage } from '../../features/chats/ChatMediaMessage';
 import {
@@ -50,6 +53,14 @@ type ReactionGroup = { emoji: string; count: number; mine: boolean };
 
 const quickReactions = ['❤️', '😂', '👍', '😮', '😢', '🔥'];
 const messageViewability = { itemVisiblePercentThreshold: 70 };
+
+function StoryReplyVideoPreview({ uri }: { uri: string }) {
+  const player = useVideoPlayer(uri, (videoPlayer) => {
+    videoPlayer.muted = true;
+    videoPlayer.loop = false;
+  });
+  return <VideoView player={player} style={styles.storyReplyImage} contentFit="cover" nativeControls={false} />;
+}
 
 function dateLabel(value: string) {
   const date = new Date(value);
@@ -190,7 +201,10 @@ export default function ChatThreadScreen() {
       return next;
     });
     try {
-      const signedUrl = await createChatMediaSignedUrl(supabase, path);
+      const isStoryReplyPreview = messagesRef.current.some((message) => message.story_reply_preview_path === path);
+      const signedUrl = isStoryReplyPreview
+        ? await getStoryReplyPreviewUrl(path, supabase)
+        : await createChatMediaSignedUrl(supabase, path);
       setSignedMediaUrls((current) => ({ ...current, [path]: signedUrl }));
       setMediaLoadStatus((current) => ({ ...current, [path]: 'ready' }));
     } catch (mediaError) {
@@ -202,7 +216,8 @@ export default function ChatThreadScreen() {
   }, [supabase]);
 
   useEffect(() => {
-    const paths = new Set(messages.map((message) => message.media_path).filter((path): path is string => Boolean(path)));
+    const paths = new Set(messages.flatMap((message) => [message.media_path, message.story_reply_preview_path])
+      .filter((path): path is string => Boolean(path)));
     paths.forEach((path) => {
       if (!mediaLoadStatus[path]) void refreshSignedMedia(path);
     });
@@ -579,6 +594,9 @@ export default function ChatThreadScreen() {
       width: attachment?.width ?? null,
       height: attachment?.height ?? null,
       reply_to_id: replyTo?.id ?? null,
+      story_reply_story_id: null,
+      story_reply_preview_path: null,
+      story_reply_caption: null,
       created_at: new Date().toISOString(),
       deleted_at: null,
       deliveryState: 'sending',
@@ -712,6 +730,7 @@ export default function ChatThreadScreen() {
         system: '',
         text: '',
       }[item.kind] ?? '');
+    const storyPreviewIsVideo = Boolean(item.story_reply_preview_path && /\.(mp4|mov)$/i.test(item.story_reply_preview_path));
     const itemReactions = reactions[item.id] ?? [];
     return (
       <View>
@@ -736,6 +755,36 @@ export default function ChatThreadScreen() {
                 <Text style={styles.replyQuoteText} numberOfLines={2}>
                   {item.replyPreview ?? messages.find((message) => message.id === item.reply_to_id)?.body ?? 'Replied message'}
                 </Text>
+              </View>
+            ) : null}
+            {item.story_reply_preview_path && !item.deleted_at ? (
+              <View style={styles.storyReplyCard}>
+                {signedMediaUrls[item.story_reply_preview_path] ? (
+                  storyPreviewIsVideo ? (
+                    <StoryReplyVideoPreview uri={signedMediaUrls[item.story_reply_preview_path]} />
+                  ) : (
+                    <Image source={{ uri: signedMediaUrls[item.story_reply_preview_path] }} style={styles.storyReplyImage} />
+                  )
+                ) : (
+                  <Pressable
+                    onPress={() => void refreshSignedMedia(item.story_reply_preview_path!)}
+                    style={styles.storyReplyImagePlaceholder}
+                    accessibilityRole="button"
+                    accessibilityLabel={storyPreviewIsVideo ? 'Video story preview' : 'Load story preview'}
+                  >
+                    {storyPreviewIsVideo ? (
+                      <Icon name="play" size={20} color={theme.colors.white} />
+                    ) : (
+                      <Text style={styles.storyReplyPlaceholderText}>Story</Text>
+                    )}
+                  </Pressable>
+                )}
+                <View style={styles.storyReplyContent}>
+                  <Text style={styles.storyReplyLabel}>{item.sender_id === userId ? 'You replied to their story' : 'Replied to your story'}</Text>
+                  {item.story_reply_caption ? (
+                    <Text numberOfLines={2} style={styles.storyReplyCaption}>{item.story_reply_caption}</Text>
+                  ) : null}
+                </View>
               </View>
             ) : null}
             {item.deleted_at ? (
@@ -1088,6 +1137,13 @@ const styles = StyleSheet.create({
   deletedText: { fontStyle: 'italic', opacity: 0.7 },
   replyQuote: { borderLeftWidth: 2, borderLeftColor: theme.colors.primary, paddingLeft: 8, marginBottom: 6 },
   replyQuoteText: { color: theme.colors.textMuted, fontSize: 12 },
+  storyReplyCard: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 7, padding: 6, borderRadius: 10, backgroundColor: 'rgba(15,23,42,0.12)' },
+  storyReplyImage: { width: 44, height: 54, borderRadius: 6, backgroundColor: theme.colors.surface },
+  storyReplyImagePlaceholder: { width: 44, height: 54, alignItems: 'center', justifyContent: 'center', borderRadius: 6, backgroundColor: theme.colors.surface },
+  storyReplyPlaceholderText: { color: theme.colors.textMuted, fontSize: 10, fontWeight: '700' },
+  storyReplyContent: { flex: 1 },
+  storyReplyLabel: { color: theme.colors.primary, fontSize: 11, fontWeight: '800' },
+  storyReplyCaption: { marginTop: 2, color: theme.colors.textMuted, fontSize: 12 },
   timestamp: { color: theme.colors.textMuted, fontSize: 10, marginLeft: 10, marginBottom: 4 },
   timestampMine: { textAlign: 'right', marginRight: 10, marginLeft: 0 },
   seenText: { color: theme.colors.black, fontSize: 10, fontWeight: '700', marginTop: 4, textAlign: 'right' },

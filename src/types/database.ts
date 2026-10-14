@@ -161,6 +161,56 @@ export type CommunityMemberRpcRow = {
 };
 export type CommunityListRpcRow = Omit<CommunityRow, 'interest_match'>;
 
+export type StoryRailRow = {
+  author_id: string;
+  display_name: string;
+  username: string;
+  avatar_url: string | null;
+  story_count: number;
+  has_unseen: boolean;
+  is_close_friends_audience: boolean;
+  latest_created_at: string | null;
+  is_owner: boolean;
+};
+
+export type AuthorStoryRpcRow = {
+  id: string;
+  kind: 'image' | 'video';
+  media_path: string;
+  thumb_path: string | null;
+  caption: string | null;
+  caption_style: Json | null;
+  audience: 'everyone' | 'followers' | 'close_friends';
+  duration_ms: number;
+  width: number;
+  height: number;
+  created_at: string;
+  expires_at: string;
+  has_viewed: boolean;
+  view_count: number | null;
+};
+
+export type LiveStreamRpcRow = {
+  stream_id: string;
+  host_id: string;
+  title: string;
+  status: 'starting' | 'live' | 'ended';
+  created_at: string;
+  started_at: string;
+  host_username: string;
+  host_display_name: string;
+  host_avatar_url: string | null;
+};
+
+export type LiveMessageRow = {
+  id: string;
+  stream_id: string;
+  author_id: string;
+  body: string;
+  created_at: string;
+  deleted_at: string | null;
+};
+
 type Relationships = [];
 
 export type Database = {
@@ -227,6 +277,123 @@ export type Database = {
         Row: { profile_id: string; interest: string };
         Insert: { profile_id: string; interest: string };
         Update: { profile_id?: string; interest?: string };
+        Relationships: Relationships;
+      };
+      stories: {
+        Row: {
+          id: string;
+          author_id: string;
+          kind: 'image' | 'video';
+          media_path: string;
+          thumb_path: string | null;
+          caption: string | null;
+          caption_style: Json | null;
+          audience: 'everyone' | 'followers' | 'close_friends';
+          duration_ms: number;
+          width: number;
+          height: number;
+          created_at: string;
+          expires_at: string;
+          deleted_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          author_id: string;
+          kind: 'image' | 'video';
+          media_path: string;
+          thumb_path?: string | null;
+          caption?: string | null;
+          caption_style?: Json | null;
+          audience?: 'everyone' | 'followers' | 'close_friends';
+          duration_ms: number;
+          width: number;
+          height: number;
+          created_at?: string;
+          expires_at?: string;
+          deleted_at?: string | null;
+        };
+        Update: {
+          id?: string;
+          author_id?: string;
+          kind?: 'image' | 'video';
+          media_path?: string;
+          thumb_path?: string | null;
+          caption?: string | null;
+          caption_style?: Json | null;
+          audience?: 'everyone' | 'followers' | 'close_friends';
+          duration_ms?: number;
+          width?: number;
+          height?: number;
+          created_at?: string;
+          expires_at?: string;
+          deleted_at?: string | null;
+        };
+        Relationships: Relationships;
+      };
+      story_views: {
+        Row: { story_id: string; viewer_id: string; viewed_at: string };
+        Insert: { story_id: string; viewer_id: string; viewed_at?: string };
+        Update: { story_id?: string; viewer_id?: string; viewed_at?: string };
+        Relationships: Relationships;
+      };
+      close_friends: {
+        Row: { owner_id: string; friend_id: string; created_at: string };
+        Insert: { owner_id: string; friend_id: string; created_at?: string };
+        Update: { owner_id?: string; friend_id?: string; created_at?: string };
+        Relationships: Relationships;
+      };
+      live_streams: {
+        Row: {
+          id: string;
+          host_id: string;
+          room_name: string;
+          title: string;
+          status: 'starting' | 'live' | 'ended';
+          created_at: string;
+          started_at: string | null;
+          heartbeat_at: string;
+          ended_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          host_id: string;
+          room_name: string;
+          title?: string;
+          status?: 'starting' | 'live' | 'ended';
+          created_at?: string;
+          started_at?: string | null;
+          heartbeat_at?: string;
+          ended_at?: string | null;
+        };
+        Update: {
+          id?: string;
+          host_id?: string;
+          room_name?: string;
+          title?: string;
+          status?: 'starting' | 'live' | 'ended';
+          created_at?: string;
+          started_at?: string | null;
+          heartbeat_at?: string;
+          ended_at?: string | null;
+        };
+        Relationships: Relationships;
+      };
+      live_messages: {
+        Row: LiveMessageRow;
+        Insert: { id?: string; stream_id: string; author_id: string; body: string; created_at?: string; deleted_at?: string | null };
+        Update: { id?: string; stream_id?: string; author_id?: string; body?: string; created_at?: string; deleted_at?: string | null };
+        Relationships: Relationships;
+      };
+      live_mutes: {
+        Row: { stream_id: string; user_id: string; muted_by: string; expires_at: string; created_at: string };
+        Insert: { stream_id: string; user_id: string; muted_by: string; expires_at: string; created_at?: string };
+        Update: { stream_id?: string; user_id?: string; muted_by?: string; expires_at?: string; created_at?: string };
+        Relationships: Relationships;
+      };
+      live_bans: {
+        Row: { stream_id: string; user_id: string; banned_by: string; reason: string | null; expires_at: string | null; created_at: string };
+        Insert: { stream_id: string; user_id: string; banned_by: string; reason?: string | null; expires_at?: string | null; created_at?: string };
+        Update: { stream_id?: string; user_id?: string; banned_by?: string; reason?: string | null; expires_at?: string | null; created_at?: string };
         Relationships: Relationships;
       };
       posts: {
@@ -397,6 +564,7 @@ export type Database = {
           post_id: string | null;
           comment_id: string | null;
           community_id: string | null;
+          live_stream_id: string | null;
           read_at: string | null;
           created_at: string;
         };
@@ -408,6 +576,7 @@ export type Database = {
           post_id?: string | null;
           comment_id?: string | null;
           community_id?: string | null;
+          live_stream_id?: string | null;
           read_at?: string | null;
           created_at?: string;
         };
@@ -419,6 +588,7 @@ export type Database = {
           post_id?: string | null;
           comment_id?: string | null;
           community_id?: string | null;
+          live_stream_id?: string | null;
           read_at?: string | null;
           created_at?: string;
         };
@@ -591,6 +761,9 @@ export type Database = {
           width: number | null;
           height: number | null;
           reply_to_id: string | null;
+          story_reply_story_id: string | null;
+          story_reply_preview_path: string | null;
+          story_reply_caption: string | null;
           created_at: string;
           deleted_at: string | null;
         };
@@ -607,6 +780,9 @@ export type Database = {
           width?: number | null;
           height?: number | null;
           reply_to_id?: string | null;
+          story_reply_story_id?: string | null;
+          story_reply_preview_path?: string | null;
+          story_reply_caption?: string | null;
           created_at?: string;
           deleted_at?: string | null;
         };
@@ -623,6 +799,9 @@ export type Database = {
           width?: number | null;
           height?: number | null;
           reply_to_id?: string | null;
+          story_reply_story_id?: string | null;
+          story_reply_preview_path?: string | null;
+          story_reply_caption?: string | null;
           created_at?: string;
           deleted_at?: string | null;
         };
@@ -670,6 +849,7 @@ export type Database = {
           show_online_status: boolean;
           show_liked_videos: boolean;
           personalized_recommendations: boolean;
+          story_replies: 'everyone' | 'followers' | 'off';
         };
         Insert: {
           user_id: string;
@@ -682,6 +862,7 @@ export type Database = {
           show_online_status?: boolean;
           show_liked_videos?: boolean;
           personalized_recommendations?: boolean;
+          story_replies?: 'everyone' | 'followers' | 'off';
         };
         Update: {
           user_id?: string;
@@ -694,6 +875,7 @@ export type Database = {
           show_online_status?: boolean;
           show_liked_videos?: boolean;
           personalized_recommendations?: boolean;
+          story_replies?: 'everyone' | 'followers' | 'off';
         };
         Relationships: Relationships;
       };
@@ -772,6 +954,43 @@ export type Database = {
     };
     Views: Record<string, never>;
     Functions: {
+      can_view_story: { Args: { p_story_id: string; p_viewer_id?: string }; Returns: boolean };
+      can_reply_to_story: { Args: { p_story_id: string }; Returns: boolean };
+      send_story_reply: { Args: { p_story_id: string; p_body: string }; Returns: string };
+      story_reply_media_is_referenced: { Args: { p_path: string }; Returns: boolean };
+      get_story_rail: { Args: Record<string, never>; Returns: StoryRailRow[] };
+      get_author_stories: { Args: { p_author_id: string }; Returns: AuthorStoryRpcRow[] };
+      mark_story_viewed: { Args: { p_story_id: string }; Returns: undefined };
+      get_story_viewers: {
+        Args: {
+          p_story_id: string;
+          p_cursor_viewed_at?: string | null;
+          p_cursor_viewer_id?: string | null;
+        };
+        Returns: Json;
+      };
+      start_live: { Args: { p_title?: string }; Returns: string };
+      mark_live_started: { Args: { p_stream_id: string }; Returns: boolean };
+      live_heartbeat: { Args: { p_stream_id: string }; Returns: boolean };
+      end_live: { Args: { p_stream_id: string }; Returns: boolean };
+      can_view_live: { Args: { p_stream_id: string; p_viewer_id?: string }; Returns: boolean };
+      get_live_streams: { Args: { p_limit?: number }; Returns: LiveStreamRpcRow[] };
+      get_live_stream: { Args: { p_stream_id: string }; Returns: LiveStreamRpcRow[] };
+      send_live_message: { Args: { p_stream_id: string; p_body: string }; Returns: string };
+      delete_live_message: { Args: { p_stream_id: string; p_message_id: string }; Returns: boolean };
+      mute_live_user: { Args: { p_stream_id: string; p_user_id: string; p_duration_seconds?: number }; Returns: string };
+      ban_live_user: { Args: { p_stream_id: string; p_user_id: string; p_reason?: string | null; p_duration_seconds?: number | null }; Returns: boolean };
+      delete_story: { Args: { p_story_id: string }; Returns: undefined };
+      add_close_friend: { Args: { p_friend_id: string }; Returns: undefined };
+      remove_close_friend: { Args: { p_friend_id: string }; Returns: undefined };
+      get_close_friends: {
+        Args: { p_query?: string; p_cursor?: string | null };
+        Returns: { friend_id: string; display_name: string; username: string }[];
+      };
+      get_close_friend_candidates: {
+        Args: { p_query?: string; p_cursor?: string | null };
+        Returns: { user_id: string; display_name: string; username: string }[];
+      };
       apply_profile_age_defaults: { Args: Record<string, never>; Returns: unknown };
       can_view_post: { Args: { p_post_id: string; p_viewer_id: string }; Returns: boolean };
       finalize_post: { Args: { post_id: string }; Returns: undefined };

@@ -1,11 +1,3 @@
-export const stories = [
-  { id: 'you', name: 'Your story', initial: 'Y', color: '#38BDF8', isOwner: true },
-  { id: 'mila', name: 'Mila', initial: 'M', color: '#22C55E' },
-  { id: 'zoe', name: 'Zoe', initial: 'Z', color: '#38BDF8' },
-  { id: 'leo', name: 'Leo', initial: 'L', color: '#22C55E' },
-  { id: 'noah', name: 'Noah', initial: 'N', color: '#38BDF8' },
-];
-
 export const feed = [
   {
     id: '1',
@@ -46,11 +38,6 @@ export const feed = [
     image:
       'https://images.unsplash.com/photo-1493246507139-91e8fad9978e?auto=format&fit=crop&w=900&q=80',
   },
-];
-
-export const liveMoments = [
-  { id: 'live-1', label: 'Live now', title: 'City rooftop jam', viewers: '2.8k', gradient: ['#38BDF8', '#22C55E'] },
-  { id: 'live-2', label: 'Creator room', title: 'Design sprint', viewers: '893', gradient: ['#FFD700', '#38BDF8'] },
 ];
 
 export const chatThreads = [

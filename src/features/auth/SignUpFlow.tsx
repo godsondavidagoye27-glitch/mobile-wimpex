@@ -206,7 +206,7 @@ export function SignUpFlow({
   const [finishError, setFinishError] = useState('');
   const isSubmitting = useRef(false);
   const isVerifying = useRef(false);
-  const inputRefs = useRef<Array<TextInput | null>>([]);
+  const inputRefs = useRef<(TextInput | null)[]>([]);
   const emailRef = useRef<TextInput>(null);
   const usernameRef = useRef<TextInput>(null);
   const codeShake = useSharedValue(0);

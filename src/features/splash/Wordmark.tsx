@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { StyleProp, StyleSheet, Text, TextStyle, View, ViewStyle } from 'react-native';
+import { StyleProp, StyleSheet, View, ViewStyle } from 'react-native';
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withDelay, withTiming } from 'react-native-reanimated';
 import { theme } from '../../theme/theme';
 

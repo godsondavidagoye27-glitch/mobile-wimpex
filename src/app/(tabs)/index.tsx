@@ -21,8 +21,9 @@ import { VideoView, useVideoPlayer } from 'expo-video';
 import { Icon } from '../../components/Icon';
 import { HashtagText } from '../../components/HashtagText';
 import { NotificationBell } from '../../features/notifications/NotificationBell';
-import { liveMoments, stories } from '../../data/mock';
 import { mergeFeedPages } from '../../features/feed/feedPagination';
+import { StoryRail } from '../../features/stories/StoryRail';
+import { LiveNowRail } from '../../features/live/LiveNowRail';
 import { incrementPostShare, recordPostView, setPostLiked, setPostSaved } from '../../features/feed/postActions';
 import {
   loadUploadJobs,
@@ -93,42 +94,8 @@ function PlayingVideo({ uri, active }: { uri: string; active: boolean }) {
 function FeedHeader() {
   return (
     <View>
-      <View style={styles.liveRow}>
-        <Text style={styles.sectionTitle}>Live now</Text>
-        <FlatList
-          horizontal
-          data={liveMoments}
-          keyExtractor={(item) => item.id}
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.liveScroll}
-          renderItem={({ item }) => (
-            <LinearGradient colors={item.gradient as [string, string]} style={styles.liveCard}>
-              <Text style={styles.liveBadge}>{item.label}</Text>
-              <Text style={styles.liveTitle}>{item.title}</Text>
-              <Text style={styles.liveMeta}>{item.viewers} watching</Text>
-            </LinearGradient>
-          )}
-        />
-      </View>
-      <FlatList
-        horizontal
-        data={stories.filter((story) => story.isOwner)}
-        keyExtractor={(story) => story.id}
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.storyRow}
-        renderItem={({ item: story }) => (
-          <Link href="/profile" asChild>
-            <Pressable style={styles.storyItem} accessibilityRole="button" accessibilityLabel={`Open ${story.name}'s story`}>
-              <LinearGradient colors={['#38BDF8', '#22C55E']} style={styles.storyRing}>
-                <View style={styles.storyAvatar}>
-                  <Text style={styles.storyInitial}>{story.initial}</Text>
-                </View>
-              </LinearGradient>
-              <Text style={styles.storyLabel}>{story.name}</Text>
-            </Pressable>
-          </Link>
-        )}
-      />
+      <LiveNowRail />
+      <StoryRail />
     </View>
   );
 }
@@ -559,10 +526,25 @@ const styles = StyleSheet.create({
   liveTitle: { color: theme.colors.white, fontSize: 18, fontWeight: '700' },
   liveMeta: { color: theme.colors.white, fontSize: 12, marginTop: 3, opacity: 0.9 },
   storyRow: { gap: 16, paddingHorizontal: 18, paddingTop: 16, paddingBottom: 10 },
-  storyItem: { alignItems: 'center', width: 64 },
+  storyItem: { alignItems: 'center', width: 72 },
+  storyRingWrap: { position: 'relative' },
   storyRing: { width: 72, height: 72, borderRadius: 36, padding: 3, alignItems: 'center', justifyContent: 'center' },
   storyAvatar: { width: 62, height: 62, borderRadius: 31, backgroundColor: '#111418', alignItems: 'center', justifyContent: 'center' },
   storyInitial: { fontSize: 20, fontWeight: '700', color: theme.colors.white },
+  storyBadge: {
+    position: 'absolute',
+    right: -2,
+    bottom: -2,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: theme.colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#000000',
+  },
+  storyBadgeText: { color: '#000000', fontSize: 18, fontWeight: '800', lineHeight: 18 },
   storyLabel: { marginTop: 8, fontSize: 12, color: theme.colors.textMuted, textAlign: 'center' },
   videoCardWrap: {
     marginHorizontal: 18,
