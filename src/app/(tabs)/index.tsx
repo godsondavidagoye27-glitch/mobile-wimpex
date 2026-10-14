@@ -19,6 +19,8 @@ import {
 } from 'react-native';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { Icon } from '../../components/Icon';
+import { HashtagText } from '../../components/HashtagText';
+import { NotificationBell } from '../../features/notifications/NotificationBell';
 import { liveMoments, stories } from '../../data/mock';
 import { mergeFeedPages } from '../../features/feed/feedPagination';
 import { incrementPostShare, recordPostView, setPostLiked, setPostSaved } from '../../features/feed/postActions';
@@ -110,15 +112,12 @@ function FeedHeader() {
       </View>
       <FlatList
         horizontal
-        data={stories}
+        data={stories.filter((story) => story.isOwner)}
         keyExtractor={(story) => story.id}
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.storyRow}
         renderItem={({ item: story }) => (
-          <Link
-            href={story.isOwner ? '/profile' : { pathname: '/user/[username]', params: { username: 'mila' } }}
-            asChild
-          >
+          <Link href="/profile" asChild>
             <Pressable style={styles.storyItem} accessibilityRole="button" accessibilityLabel={`Open ${story.name}'s story`}>
               <LinearGradient colors={['#38BDF8', '#22C55E']} style={styles.storyRing}>
                 <View style={styles.storyAvatar}>
@@ -166,9 +165,9 @@ function FeedPostCard({
               <Text style={styles.username}>@{item.author.username}</Text>
             </Pressable>
           </Link>
-          <Text style={styles.caption}>{item.post.caption}</Text>
+          <HashtagText text={item.post.caption} style={styles.caption} />
           {item.post.hashtags.length > 0 ? (
-            <Text style={styles.hashtags}>{item.post.hashtags.map((tag) => `#${tag}`).join(' ')}</Text>
+            <HashtagText text={item.post.hashtags.map((tag) => `#${tag}`).join(' ')} style={styles.hashtags} />
           ) : null}
           {item.post.auto_captions ? (
             <View style={styles.autoCaption}>
@@ -396,15 +395,17 @@ export default function HomeScreen() {
       <View style={styles.headerRow}>
         <Text style={styles.wordmark}>Wimpex</Text>
         <View style={styles.headerActions}>
+          <Link href="/search" asChild>
+            <Pressable style={styles.iconButton} accessibilityRole="button" accessibilityLabel="Search">
+              <Icon name="search" size={20} color={theme.colors.white} />
+            </Pressable>
+          </Link>
           <Link href="/settings" asChild>
             <Pressable style={styles.iconButton} accessibilityRole="button" accessibilityLabel="Open settings">
               <Icon name="moon" size={20} color={theme.colors.white} />
             </Pressable>
           </Link>
-          <Pressable style={styles.iconButton} accessibilityRole="button" accessibilityLabel="Notifications">
-            <Icon name="bell" size={20} color={theme.colors.white} />
-            <View style={styles.badge} />
-          </Pressable>
+          <NotificationBell />
           <Link href="/profile" asChild>
             <Pressable style={styles.iconButton} accessibilityRole="button" accessibilityLabel="Open profile">
               <Icon name="user" size={20} color={theme.colors.white} />
@@ -526,15 +527,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: 1,
     borderColor: theme.colors.line,
-  },
-  badge: {
-    position: 'absolute',
-    right: 9,
-    top: 7,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: theme.colors.success,
   },
   tabRow: { flexDirection: 'row', paddingHorizontal: 18, borderBottomWidth: 1, borderBottomColor: theme.colors.line },
   tabButton: { flex: 1, alignItems: 'center', paddingVertical: 12, position: 'relative' },

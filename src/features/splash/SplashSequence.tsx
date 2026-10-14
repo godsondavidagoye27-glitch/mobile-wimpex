@@ -23,9 +23,7 @@ import Animated, {
   withSequence,
   withTiming,
   useReducedMotion,
-  type SharedValue,
 } from 'react-native-reanimated';
-import { Blur, Canvas, Circle as SkiaCircle, Group, Paint, useCanvasSize } from '@shopify/react-native-skia';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
@@ -40,6 +38,7 @@ import { changePasswordResetStep } from '../auth/signupValidation';
 import { signInWithApple, signInWithGoogle, signOutProviders, SocialSignInError } from '../auth/socialAuth';
 import { useAuthFlow } from '../auth/useAuthFlow';
 import { LogoMark } from './LogoMark';
+import SplashSkiaBackdrop from './SplashSkiaBackdrop';
 import { Wordmark } from './Wordmark';
 
 const slides = [
@@ -73,27 +72,6 @@ class SkiaSetupBoundary extends Component<
   render() {
     return this.state.hasError ? null : this.props.children;
   }
-}
-
-function SkiaBackdrop({
-  backdropOpacity,
-  goldGlowOpacity,
-}: {
-  backdropOpacity: SharedValue<number>;
-  goldGlowOpacity: SharedValue<number>;
-}) {
-  const { ref: canvasRef, size: canvasSize } = useCanvasSize();
-  return (
-    <Canvas ref={canvasRef} style={styles.canvas}>
-      <Group layer={<Paint><Blur blur={motion.blur.blob} /></Paint>}>
-        <SkiaCircle cx={canvasSize.width * 0.12} cy={canvasSize.height * 0.08} r={160} color={theme.colors.primary} opacity={backdropOpacity} />
-        <SkiaCircle cx={canvasSize.width * 0.9} cy={canvasSize.height * 0.92} r={160} color={theme.colors.success} opacity={backdropOpacity} />
-      </Group>
-      <Group layer={<Paint><Blur blur={14} /></Paint>}>
-        <SkiaCircle cx={canvasSize.width / 2} cy={canvasSize.height / 2 - 16} r={46} color={theme.colors.gold} opacity={goldGlowOpacity} />
-      </Group>
-    </Canvas>
-  );
 }
 
 function LoginField({
@@ -675,7 +653,7 @@ export function SplashSequence() {
   return (
     <View style={styles.container}>
       <SkiaSetupBoundary onError={() => setSkiaFailed(true)}>
-        <SkiaBackdrop backdropOpacity={backdropOpacity} goldGlowOpacity={goldGlowOpacity} />
+      <SplashSkiaBackdrop backdropOpacity={backdropOpacity} goldGlowOpacity={goldGlowOpacity} />
       </SkiaSetupBoundary>
 
       <Animated.View style={[styles.logoStack, { top: 0 }, logoStyle]}>
@@ -698,12 +676,13 @@ export function SplashSequence() {
 
             <Animated.View
               key={slideIndex}
-              style={[styles.slide, { top: height * 0.2625 }, welcomeContentStyle]}
               entering={skiaFailed ? undefined : FadeInDown.duration(500)}
               {...panHandlers}
             >
-              <SlideArt index={slideIndex} />
-              <Text style={styles.slideTitle}>{slides[slideIndex].title}</Text>
+              <Animated.View style={[styles.slide, { top: height * 0.2625 }, welcomeContentStyle]}>
+                <SlideArt index={slideIndex} />
+                <Text style={styles.slideTitle}>{slides[slideIndex].title}</Text>
+              </Animated.View>
             </Animated.View>
 
             <Animated.View style={[styles.dots, { top: height * 0.5375 }, welcomeContentStyle]}>

@@ -158,7 +158,7 @@ export function ChatMediaComposer({ attachment, disabled, onAttachment, onClear 
           </Pressable>
           {recording ? (
             <Text style={styles.recordingLabel}>
-              Recording {Math.floor(recorderState.durationMillis / 1000)}s — tap to stop
+              Recording {Math.floor(recorderState.durationMillis / 1000)}s - tap to stop
             </Text>
           ) : null}
         </View>

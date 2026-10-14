@@ -32,6 +32,7 @@ export type FeedPost = {
   save_count: number;
   share_count: number;
   view_count: number;
+  pinned_at: string | null;
   is_demo: boolean;
   created_at: string;
   published_at: string | null;
@@ -44,6 +45,121 @@ export type FeedRpcRow = {
   is_saved: boolean;
   is_following: boolean;
 };
+
+export type ProfileRpcRow = {
+  id: string;
+  username: string;
+  display_name: string;
+  avatar_url: string | null;
+  bio: string | null;
+  link: string | null;
+  is_private: boolean;
+  dm_policy: 'everyone' | 'friends' | 'none';
+  followers_count: number;
+  following_count: number;
+  likes_received_count: number;
+  username_changed_at: string | null;
+  is_me: boolean;
+  is_following: boolean;
+  follow_status: 'none' | 'pending' | 'accepted';
+  follows_me: boolean;
+  is_blocked_by_me: boolean;
+  has_blocked_me: boolean;
+  can_view_posts: boolean;
+  can_view_liked: boolean;
+};
+
+export type ProfileListRpcRow = {
+  id: string;
+  username: string;
+  display_name: string;
+  avatar_url: string | null;
+  is_following: boolean;
+  follow_status: 'none' | 'pending' | 'accepted';
+  followed_at: string;
+};
+
+export type SearchPersonRpcRow = {
+  id: string;
+  username: string;
+  display_name: string;
+  avatar_url: string | null;
+  is_private: boolean;
+  followers_count: number;
+  follow_status: 'none' | 'pending' | 'accepted';
+};
+
+export type SuggestedPersonRpcRow = Omit<SearchPersonRpcRow, 'follow_status'> & {
+  mutual_follows: number;
+  shared_interests: number;
+};
+
+export type SearchHashtagRpcRow = {
+  tag: string;
+  post_count: number;
+};
+
+export type FollowRequestRpcRow = {
+  id: string;
+  username: string;
+  display_name: string;
+  avatar_url: string | null;
+  requested_at: string;
+};
+
+export type BlockedProfileRpcRow = {
+  id: string;
+  username: string;
+  display_name: string;
+  avatar_url: string | null;
+  blocked_at: string;
+};
+
+export type NotificationType =
+  | 'like' | 'comment' | 'reply' | 'follow' | 'follow_request' | 'live'
+  | 'community_invite' | 'community_join_request' | 'community_request_approved';
+export type CommunityCategory =
+  | 'Music' | 'Food' | 'Sport' | 'Travel' | 'Gaming' | 'Art'
+  | 'Tech' | 'Fashion' | 'Learning' | 'Health' | 'Comedy' | 'Other';
+export type CommunityRole = 'owner' | 'moderator' | 'member';
+export type CommunityMemberStatus = 'active' | 'pending' | 'invited' | 'banned';
+export type CommunityVisibility = 'public' | 'private';
+export type CommunityRow = {
+  id: string;
+  slug: string;
+  name: string;
+  description: string;
+  category: CommunityCategory;
+  visibility: CommunityVisibility;
+  is_adults_only: boolean;
+  icon_path: string | null;
+  member_count: number;
+  post_count: number;
+  role: CommunityRole | null;
+  status: CommunityMemberStatus | null;
+  interest_match: number;
+};
+export type CommunityDetailRpcRow = Omit<CommunityRow, 'interest_match'> & {
+  description: string | null;
+  rules: Json;
+  owner_id: string | null;
+  owner_username: string | null;
+  owner_display_name: string | null;
+  created_at: string;
+  can_post: boolean;
+  can_moderate: boolean;
+  is_adults_only_hidden: boolean;
+};
+export type CommunityMemberRpcRow = {
+  id: string;
+  username: string;
+  display_name: string;
+  avatar_url: string | null;
+  role: CommunityRole;
+  status: CommunityMemberStatus;
+  joined_at: string;
+};
+export type CommunityListRpcRow = Omit<CommunityRow, 'interest_match'>;
 
 type Relationships = [];
 
@@ -63,6 +179,10 @@ export type Database = {
           dm_policy: 'everyone' | 'friends' | 'none';
           is_demo: boolean;
           is_official: boolean;
+          followers_count: number;
+          following_count: number;
+          likes_received_count: number;
+          username_changed_at: string | null;
           created_at: string | null;
         };
         Insert: {
@@ -77,6 +197,10 @@ export type Database = {
           dm_policy?: 'everyone' | 'friends' | 'none';
           is_demo?: boolean;
           is_official?: boolean;
+          followers_count?: number;
+          following_count?: number;
+          likes_received_count?: number;
+          username_changed_at?: string | null;
           created_at?: string | null;
         };
         Update: {
@@ -91,6 +215,10 @@ export type Database = {
           dm_policy?: 'everyone' | 'friends' | 'none';
           is_demo?: boolean;
           is_official?: boolean;
+          followers_count?: number;
+          following_count?: number;
+          likes_received_count?: number;
+          username_changed_at?: string | null;
           created_at?: string | null;
         };
         Relationships: Relationships;
@@ -123,6 +251,7 @@ export type Database = {
           save_count?: number;
           share_count?: number;
           view_count?: number;
+          pinned_at?: string | null;
           is_demo?: boolean;
           created_at?: string;
           published_at?: string | null;
@@ -147,6 +276,7 @@ export type Database = {
           save_count?: number;
           share_count?: number;
           view_count?: number;
+          pinned_at?: string | null;
           is_demo?: boolean;
           created_at?: string;
           published_at?: string | null;
@@ -232,9 +362,141 @@ export type Database = {
         Relationships: Relationships;
       };
       blocks: {
-        Row: { blocker_id: string; blocked_id: string; created_at: string };
-        Insert: { blocker_id: string; blocked_id: string; created_at?: string };
-        Update: { blocker_id?: string; blocked_id?: string; created_at?: string };
+        Row: {
+          blocker_id: string;
+          blocked_id: string;
+          blocked_username: string;
+          blocked_display_name: string;
+          blocked_avatar_url: string | null;
+          created_at: string;
+        };
+        Insert: {
+          blocker_id: string;
+          blocked_id: string;
+          blocked_username?: string;
+          blocked_display_name?: string;
+          blocked_avatar_url?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          blocker_id?: string;
+          blocked_id?: string;
+          blocked_username?: string;
+          blocked_display_name?: string;
+          blocked_avatar_url?: string | null;
+          created_at?: string;
+        };
+        Relationships: Relationships;
+      };
+      notifications: {
+        Row: {
+          id: string;
+          user_id: string;
+          actor_id: string;
+          type: NotificationType;
+          post_id: string | null;
+          comment_id: string | null;
+          community_id: string | null;
+          read_at: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          actor_id: string;
+          type: NotificationType;
+          post_id?: string | null;
+          comment_id?: string | null;
+          community_id?: string | null;
+          read_at?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          actor_id?: string;
+          type?: NotificationType;
+          post_id?: string | null;
+          comment_id?: string | null;
+          community_id?: string | null;
+          read_at?: string | null;
+          created_at?: string;
+        };
+        communities: {
+          Row: {
+            id: string;
+            slug: string;
+            name: string;
+            description: string;
+            category: CommunityCategory;
+            visibility: CommunityVisibility;
+            is_adults_only: boolean;
+            owner_id: string;
+            icon_path: string | null;
+            rules: Json;
+            member_count: number;
+            post_count: number;
+            is_archived: boolean;
+            created_at: string;
+          };
+          Insert: {
+            id?: string;
+            slug: string;
+            name: string;
+            description?: string;
+            category: CommunityCategory;
+            visibility?: CommunityVisibility;
+            is_adults_only?: boolean;
+            owner_id: string;
+            icon_path?: string | null;
+            rules?: Json;
+            member_count?: number;
+            post_count?: number;
+            is_archived?: boolean;
+            created_at?: string;
+          };
+          Update: {
+            id?: string;
+            slug?: string;
+            name?: string;
+            description?: string;
+            category?: CommunityCategory;
+            visibility?: CommunityVisibility;
+            is_adults_only?: boolean;
+            owner_id?: string;
+            icon_path?: string | null;
+            rules?: Json;
+            member_count?: number;
+            post_count?: number;
+            is_archived?: boolean;
+            created_at?: string;
+          };
+          Relationships: Relationships;
+        };
+        community_members: {
+          Row: {
+            community_id: string;
+            user_id: string;
+            role: CommunityRole;
+            status: CommunityMemberStatus;
+            joined_at: string;
+          };
+          Insert: {
+            community_id: string;
+            user_id: string;
+            role?: CommunityRole;
+            status?: CommunityMemberStatus;
+            joined_at?: string;
+          };
+          Update: {
+            community_id?: string;
+            user_id?: string;
+            role?: CommunityRole;
+            status?: CommunityMemberStatus;
+            joined_at?: string;
+          };
+          Relationships: Relationships;
+        };
         Relationships: Relationships;
       };
       conversations: {
@@ -406,6 +668,8 @@ export type Database = {
           notify_messages: boolean;
           notify_live: boolean;
           show_online_status: boolean;
+          show_liked_videos: boolean;
+          personalized_recommendations: boolean;
         };
         Insert: {
           user_id: string;
@@ -416,6 +680,8 @@ export type Database = {
           notify_messages?: boolean;
           notify_live?: boolean;
           show_online_status?: boolean;
+          show_liked_videos?: boolean;
+          personalized_recommendations?: boolean;
         };
         Update: {
           user_id?: string;
@@ -426,6 +692,8 @@ export type Database = {
           notify_messages?: boolean;
           notify_live?: boolean;
           show_online_status?: boolean;
+          show_liked_videos?: boolean;
+          personalized_recommendations?: boolean;
         };
         Relationships: Relationships;
       };
@@ -520,6 +788,166 @@ export type Database = {
         };
         Returns: FeedRpcRow[];
       };
+      get_profile: {
+        Args: { p_username: string | null };
+        Returns: ProfileRpcRow[];
+      };
+      get_profile_posts: {
+        Args: {
+          p_user_id: string;
+          p_tab: 'posts' | 'liked' | 'saved';
+          p_cursor_created_at?: string | null;
+          p_cursor_id?: string | null;
+          p_page_size?: number;
+          p_cursor_pinned?: boolean | null;
+        };
+        Returns: FeedRpcRow[];
+      };
+      get_follow_list: {
+        Args: {
+          p_user_id: string;
+          p_kind: 'followers' | 'following';
+          p_query?: string;
+          p_cursor_created_at?: string | null;
+          p_cursor_user_id?: string | null;
+          p_page_size?: number;
+        };
+        Returns: ProfileListRpcRow[];
+      };
+      follow_user: { Args: { p_target: string }; Returns: string };
+      unfollow_user: { Args: { p_target: string }; Returns: undefined };
+      cancel_follow_request: { Args: { p_target: string }; Returns: undefined };
+      respond_follow_request: { Args: { p_follower: string; p_accept: boolean }; Returns: undefined };
+      get_follow_requests: {
+        Args: { p_cursor_created_at?: string | null; p_cursor_user_id?: string | null; p_page_size?: number };
+        Returns: FollowRequestRpcRow[];
+      };
+      set_account_privacy: { Args: { p_is_private: boolean }; Returns: undefined };
+      block_user: { Args: { p_target: string }; Returns: undefined };
+      unblock_user: { Args: { p_target: string }; Returns: undefined };
+      get_blocked_users: {
+        Args: { p_cursor_created_at?: string | null; p_cursor_user_id?: string | null; p_page_size?: number };
+        Returns: BlockedProfileRpcRow[];
+      };
+      search_people: {
+        Args: {
+          p_query: string;
+          p_cursor_username?: string | null;
+          p_cursor_id?: string | null;
+          p_page_size?: number;
+        };
+        Returns: SearchPersonRpcRow[];
+      };
+      search_videos: {
+        Args: {
+          p_query: string;
+          p_hashtag?: string | null;
+          p_cursor_published_at?: string | null;
+          p_cursor_id?: string | null;
+          p_page_size?: number;
+        };
+        Returns: FeedRpcRow[];
+      };
+      search_hashtags: {
+        Args: {
+          p_query: string;
+          p_exact?: boolean;
+          p_cursor_post_count?: number | null;
+          p_cursor_tag?: string | null;
+          p_page_size?: number;
+        };
+        Returns: SearchHashtagRpcRow[];
+      };
+      trending_hashtags: {
+        Args: Record<string, never>;
+        Returns: SearchHashtagRpcRow[];
+      };
+      suggested_people: {
+        Args: Record<string, never>;
+        Returns: SuggestedPersonRpcRow[];
+      };
+      can_view_community: { Args: { p_community_id: string; p_viewer_id?: string }; Returns: boolean };
+      community_can_create_adults_only: { Args: Record<string, never>; Returns: boolean };
+      community_name_available: { Args: { p_name: string }; Returns: boolean };
+      create_community: {
+        Args: {
+          p_slug: string;
+          p_name: string;
+          p_description: string;
+          p_category: CommunityCategory;
+          p_visibility: CommunityVisibility;
+          p_is_adults_only?: boolean;
+          p_rules?: Json;
+        };
+        Returns: string;
+      };
+      join_community: { Args: { p_community_id: string }; Returns: string };
+      leave_community: { Args: { p_community_id: string }; Returns: undefined };
+      cancel_join_request: { Args: { p_community_id: string }; Returns: undefined };
+      respond_join_request: {
+        Args: { p_community_id: string; p_user_id: string; p_accept: boolean };
+        Returns: undefined;
+      };
+      invite_member: { Args: { p_community_id: string; p_user_id: string }; Returns: undefined };
+      respond_invite: { Args: { p_community_id: string; p_accept: boolean }; Returns: undefined };
+      set_member_role: {
+        Args: { p_community_id: string; p_user_id: string; p_role: CommunityRole };
+        Returns: undefined;
+      };
+      transfer_ownership: { Args: { p_community_id: string; p_new_owner: string }; Returns: undefined };
+      ban_member: { Args: { p_community_id: string; p_user_id: string }; Returns: undefined };
+      unban_member: { Args: { p_community_id: string; p_user_id: string }; Returns: undefined };
+      update_community: {
+        Args: {
+          p_community_id: string;
+          p_name: string;
+          p_description: string;
+          p_category: CommunityCategory;
+          p_visibility: CommunityVisibility;
+          p_is_adults_only: boolean;
+          p_icon_path?: string | null;
+        };
+        Returns: undefined;
+      };
+      update_rules: { Args: { p_community_id: string; p_rules: Json }; Returns: undefined };
+      delete_community: { Args: { p_community_id: string }; Returns: undefined };
+      get_community: { Args: { p_slug: string }; Returns: CommunityDetailRpcRow[] };
+      get_community_members: {
+        Args: {
+          p_slug: string;
+          p_query?: string;
+          p_cursor_status?: CommunityMemberStatus | null;
+          p_cursor_joined_at?: string | null;
+          p_cursor_user_id?: string | null;
+          p_page_size?: number;
+        };
+        Returns: CommunityMemberRpcRow[];
+      };
+      community_invite_candidates: {
+        Args: {
+          p_community_id: string;
+          p_query: string;
+          p_cursor_username?: string | null;
+          p_cursor_id?: string | null;
+          p_page_size?: number;
+        };
+        Returns: SearchPersonRpcRow[];
+      };
+      my_communities: { Args: Record<string, never>; Returns: CommunityListRpcRow[] };
+      discover_communities: {
+        Args: {
+          p_category?: CommunityCategory | null;
+          p_query?: string;
+          p_cursor_rank?: number | null;
+          p_cursor_members?: number | null;
+          p_cursor_id?: string | null;
+          p_page_size?: number;
+        };
+        Returns: CommunityRow[];
+      };
+      suggested_communities: { Args: Record<string, never>; Returns: CommunityRow[] };
+      community_notification_route: { Args: { p_community_id: string }; Returns: string | null };
+      pin_post: { Args: { p_post_id: string; p_pinned: boolean }; Returns: undefined };
       increment_share: { Args: { post_id: string }; Returns: undefined };
       is_username_available: { Args: { name: string }; Returns: boolean };
       start_direct_conversation: { Args: { other_user: string }; Returns: string };

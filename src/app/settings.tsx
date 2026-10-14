@@ -1,9 +1,20 @@
 import { router } from 'expo-router';
-import { preferenceStorage } from '../lib/storage';
 import { useEffect, useState } from 'react';
-import { Alert, AppState, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Alert,
+  AppState,
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { Icon, type AppIconName } from '../components/Icon';
-import { currentUserProfile } from '../data/profile';
+import { useFollowRequestCount } from '../features/profiles/useFollowRequestCount';
 import { signOutProviders } from '../features/auth/socialAuth';
 import { useAuthFlow } from '../features/auth/useAuthFlow';
 import {
@@ -12,11 +23,9 @@ import {
 } from '../features/notifications/pushNotifications';
 import { getSupabaseClient } from '../lib/supabase';
 import { theme } from '../theme/theme';
+import type { Database, ProfileRpcRow } from '../types/database';
 
-type ThemeMode = 'Dark' | 'Light' | 'System';
-
-const themeModes: ThemeMode[] = ['Dark', 'Light', 'System'];
-
+type PrivacyPolicy = 'everyone' | 'friends' | 'none';
 type NotificationSettingKey =
   | 'push_enabled'
   | 'notify_likes'
@@ -26,17 +35,19 @@ type NotificationSettingKey =
   | 'notify_live'
   | 'show_online_status';
 
-const notificationSettingByLabel: Record<string, NotificationSettingKey> = {
-  'Show my online status': 'show_online_status',
-  'Push notifications': 'push_enabled',
-  Likes: 'notify_likes',
-  Comments: 'notify_comments',
-  'New followers': 'notify_followers',
-  Messages: 'notify_messages',
-  'Live from people I follow': 'notify_live',
+type SettingsValues = {
+  push_enabled: boolean;
+  notify_likes: boolean;
+  notify_comments: boolean;
+  notify_followers: boolean;
+  notify_messages: boolean;
+  notify_live: boolean;
+  show_online_status: boolean;
+  show_liked_videos: boolean;
+  personalized_recommendations: boolean;
 };
 
-const defaultNotificationSettings = {
+const defaultSettings: SettingsValues = {
   push_enabled: true,
   notify_likes: true,
   notify_comments: true,
@@ -44,125 +55,73 @@ const defaultNotificationSettings = {
   notify_messages: true,
   notify_live: true,
   show_online_status: true,
+  show_liked_videos: false,
+  personalized_recommendations: true,
 };
 
-const settingsSections = [
-  {
-    title: 'Account',
-    rows: [
-      { label: 'Edit profile', icon: 'user', value: '', type: 'link' },
-      { label: 'Email', icon: 'globe', value: 'ari@wimpex.app', type: 'value' },
-      { label: 'Password', icon: 'lock', value: '', type: 'link' },
-      { label: 'Linked accounts', icon: 'link', value: 'Google, Apple', type: 'value' },
-    ],
-  },
-  {
-    title: 'Privacy',
-    rows: [
-      { label: 'Private account', icon: 'shield', type: 'switch', active: true },
-      { label: 'Who can message me', icon: 'message', value: 'Everyone', type: 'value' },
-      { label: 'Show my online status', icon: 'eye', type: 'switch', active: true },
-      { label: 'Show my liked videos', icon: 'heart', type: 'switch', active: false },
-      { label: 'Allow others to find me by contacts', icon: 'user', type: 'switch', active: true },
-      { label: 'Blocked users', icon: 'ban', value: '3', type: 'value' },
-      { label: 'Personalized recommendations', icon: 'sparkles', type: 'switch', active: true },
-    ],
-  },
-  {
-    title: 'Notifications',
-    rows: [
-      { label: 'Push notifications', icon: 'bell', type: 'switch', active: true },
-      { label: 'Likes', icon: 'heart', type: 'switch', active: true },
-      { label: 'Comments', icon: 'comment', type: 'switch', active: true },
-      { label: 'New followers', icon: 'user', type: 'switch', active: true },
-      { label: 'Messages', icon: 'chats', type: 'switch', active: true },
-      { label: 'Live from people I follow', icon: 'live', type: 'switch', active: false },
-    ],
-  },
-  {
-    title: 'Appearance',
-    rows: [
-      { label: 'Theme', icon: 'moon', type: 'segmented', value: 'Dark' },
-      { label: 'Language', icon: 'language', value: 'English', type: 'value' },
-    ],
-  },
-  {
-    title: 'Safety',
-    rows: [
-      { label: 'Community guidelines', icon: 'shield', type: 'link' },
-      { label: 'Report a problem', icon: 'flag', type: 'link' },
-    ],
-  },
-  {
-    title: 'Data',
-    rows: [{ label: 'Download my data', icon: 'download', type: 'link' }],
-  },
-  {
-    title: 'About',
-    rows: [
-      { label: 'Terms', icon: 'check', type: 'link' },
-      { label: 'Privacy policy', icon: 'globe', type: 'link' },
-      { label: 'App version', icon: 'info', value: '1.0.0', type: 'value' },
-    ],
-  },
+const messagePolicies: { value: PrivacyPolicy; label: string }[] = [
+  { value: 'everyone', label: 'Everyone' },
+  { value: 'friends', label: 'Friends' },
+  { value: 'none', label: 'No one' },
 ];
 
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : 'Try again.';
+}
+
 export default function SettingsScreen() {
-  const [themeMode, setThemeMode] = useState<ThemeMode>('Dark');
-  const [notificationSettings, setNotificationSettings] = useState(defaultNotificationSettings);
-  const [pushPermissionGranted, setPushPermissionGranted] = useState(false);
-  const [settingsUserId, setSettingsUserId] = useState<string | null>(null);
+  const [profile, setProfile] = useState<ProfileRpcRow | null>(null);
+  const [email, setEmail] = useState('');
+  const [settings, setSettings] = useState<SettingsValues>(defaultSettings);
   const [isMinor, setIsMinor] = useState(false);
-  const [deleteSheetOpen, setDeleteSheetOpen] = useState(false);
+  const [pushPermissionGranted, setPushPermissionGranted] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [policyOpen, setPolicyOpen] = useState(false);
+  const [dialog, setDialog] = useState<'logout' | 'delete' | null>(null);
   const [typedUsername, setTypedUsername] = useState('');
+  const [saving, setSaving] = useState(false);
+  const followRequestCount = useFollowRequestCount(profile !== null);
 
   useEffect(() => {
     let active = true;
-    void preferenceStorage.getItem('wimpex-theme-mode').then((value) => {
-      if (active && value && themeModes.includes(value as ThemeMode)) setThemeMode(value as ThemeMode);
-    }).catch((error: unknown) => {
-      Alert.alert('Could not load your theme setting', error instanceof Error ? error.message : 'Try again.');
-    });
     void (async () => {
       try {
         const client = getSupabaseClient();
-        const { data: userData, error: userError } = await client.auth.getUser();
-        if (userError) throw userError;
-        if (!userData.user) return;
-        const { data, error } = await client
-          .from('user_settings')
-          .select('push_enabled,notify_likes,notify_comments,notify_followers,notify_messages,notify_live,show_online_status')
-          .eq('user_id', userData.user.id)
-          .maybeSingle();
-        if (error) throw error;
-        const { data: profile, error: profileError } = await client
-          .from('profiles')
-          .select('date_of_birth')
-          .eq('id', userData.user.id)
-          .maybeSingle();
-        if (profileError) throw profileError;
+        const { data: authResult, error: authError } = await client.auth.getUser();
+        if (authError) throw authError;
+        if (!authResult.user) throw new Error('Sign in to open settings.');
+        const [profileResult, settingsResult, birthResult] = await Promise.all([
+          client.rpc('get_profile', { p_username: null }),
+          client.from('user_settings')
+            .select('push_enabled,notify_likes,notify_comments,notify_followers,notify_messages,notify_live,show_online_status,show_liked_videos,personalized_recommendations')
+            .eq('user_id', authResult.user.id)
+            .maybeSingle(),
+          client.from('profiles').select('date_of_birth').eq('id', authResult.user.id).maybeSingle(),
+        ]);
+        if (profileResult.error) throw profileResult.error;
+        if (settingsResult.error) throw settingsResult.error;
+        if (birthResult.error) throw birthResult.error;
+        const currentProfile = profileResult.data?.[0];
+        if (!currentProfile) throw new Error('Your profile could not be found.');
         if (!active) return;
-        setSettingsUserId(userData.user.id);
-        if (profile) {
+        setProfile(currentProfile);
+        setEmail(authResult.user.email ?? '');
+        if (settingsResult.data) setSettings({ ...defaultSettings, ...settingsResult.data });
+        if (birthResult.data) {
           const today = new Date();
-          const birthday = new Date(`${profile.date_of_birth}T00:00:00`);
+          const birthday = new Date(`${birthResult.data.date_of_birth}T00:00:00`);
           let age = today.getFullYear() - birthday.getFullYear();
           if (
             today.getMonth() < birthday.getMonth()
             || (today.getMonth() === birthday.getMonth() && today.getDate() < birthday.getDate())
-          ) {
-            age -= 1;
-          }
+          ) age -= 1;
           setIsMinor(age < 18);
         }
-        if (data) setNotificationSettings(data);
-      } catch (error) {
-        if (active) {
-          Alert.alert(
-            'Could not load notification settings',
-            error instanceof Error ? error.message : 'Try again.',
-          );
-        }
+      } catch (caught) {
+        if (active) setError(errorMessage(caught));
+      } finally {
+        if (active) setLoading(false);
       }
     })();
     return () => {
@@ -171,79 +130,189 @@ export default function SettingsScreen() {
   }, []);
 
   useEffect(() => {
-    const refreshPushPermission = () => {
+    const refreshPermission = () => {
       void getPushPermissionGranted()
         .then(setPushPermissionGranted)
-        .catch((error: unknown) => {
-          Alert.alert(
-            'Could not check notification permission',
-            error instanceof Error ? error.message : 'Try again.',
-          );
+        .catch((caught: unknown) => {
+          setError(`Could not check notification permission. ${errorMessage(caught)}`);
         });
     };
-    refreshPushPermission();
+    refreshPermission();
     const subscription = AppState.addEventListener('change', (state) => {
-      if (state === 'active') refreshPushPermission();
+      if (state === 'active') refreshPermission();
     });
     return () => subscription.remove();
   }, []);
 
-  const persistTheme = async (nextMode: ThemeMode) => {
-    setThemeMode(nextMode);
-    try {
-      await preferenceStorage.setItem('wimpex-theme-mode', nextMode);
-    } catch (error) {
-      Alert.alert('Could not save your theme setting', error instanceof Error ? error.message : 'Try again.');
-    }
-  };
-
-  const persistNotificationSetting = async (key: NotificationSettingKey, value: boolean) => {
-    if (!settingsUserId) {
-      Alert.alert('Unable to save setting', 'Sign in again and retry.');
+  const persistNotification = async (key: NotificationSettingKey, value: boolean) => {
+    if (saving || !profile) return;
+    if (key === 'show_online_status' && isMinor) {
+      Alert.alert('Accounts under 18 stay private.');
       return;
     }
-    const previous = notificationSettings[key];
-    setNotificationSettings((current) => ({ ...current, [key]: value }));
+    const previous = settings[key];
+    setSettings((current) => ({ ...current, [key]: value }));
+    setError('');
     try {
-      const settingUpdate: { user_id: string } & Partial<Record<NotificationSettingKey, boolean>> = {
-        user_id: settingsUserId,
-      };
-      settingUpdate[key] = value;
-      const { error } = await getSupabaseClient()
-        .from('user_settings')
-        .upsert(settingUpdate, { onConflict: 'user_id' });
-      if (error) throw error;
+      const client = getSupabaseClient();
+      const update: Database['public']['Tables']['user_settings']['Insert'] = { user_id: profile.id };
+      switch (key) {
+        case 'push_enabled': update.push_enabled = value; break;
+        case 'notify_likes': update.notify_likes = value; break;
+        case 'notify_comments': update.notify_comments = value; break;
+        case 'notify_followers': update.notify_followers = value; break;
+        case 'notify_messages': update.notify_messages = value; break;
+        case 'notify_live': update.notify_live = value; break;
+        case 'show_online_status': update.show_online_status = value; break;
+      }
+      const { error: updateError } = await client.from('user_settings').upsert(update, { onConflict: 'user_id' });
+      if (updateError) throw updateError;
       if (key === 'push_enabled') {
         try {
           await syncPushTokenForCurrentSession(value);
           if (value) setPushPermissionGranted(true);
         } catch (registrationError) {
-          const rollback = { user_id: settingsUserId, push_enabled: previous };
-          const { error: rollbackError } = await getSupabaseClient()
-            .from('user_settings')
-            .upsert(rollback, { onConflict: 'user_id' });
+          const { error: rollbackError } = await client.from('user_settings')
+            .upsert({ user_id: profile.id, push_enabled: previous }, { onConflict: 'user_id' });
           if (rollbackError) {
             throw new Error(
-              `Push setup failed (${registrationError instanceof Error ? registrationError.message : 'unknown error'}); `
+              `Push setup failed (${errorMessage(registrationError)}); `
               + `the setting could not be restored (${rollbackError.message}).`,
             );
           }
           throw registrationError;
         }
       }
-      if (key === 'show_online_status' && isMinor) {
-        setNotificationSettings((current) => ({ ...current, show_online_status: false }));
-      }
-    } catch (error) {
-      setNotificationSettings((current) => ({ ...current, [key]: previous }));
-      Alert.alert(
-        'Could not save notification setting',
-        error instanceof Error ? error.message : 'Try again.',
-      );
+    } catch (caught) {
+      setSettings((current) => ({ ...current, [key]: previous }));
+      setError(`Could not save setting. ${errorMessage(caught)}`);
     }
   };
 
-  const canDelete = typedUsername.trim() === currentUserProfile.username;
+  const persistPreference = async (
+    key: 'show_liked_videos' | 'personalized_recommendations',
+    value: boolean,
+  ) => {
+    if (!profile) return;
+    const previous = settings[key];
+    setSettings((current) => ({ ...current, [key]: value }));
+    setError('');
+    try {
+      const client = getSupabaseClient();
+      const { error: saveError } = key === 'show_liked_videos'
+        ? await client.from('user_settings').upsert(
+          { user_id: profile.id, show_liked_videos: value },
+          { onConflict: 'user_id' },
+        )
+        : await client.from('user_settings').upsert(
+          { user_id: profile.id, personalized_recommendations: value },
+          { onConflict: 'user_id' },
+        );
+      if (saveError) throw saveError;
+    } catch (caught) {
+      setSettings((current) => ({ ...current, [key]: previous }));
+      setError(`Could not save setting. ${errorMessage(caught)}`);
+    }
+  };
+
+  const persistPrivacy = async (value: boolean) => {
+    if (!profile) return;
+    setError('');
+    try {
+      const { error: updateError } = await getSupabaseClient().rpc('set_account_privacy', { p_is_private: value });
+      if (updateError) throw updateError;
+      setProfile((current) => current ? { ...current, is_private: value } : current);
+    } catch (caught) {
+      const message = errorMessage(caught);
+      if (message.includes('Accounts under 18 stay private')) Alert.alert('Accounts under 18 stay private.');
+      else setError(`Could not update account privacy. ${message}`);
+    }
+  };
+
+  const persistMessagePolicy = async (value: PrivacyPolicy) => {
+    if (!profile) return;
+    setPolicyOpen(false);
+    setError('');
+    try {
+      const { error: updateError } = await getSupabaseClient().from('profiles')
+        .update({ dm_policy: value })
+        .eq('id', profile.id);
+      if (updateError) throw updateError;
+      setProfile((current) => current ? { ...current, dm_policy: value } : current);
+    } catch (caught) {
+      setError(`Could not update who can message you. ${errorMessage(caught)}`);
+    }
+  };
+
+  const logOut = async () => {
+    setDialog(null);
+    try {
+      await signOutProviders();
+      useAuthFlow.getState().resetSignup();
+      router.replace('/(auth)/welcome');
+    } catch (caught) {
+      setError(`Unable to log out. ${errorMessage(caught)}`);
+    }
+  };
+
+  const deleteAccount = async () => {
+    if (!profile || typedUsername.trim().toLowerCase() !== profile.username.toLowerCase()) return;
+    setSaving(true);
+    setError('');
+    try {
+      const { error: deleteError } = await getSupabaseClient().functions.invoke('delete-own-account');
+      if (deleteError) throw deleteError;
+      await signOutProviders();
+      useAuthFlow.getState().resetSignup();
+      router.replace('/(auth)/welcome');
+    } catch (caught) {
+      setError(`Unable to delete account. ${errorMessage(caught)}`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const messagePolicyLabel = messagePolicies.find((item) => item.value === profile?.dm_policy)?.label ?? 'Everyone';
+
+  if (loading) {
+    return <View style={styles.center}><ActivityIndicator size="large" color={theme.colors.primary} /></View>;
+  }
+
+  if (!profile) {
+    return <View style={styles.center}><Text accessibilityRole="alert" style={styles.error}>{error || 'Your profile could not be found.'}</Text></View>;
+  }
+
+  const renderRow = (
+    label: string,
+    icon: AppIconName,
+    trailing: React.ReactNode,
+    onPress?: () => void,
+    disabled = false,
+  ) => (
+    <Pressable
+      key={label}
+      onPress={onPress}
+      disabled={!onPress || disabled}
+      style={[styles.row, disabled && styles.disabledRow]}
+      accessibilityRole={onPress ? 'button' : undefined}
+    >
+      <View style={styles.rowMain}>
+        <View style={styles.iconWrap}><Icon name={icon} size={20} color={theme.colors.primary} /></View>
+        <Text style={styles.rowLabel}>{label}</Text>
+      </View>
+      {trailing}
+    </Pressable>
+  );
+
+  const renderSwitch = (value: boolean, onValueChange: (next: boolean) => void, disabled = false) => (
+    <Switch
+      value={value}
+      onValueChange={onValueChange}
+      disabled={disabled}
+      trackColor={{ false: '#374151', true: theme.colors.success }}
+      thumbColor={theme.colors.white}
+    />
+  );
 
   return (
     <View style={styles.screen}>
@@ -252,112 +321,87 @@ export default function SettingsScreen() {
           <Icon name="back" size={20} color={theme.colors.white} />
         </Pressable>
         <Text style={styles.title}>Settings</Text>
-        <View style={styles.headerSpacer} />
+        <View style={styles.headerButton} />
       </View>
+      {error ? <Text accessibilityRole="alert" style={styles.errorBanner}>{error}</Text> : null}
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <Text style={styles.sectionTitle}>Account</Text>
+        {renderRow('Edit profile', 'user', <Icon name="chevronRight" size={20} color={theme.colors.textMuted} />, () => router.push('/profile/edit'))}
+        {renderRow('Email', 'globe', <Text style={styles.valueText}>{email}</Text>)}
 
-      <ScrollView contentContainerStyle={styles.list} showsVerticalScrollIndicator={false}>
-        {settingsSections.map((section) => (
-          <View key={section.title} style={styles.section}>
-            <Text style={styles.sectionTitle}>{section.title}</Text>
-            {section.rows.map((row) => (
-              <Pressable key={row.label} style={styles.row} accessibilityRole="button">
-                <View style={styles.rowMain}>
-                  <View style={styles.iconWrap}>
-                    <Icon name={row.icon as AppIconName} size={20} color={theme.colors.primary} />
-                  </View>
-                  <Text style={styles.rowLabel}>{row.label}</Text>
-                </View>
+        <Text style={styles.sectionTitle}>Privacy</Text>
+        {renderRow('Private account', 'shield', renderSwitch(profile.is_private, (value) => void persistPrivacy(value)), undefined, saving)}
+        {renderRow('Who can message me', 'message', <View style={styles.valueWrap}><Text style={styles.valueText}>{messagePolicyLabel}</Text><Icon name="chevronRight" size={20} color={theme.colors.textMuted} /></View>, () => setPolicyOpen(true))}
+        {renderRow('Show my online status', 'eye', renderSwitch(settings.show_online_status, (value) => void persistNotification('show_online_status', value), isMinor), undefined, isMinor)}
+        {renderRow('Show my liked videos', 'heart', renderSwitch(settings.show_liked_videos, (value) => void persistPreference('show_liked_videos', value)))}
+        {renderRow('Follow requests', 'user', <View style={styles.valueWrap}>{followRequestCount > 0 ? <Text style={styles.badgeText}>{followRequestCount}</Text> : null}<Icon name="chevronRight" size={20} color={theme.colors.textMuted} /></View>, () => router.push('/follow-requests'))}
+        {renderRow('Blocked users', 'ban', <Icon name="chevronRight" size={20} color={theme.colors.textMuted} />, () => router.push('/blocked-users'))}
+        {renderRow('Personalized recommendations', 'sparkles', renderSwitch(settings.personalized_recommendations, (value) => void persistPreference('personalized_recommendations', value)))}
 
-                {row.type === 'switch' ? (
-                  <Switch
-                    value={
-                      notificationSettingByLabel[row.label]
-                        ? notificationSettingByLabel[row.label] === 'push_enabled'
-                          ? notificationSettings.push_enabled && pushPermissionGranted
-                          : notificationSettings[notificationSettingByLabel[row.label]]
-                        : Boolean('active' in row && row.active)
-                    }
-                    disabled={notificationSettingByLabel[row.label] === 'show_online_status' && isMinor}
-                    onValueChange={(value) => {
-                      const key = notificationSettingByLabel[row.label];
-                      if (key) void persistNotificationSetting(key, value);
-                    }}
-                    trackColor={{ false: '#374151', true: theme.colors.success }}
-                    thumbColor={theme.colors.white}
-                  />
-                ) : row.type === 'segmented' ? (
-                  <View style={styles.segmentedWrap}>
-                    {themeModes.map((mode) => (
-                      <Pressable
-                        key={mode}
-                        onPress={() => persistTheme(mode)}
-                        style={[styles.segmentButton, themeMode === mode && styles.segmentButtonActive]}
-                      >
-                        <Text style={[styles.segmentText, themeMode === mode && styles.segmentTextActive]}>{mode}</Text>
-                      </Pressable>
-                    ))}
-                  </View>
-                ) : (
-                  <View style={styles.valueWrap}>
-                    {row.value ? <Text style={styles.valueText}>{row.value}</Text> : null}
-                    <Icon name="chevronRight" size={20} color={theme.colors.textMuted} />
-                  </View>
-                )}
-              </Pressable>
-            ))}
-          </View>
-        ))}
+        <Text style={styles.sectionTitle}>Notifications</Text>
+        {renderRow('Push notifications', 'bell', renderSwitch(settings.push_enabled && pushPermissionGranted, (value) => void persistNotification('push_enabled', value)))}
+        {renderRow('Likes', 'heart', renderSwitch(settings.notify_likes, (value) => void persistNotification('notify_likes', value)))}
+        {renderRow('Comments', 'comment', renderSwitch(settings.notify_comments, (value) => void persistNotification('notify_comments', value)))}
+        {renderRow('New followers', 'user', renderSwitch(settings.notify_followers, (value) => void persistNotification('notify_followers', value)))}
+        {renderRow('Messages', 'chats', renderSwitch(settings.notify_messages, (value) => void persistNotification('notify_messages', value)))}
+        {renderRow('Live from people I follow', 'live', renderSwitch(settings.notify_live, (value) => void persistNotification('notify_live', value)))}
 
-        <Pressable
-          style={styles.signoutRow}
-          accessibilityRole="button"
-          onPress={() => {
-            void signOutProviders()
-              .then(() => {
-                useAuthFlow.getState().resetSignup();
-                router.replace('/(auth)/welcome');
-              })
-              .catch((error: unknown) => {
-                Alert.alert(
-                  'Unable to log out',
-                  error instanceof Error ? error.message : 'Try again.',
-                );
-              });
-          }}
-        >
-          <View style={styles.rowMain}>
-            <View style={styles.iconWrap}>
-              <Icon name="logOut" size={20} color={theme.colors.white} />
-            </View>
-            <Text style={styles.logoutText}>Log out</Text>
-          </View>
+        <Text style={styles.sectionTitle}>About</Text>
+        {renderRow('App version', 'info', <Text style={styles.valueText}>1.0.0</Text>)}
+
+        <Pressable style={styles.signoutRow} onPress={() => setDialog('logout')} accessibilityRole="button">
+          <View style={styles.rowMain}><View style={styles.iconWrap}><Icon name="logOut" size={20} color={theme.colors.white} /></View><Text style={styles.logoutText}>Log out</Text></View>
         </Pressable>
-
-        <Pressable style={styles.deleteRow} onPress={() => setDeleteSheetOpen(true)} accessibilityRole="button">
+        <Pressable style={styles.deleteRow} onPress={() => { setTypedUsername(''); setDialog('delete'); }} accessibilityRole="button">
           <Text style={styles.deleteText}>Delete account</Text>
         </Pressable>
       </ScrollView>
 
-      <Modal transparent animationType="slide" visible={deleteSheetOpen} onRequestClose={() => setDeleteSheetOpen(false)}>
-        <Pressable style={styles.sheetOverlay} onPress={() => setDeleteSheetOpen(false)} />
-        <View style={styles.sheetCard}>
-          <View style={styles.sheetHandle} />
-          <Text style={styles.sheetTitle}>Delete account</Text>
-          <Text style={styles.sheetCopy}>Type your username to confirm.</Text>
-          <TextInput
-            value={typedUsername}
-            onChangeText={setTypedUsername}
-            style={styles.input}
-            placeholder={currentUserProfile.username}
-            placeholderTextColor={theme.colors.textMuted}
-          />
+      <Modal transparent animationType="slide" visible={policyOpen} onRequestClose={() => setPolicyOpen(false)}>
+        <Pressable style={styles.modalOverlay} onPress={() => setPolicyOpen(false)} />
+        <View style={styles.sheet}>
+          <Text style={styles.sheetTitle}>Who can message me</Text>
+          {messagePolicies.map((item) => (
+            <Pressable key={item.value} style={styles.sheetRow} onPress={() => void persistMessagePolicy(item.value)}>
+              <Text style={styles.sheetRowLabel}>{item.label}</Text>
+              {profile.dm_policy === item.value ? <Icon name="check" size={20} color={theme.colors.primary} /> : null}
+            </Pressable>
+          ))}
+          <Pressable style={styles.sheetCancel} onPress={() => setPolicyOpen(false)}><Text style={styles.cancelText}>Cancel</Text></Pressable>
+        </View>
+      </Modal>
+
+      <Modal transparent animationType="slide" visible={dialog !== null} onRequestClose={() => setDialog(null)}>
+        <Pressable style={styles.modalOverlay} onPress={() => setDialog(null)} />
+        <View style={styles.sheet}>
+          <Text style={styles.sheetTitle}>{dialog === 'logout' ? 'Log out' : 'Delete account'}</Text>
+          {dialog === 'logout' ? <Text style={styles.sheetCopy}>Are you sure you want to log out?</Text> : (
+            <>
+              <Text style={styles.sheetCopy}>Type your username to confirm.</Text>
+              <TextInput
+                value={typedUsername}
+                onChangeText={setTypedUsername}
+                style={styles.input}
+                placeholder={profile.username}
+                placeholderTextColor={theme.colors.textMuted}
+                autoCapitalize="none"
+                accessibilityLabel="Type your username to confirm"
+              />
+            </>
+          )}
           <Pressable
-            style={[styles.deleteButton, !canDelete && styles.deleteButtonDisabled]}
-            disabled={!canDelete}
+            style={[
+              styles.confirmButton,
+              dialog === 'delete' && styles.deleteConfirmButton,
+              dialog === 'delete' && typedUsername.trim().toLowerCase() !== profile.username.toLowerCase() && styles.disabledConfirm,
+            ]}
+            onPress={() => dialog === 'logout' ? void logOut() : void deleteAccount()}
+            disabled={saving || (dialog === 'delete' && typedUsername.trim().toLowerCase() !== profile.username.toLowerCase())}
             accessibilityRole="button"
           >
-            <Text style={[styles.deleteButtonText, !canDelete && styles.deleteButtonTextDisabled]}>Delete account</Text>
+            {saving ? <ActivityIndicator color={theme.colors.white} /> : <Text style={styles.confirmText}>{dialog === 'logout' ? 'Log out' : 'Delete account'}</Text>}
           </Pressable>
+          <Pressable style={styles.sheetCancel} onPress={() => setDialog(null)}><Text style={styles.cancelText}>Cancel</Text></Pressable>
         </View>
       </Modal>
     </View>
@@ -366,138 +410,37 @@ export default function SettingsScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: theme.colors.black },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 18,
-    paddingTop: 16,
-    paddingBottom: 12,
-  },
-  title: { color: theme.colors.white, fontSize: 22, fontWeight: '800' },
-  headerButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#171C22',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: theme.colors.line,
-  },
-  headerSpacer: { width: 44 },
-  list: { paddingHorizontal: 16, paddingBottom: 40 },
-  section: { marginBottom: 18 },
-  sectionTitle: {
-    color: theme.colors.textMuted,
-    fontSize: 12,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
-    marginBottom: 10,
-    marginLeft: 6,
-  },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: '#111418',
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: theme.colors.line,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    marginBottom: 8,
-  },
-  rowMain: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  iconWrap: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: '#171C22',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  rowLabel: { color: theme.colors.white, fontWeight: '700' },
-  valueWrap: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  header: { minHeight: 62, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: theme.colors.line },
+  headerButton: { width: 42, height: 42, justifyContent: 'center' },
+  title: { color: theme.colors.white, fontSize: 20, fontWeight: '800' },
+  content: { paddingHorizontal: 16, paddingBottom: 40 },
+  sectionTitle: { color: theme.colors.textMuted, fontSize: 12, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.7, marginTop: 22, marginBottom: 10, marginLeft: 5 },
+  row: { minHeight: 62, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, backgroundColor: theme.colors.surface, borderRadius: 15, borderWidth: 1, borderColor: theme.colors.line, paddingHorizontal: 12, paddingVertical: 9, marginBottom: 8 },
+  disabledRow: { opacity: 0.72 },
+  rowMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  iconWrap: { width: 38, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: '#171C22' },
+  rowLabel: { flexShrink: 1, color: theme.colors.white, fontSize: 14, fontWeight: '700' },
   valueText: { color: theme.colors.textMuted, fontSize: 12 },
-  segmentedWrap: {
-    flexDirection: 'row',
-    backgroundColor: '#171C22',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: theme.colors.line,
-    padding: 2,
-  },
-  segmentButton: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 },
-  segmentButtonActive: { backgroundColor: theme.colors.primary },
-  segmentText: { color: theme.colors.textMuted, fontSize: 11, fontWeight: '700' },
-  segmentTextActive: { color: theme.colors.black },
-  signoutRow: {
-    backgroundColor: '#111418',
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: theme.colors.line,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    marginTop: 4,
-  },
+  valueWrap: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  badgeText: { overflow: 'hidden', color: theme.colors.black, fontSize: 11, fontWeight: '800', backgroundColor: theme.colors.primary, borderRadius: 10, paddingHorizontal: 7, paddingVertical: 3 },
+  signoutRow: { minHeight: 62, justifyContent: 'center', backgroundColor: theme.colors.surface, borderRadius: 15, borderWidth: 1, borderColor: theme.colors.line, paddingHorizontal: 12, marginTop: 20 },
   logoutText: { color: theme.colors.white, fontWeight: '700' },
-  deleteRow: {
-    paddingVertical: 16,
-    marginTop: 6,
-    alignItems: 'center',
-  },
+  deleteRow: { minHeight: 48, justifyContent: 'center', alignItems: 'center', marginTop: 5 },
   deleteText: { color: theme.colors.danger, fontWeight: '700' },
-  sheetOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.52)',
-  },
-  sheetCard: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: '#111418',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingHorizontal: 18,
-    paddingTop: 12,
-    paddingBottom: 34,
-    borderWidth: 1,
-    borderColor: theme.colors.line,
-  },
-  sheetHandle: {
-    width: 52,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: '#334155',
-    alignSelf: 'center',
-    marginBottom: 12,
-  },
-  sheetTitle: { color: theme.colors.white, fontSize: 22, fontWeight: '800', marginBottom: 8 },
-  sheetCopy: { color: theme.colors.textMuted, marginBottom: 12 },
-  input: {
-    borderRadius: 12,
-    backgroundColor: '#171C22',
-    borderWidth: 1,
-    borderColor: theme.colors.line,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    color: theme.colors.white,
-  },
-  deleteButton: {
-    marginTop: 18,
-    backgroundColor: theme.colors.danger,
-    borderRadius: 14,
-    paddingVertical: 12,
-    alignItems: 'center',
-  },
-  deleteButtonDisabled: { opacity: 0.4 },
-  deleteButtonText: { color: theme.colors.white, fontWeight: '800' },
-  deleteButtonTextDisabled: { color: '#F8FAFC' },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.black, padding: 24 },
+  error: { color: theme.colors.danger, textAlign: 'center' },
+  errorBanner: { color: theme.colors.danger, fontSize: 13, paddingHorizontal: 16, paddingVertical: 8 },
+  modalOverlay: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(0,0,0,0.58)' },
+  sheet: { position: 'absolute', left: 0, right: 0, bottom: 0, padding: 18, paddingBottom: 26, borderTopLeftRadius: 24, borderTopRightRadius: 24, backgroundColor: theme.colors.surface },
+  sheetTitle: { color: theme.colors.white, fontSize: 18, fontWeight: '800', paddingVertical: 8 },
+  sheetCopy: { color: theme.colors.textMuted, fontSize: 14, lineHeight: 20, paddingBottom: 14 },
+  sheetRow: { minHeight: 50, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: theme.colors.line },
+  sheetRowLabel: { color: theme.colors.white, fontSize: 14, fontWeight: '600' },
+  input: { height: 46, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.line, paddingHorizontal: 12, color: theme.colors.white, backgroundColor: theme.colors.black, marginBottom: 14 },
+  confirmButton: { minHeight: 46, alignItems: 'center', justifyContent: 'center', borderRadius: 12, backgroundColor: theme.colors.primary },
+  deleteConfirmButton: { backgroundColor: theme.colors.danger },
+  disabledConfirm: { opacity: 0.4 },
+  confirmText: { color: theme.colors.white, fontSize: 14, fontWeight: '800' },
+  sheetCancel: { minHeight: 44, alignItems: 'center', justifyContent: 'center' },
+  cancelText: { color: theme.colors.textMuted, fontWeight: '700' },
 });

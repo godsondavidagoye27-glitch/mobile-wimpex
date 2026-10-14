@@ -40,7 +40,7 @@ The function also checks `DEMO_MODE=true`, ignores messages from demo profiles, 
 npx supabase secrets set DEMO_MODE=true
 ```
 
-Seed the nine clearly labeled demo profiles, their welcome chats, and—when a video is needed—MP4 files placed in `scripts/seed/assets`. The script logs and skips video creation if that folder is absent or empty. To also create seeded conversations with your account, pass the email address associated with its existing Wimpex profile:
+Seed the nine clearly labeled demo profiles, their welcome chats, and, when a video is needed, MP4 files placed in `scripts/seed/assets`. The script logs and skips video creation if that folder is absent or empty. To also create seeded conversations with your account, pass the email address associated with its existing Wimpex profile:
 
 ```powershell
 npm run seed -- --me you@example.test

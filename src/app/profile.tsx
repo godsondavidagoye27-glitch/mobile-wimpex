@@ -1,6 +1,5 @@
-import { ProfileScreen } from '../components/ProfileScreen';
-import { currentUserProfile } from '../data/profile';
+import { ProfileScreen } from '../features/profiles/ProfileScreen';
 
 export default function ProfileRoute() {
-  return <ProfileScreen profile={currentUserProfile} isOwner />;
+  return <ProfileScreen username={null} />;
 }

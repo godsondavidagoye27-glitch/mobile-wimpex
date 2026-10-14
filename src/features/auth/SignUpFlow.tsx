@@ -27,6 +27,7 @@ import { Icon } from '../../components/Icon';
 import { getSupabaseClient } from '../../lib/supabase';
 import { theme } from '../../theme/theme';
 import { runWithMinimumDuration } from './authTiming';
+import { createEmptyOtp, isOtpComplete, normalizeOtpDigits, OTP_CELL_WIDTH, OTP_LENGTH } from './constants';
 import {
   calculateAge,
   getPasswordStrength,
@@ -166,7 +167,7 @@ function OtpCell({
         onChangeText={onChangeText}
         onKeyPress={({ nativeEvent }) => onKeyPress(nativeEvent.key)}
         keyboardType="number-pad"
-        maxLength={6}
+        maxLength={OTP_LENGTH}
         accessibilityLabel={`Digit ${index + 1}`}
         style={styles.codeInput}
       />
@@ -191,7 +192,7 @@ export function SignUpFlow({
   const [screenError, setScreenError] = useState('');
   const [fieldErrors, setFieldErrors] = useState<{ email?: string; password?: string }>({});
   const [birthdayError, setBirthdayError] = useState('');
-  const [code, setCode] = useState(['', '', '', '', '', '']);
+  const [code, setCode] = useState<string[]>(() => createEmptyOtp());
   const [codeError, setCodeError] = useState('');
   const [resendSeconds, setResendSeconds] = useState(30);
   const [resendCycle, setResendCycle] = useState(0);
@@ -362,7 +363,7 @@ export function SignUpFlow({
             throw new Error('An account with this email already exists. Log in instead.');
           }
           return () => {
-            setCode(['', '', '', '', '', '']);
+            setCode(createEmptyOtp());
             setCodeError('');
             setResendSeconds(30);
             setResendCycle((cycle) => cycle + 1);
@@ -403,7 +404,7 @@ export function SignUpFlow({
       await performAction(
         async () => () => {
           if (!isSocial) {
-            setCode(['', '', '', '', '', '']);
+            setCode(createEmptyOtp());
             setCodeError('');
             setResendSeconds(30);
             setResendCycle((cycle) => cycle + 1);
@@ -416,7 +417,7 @@ export function SignUpFlow({
     }
 
     if (step === codeStep) {
-      if (code.join('').length !== 6) {
+      if (!isOtpComplete(code)) {
         setCodeError('That code is not right. Check it and try again.');
         return;
       }
@@ -547,7 +548,7 @@ export function SignUpFlow({
   };
 
   const verifyCode = async (token: string) => {
-    if (isVerifying.current) return;
+    if (isVerifying.current || token.length !== OTP_LENGTH) return;
     isVerifying.current = true;
     setCodeError('');
     setButtonState('loading');
@@ -566,7 +567,7 @@ export function SignUpFlow({
       setButtonState('success');
       await new Promise<void>((resolve) => setTimeout(resolve, 350));
       flow.setSignupData({ currentStep: 3 });
-      setCode(['', '', '', '', '', '']);
+      setCode(createEmptyOtp());
     } catch (error) {
       setCodeError(
         isRateLimitError(error)
@@ -575,7 +576,7 @@ export function SignUpFlow({
             ? 'No connection. Check your internet and try again.'
             : 'That code is not right. Check it and try again.',
       );
-      setCode(['', '', '', '', '', '']);
+      setCode(createEmptyOtp());
       setTimeout(() => inputRefs.current[0]?.focus(), 80);
     } finally {
       setButtonState('idle');
@@ -587,19 +588,18 @@ export function SignUpFlow({
     const digits = value.replace(/\D/g, '');
     setCodeError('');
     if (digits.length > 1) {
-      const next = [...digits.slice(0, 6)];
-      const filled = [...next, ...Array(Math.max(0, 6 - next.length)).fill('')].slice(0, 6);
+      const filled = normalizeOtpDigits(digits);
       setCode(filled);
-      if (filled.join('').length === 6) void verifyCode(filled.join(''));
-      else inputRefs.current[Math.min(filled.join('').length, 5)]?.focus();
+      if (isOtpComplete(filled)) void verifyCode(filled.join(''));
+      else inputRefs.current[Math.min(filled.join('').length, OTP_LENGTH - 1)]?.focus();
       return;
     }
 
     const next = [...code];
     next[index] = digits;
     setCode(next);
-    if (digits && index < 5) inputRefs.current[index + 1]?.focus();
-    if (next.every(Boolean)) void verifyCode(next.join(''));
+    if (digits && index < OTP_LENGTH - 1) inputRefs.current[index + 1]?.focus();
+    if (isOtpComplete(next)) void verifyCode(next.join(''));
   };
 
   const resendCode = async () => {
@@ -793,7 +793,7 @@ export function SignUpFlow({
         <>
           <Text style={styles.title}>Check your email</Text>
           <Text style={styles.description}>
-            Enter the 6 digit code sent to {flow.email.trim()}.
+            Enter the {OTP_LENGTH} digit code sent to {flow.email.trim()}.
           </Text>
           <Animated.View style={[styles.codeRow, codeShakeStyle]}>
             {code.map((digit, index) => (
@@ -941,7 +941,7 @@ export function SignUpFlow({
   const submitLabel = step === codeStep ? 'Verify' : step === interestsStep ? 'Create account' : 'Continue';
   const disabled =
     buttonState !== 'idle' ||
-    (step === codeStep && code.join('').length !== 6) ||
+    (step === codeStep && !isOtpComplete(code)) ||
     (step === interestsStep && !validateInterests(flow.interests));
 
   if (!flow.hasHydrated) {
@@ -1093,7 +1093,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     right: 4,
     top: 5,
-    width: 44,
+    width: OTP_CELL_WIDTH,
     height: 44,
     alignItems: 'center',
     justifyContent: 'center',
@@ -1195,7 +1195,7 @@ const styles = StyleSheet.create({
   },
   codeRow: {
     flexDirection: 'row',
-    gap: 8,
+    gap: 6,
     justifyContent: 'center',
   },
   codeCell: {

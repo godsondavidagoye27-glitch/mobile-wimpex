@@ -292,6 +292,20 @@ export default function CreatePostScreen() {
             style={styles.input}
           />
           <Text style={styles.characterCount}>{draft.caption.length}/150</Text>
+          {extractHashtags(draft.caption).length ? (
+            <View style={styles.hashtagChips}>
+              {extractHashtags(draft.caption).map((tag) => (
+                <Pressable
+                  key={tag}
+                  onPress={() => router.push({ pathname: '/hashtag/[tag]', params: { tag } })}
+                  style={styles.hashtagChip}
+                  accessibilityRole="link"
+                >
+                  <Text style={styles.hashtagChipText}>#{tag}</Text>
+                </Pressable>
+              ))}
+            </View>
+          ) : null}
         </View>
 
         <View style={styles.settingsCard}>
@@ -447,6 +461,16 @@ const styles = StyleSheet.create({
   fieldLabel: { color: theme.colors.white, fontWeight: '700' },
   input: { minHeight: 84, color: theme.colors.white, textAlignVertical: 'top', marginTop: 10 },
   characterCount: { color: theme.colors.textMuted, alignSelf: 'flex-end', fontSize: 12 },
+  hashtagChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 },
+  hashtagChip: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: theme.colors.line,
+    backgroundColor: theme.colors.black,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  hashtagChipText: { color: theme.colors.primary, fontSize: 12, fontWeight: '700' },
   settingsCard: {
     backgroundColor: theme.colors.surface,
     borderRadius: 16,

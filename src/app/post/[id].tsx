@@ -17,6 +17,7 @@ import {
 } from 'react-native';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { Icon } from '../../components/Icon';
+import { HashtagText } from '../../components/HashtagText';
 import { incrementPostShare, setPostLiked, setPostSaved } from '../../features/feed/postActions';
 import { getSignedUrls } from '../../features/feed/useFeed';
 import { getSupabaseClient } from '../../lib/supabase';
@@ -413,9 +414,9 @@ export default function PostDetailScreen() {
               <Text style={styles.postDate}>{formatCommentDate(detail.post.created_at)}</Text>
             </View>
 
-            <Text style={styles.caption}>{detail.post.caption}</Text>
+            <HashtagText text={detail.post.caption} style={styles.caption} />
             {detail.post.hashtags.length ? (
-              <Text style={styles.hashtags}>{detail.post.hashtags.map((tag) => `#{tag}`).join(' ')}</Text>
+              <HashtagText text={detail.post.hashtags.map((tag) => `#${tag}`).join(' ')} style={styles.hashtags} />
             ) : null}
 
             <View style={styles.actionRow}>

@@ -23,6 +23,7 @@ import { Icon } from '../../components/Icon';
 import { getSupabaseClient } from '../../lib/supabase';
 import { theme } from '../../theme/theme';
 import { runWithMinimumDuration } from './authTiming';
+import { createEmptyOtp, isOtpComplete, normalizeOtpDigits, OTP_CELL_WIDTH, OTP_LENGTH } from './constants';
 import {
   changePasswordResetStep,
   getPasswordStrength,
@@ -118,7 +119,7 @@ export function PasswordResetFlow({
   const [email, setEmail] = useState(initialEmail);
   const [newPassword, setNewPassword] = useState('');
   const [confirmation, setConfirmation] = useState('');
-  const [code, setCode] = useState(['', '', '', '', '', '']);
+  const [code, setCode] = useState<string[]>(() => createEmptyOtp());
   const [error, setError] = useState('');
   const [emailError, setEmailError] = useState('');
   const [resendSeconds, setResendSeconds] = useState(30);
@@ -198,7 +199,7 @@ export function PasswordResetFlow({
   };
 
   const verifyCode = async (token: string) => {
-    if (verifying.current || token.length !== 6) return;
+    if (verifying.current || token.length !== OTP_LENGTH) return;
     verifying.current = true;
     setError('');
     setButtonState('loading');
@@ -213,7 +214,7 @@ export function PasswordResetFlow({
       });
       setButtonState('success');
       await new Promise<void>((resolve) => setTimeout(resolve, 350));
-      setCode(['', '', '', '', '', '']);
+      setCode(createEmptyOtp());
       setStep(changePasswordResetStep(step, 'next'));
     } catch (caught) {
       setError(
@@ -223,7 +224,7 @@ export function PasswordResetFlow({
             ? 'No connection. Check your internet and try again.'
             : 'That code is not right. Check it and try again.',
       );
-      setCode(['', '', '', '', '', '']);
+      setCode(createEmptyOtp());
       setTimeout(() => refs.current[0]?.focus(), 80);
     } finally {
       setButtonState('idle');
@@ -235,17 +236,17 @@ export function PasswordResetFlow({
     const digits = value.replace(/\D/g, '');
     setError('');
     if (digits.length > 1) {
-      const filled = [...digits.slice(0, 6), '', '', '', '', '', ''].slice(0, 6);
+      const filled = normalizeOtpDigits(digits);
       setCode(filled);
-      if (filled.every(Boolean)) void verifyCode(filled.join(''));
+      if (isOtpComplete(filled)) void verifyCode(filled.join(''));
       else refs.current[filled.findIndex((digit) => !digit)]?.focus();
       return;
     }
     const next = [...code];
     next[index] = digits;
     setCode(next);
-    if (digits && index < 5) refs.current[index + 1]?.focus();
-    if (next.every(Boolean)) void verifyCode(next.join(''));
+    if (digits && index < OTP_LENGTH - 1) refs.current[index + 1]?.focus();
+    if (isOtpComplete(next)) void verifyCode(next.join(''));
   };
 
   const resendCode = async () => {
@@ -287,7 +288,7 @@ export function PasswordResetFlow({
       return;
     }
     if (step === 1) {
-      if (code.join('').length !== 6) {
+      if (!isOtpComplete(code)) {
         setError('That code is not right. Check it and try again.');
         return;
       }
@@ -329,7 +330,7 @@ export function PasswordResetFlow({
           {step === 0 ? (
             <>
               <Text style={styles.title}>Reset your password</Text>
-              <Text style={styles.description}>Enter your email and we will send you a 6 digit code.</Text>
+              <Text style={styles.description}>Enter your email and we will send you a {OTP_LENGTH} digit code.</Text>
               <ResetField
                 label="Email"
                 value={email}
@@ -347,7 +348,7 @@ export function PasswordResetFlow({
             <>
               <Text style={styles.title}>Check your email</Text>
               <Text style={styles.description}>
-                If an account exists for {email.trim()}, enter the 6 digit code we sent.
+                If an account exists for {email.trim()}, enter the {OTP_LENGTH} digit code we sent.
               </Text>
               <Animated.View style={[styles.codeRow, shakeStyle]}>
                 {code.map((digit, index) => (
@@ -364,7 +365,7 @@ export function PasswordResetFlow({
                         }
                       }}
                       keyboardType="number-pad"
-                      maxLength={6}
+                      maxLength={OTP_LENGTH}
                       accessibilityLabel={`Digit ${index + 1}`}
                       style={styles.codeInput}
                     />
@@ -436,7 +437,7 @@ export function PasswordResetFlow({
       <View style={styles.footer}>
         <Pressable
           onPress={() => void submit()}
-          disabled={buttonState !== 'idle' || (step === 1 && code.join('').length !== 6)}
+          disabled={buttonState !== 'idle' || (step === 1 && !isOtpComplete(code))}
           accessibilityRole="button"
           style={[styles.submit, buttonState !== 'idle' && styles.disabled]}
         >
@@ -498,7 +499,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     right: 4,
     top: 5,
-    width: 44,
+    width: OTP_CELL_WIDTH,
     height: 44,
     alignItems: 'center',
     justifyContent: 'center',

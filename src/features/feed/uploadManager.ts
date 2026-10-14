@@ -1,5 +1,4 @@
 import { Storage } from 'expo-sqlite/kv-store';
-import { File as LocalFile } from 'expo-file-system';
 import { Platform } from 'react-native';
 import { Upload } from 'tus-js-client';
 import { getSupabaseClient } from '../../lib/supabase';
@@ -204,6 +203,7 @@ async function upsertPostRecord(job: VideoUploadJob): Promise<Post['status']> {
     save_count: 0,
     share_count: 0,
     view_count: 0,
+    pinned_at: null,
     is_demo: false,
     created_at: new Date().toISOString(),
     published_at: null,
@@ -231,6 +231,7 @@ function startTusUpload(
   const objectName = `${job.ownerId}/${job.postId}.${extension}`;
   const fingerprint = `wimpex-post:${job.ownerId}:${job.postId}`;
   const tusUrlKey = `${tusKey}${fingerprint}`;
+  let file: Blob;
 
   const uploadAttempt = (allowResume: boolean): Promise<void> => new Promise((resolve, reject) => {
     let settled = false;
@@ -251,7 +252,7 @@ function startTusUpload(
       settled = true;
       reject(error);
     };
-    const upload = new Upload(new LocalFile(job.uri), {
+    const upload = new Upload(file, {
       endpoint: getStorageEndpoint(),
       retryDelays: [0, 3000, 5000, 10000, 20000],
       chunkSize: 6 * 1024 * 1024,
@@ -299,7 +300,10 @@ function startTusUpload(
     }).catch(fail);
   });
 
-  return uploadAttempt(true);
+  return import('expo-file-system').then(({ File }) => {
+    file = new File(job.uri);
+    return uploadAttempt(true);
+  });
 }
 
 async function performUpload(job: VideoUploadJob): Promise<void> {
@@ -315,6 +319,7 @@ async function performUpload(job: VideoUploadJob): Promise<void> {
       const { error } = await getSupabaseClient().rpc('finalize_post', { post_id: uploading.postId });
       if (error) throw error;
     }
+    const { File: LocalFile } = await import('expo-file-system');
     const localFile = new LocalFile(uploading.uri);
     if (localFile.exists) localFile.delete();
     await removeItem(`${jobsKey}${uploading.id}`);
@@ -402,6 +407,7 @@ export async function removeUploadJob(jobId: string): Promise<void> {
       .eq('author_id', job.ownerId);
     if (postError) throw postError;
   }
+  const { File: LocalFile } = await import('expo-file-system');
   const localFile = new LocalFile(job.uri);
   if (localFile.exists) localFile.delete();
   await removeItem(`${jobsKey}${jobId}`);

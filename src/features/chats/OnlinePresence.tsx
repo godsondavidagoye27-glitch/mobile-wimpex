@@ -75,11 +75,11 @@ export function OnlinePresence() {
       if (state === 'active') void start(currentUserId);
       else stop();
     });
-    void supabase.auth.getUser().then(({ data, error }) => {
+    void supabase.auth.getSession().then(({ data, error }) => {
       if (error) throw error;
-      return start(data.user?.id ?? null);
+      return start(data.session?.user.id ?? null);
     }).catch((error: unknown) => {
-      console.error('Unable to load the signed-in user for online presence.', error);
+      console.error('Unable to load the authentication session for online presence.', error);
     });
 
     return () => {
