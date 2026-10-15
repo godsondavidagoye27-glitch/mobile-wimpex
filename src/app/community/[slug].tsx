@@ -1,16 +1,21 @@
 import { router, useLocalSearchParams } from 'expo-router';
+import { useNetworkState } from 'expo-network';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  BackHandler,
   FlatList,
   Image,
+  Keyboard,
   Modal,
   Pressable,
   RefreshControl,
   StyleSheet,
   Text,
   View,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
 } from 'react-native';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { Icon } from '../../components/Icon';
@@ -49,6 +54,7 @@ type CommunityTab = 'Posts' | 'About' | 'Members' | 'Chat';
 type MemberCursor = { joinedAt: string; id: string; status: CommunityMemberRpcRow['status'] };
 const pageSize = 20;
 const communityTabs: CommunityTab[] = ['Posts', 'About', 'Members', 'Chat'];
+const communityMessageKey = (message: CommunityMessageRpcRow) => message.id;
 
 function CommunityPostVideo({ uri }: { uri: string }) {
   const player = useVideoPlayer(uri, (videoPlayer) => {
@@ -66,6 +72,7 @@ function readableError(error: unknown) {
 }
 
 export default function CommunityScreen() {
+  const networkState = useNetworkState();
   const params = useLocalSearchParams<{ slug?: string; tab?: string }>();
   const slug = Array.isArray(params.slug) ? params.slug[0] : params.slug ?? '';
   const requestedTab = Array.isArray(params.tab) ? params.tab[0] : params.tab;
@@ -100,6 +107,11 @@ export default function CommunityScreen() {
   const [chatInputHeight, setChatInputHeight] = useState(44);
   const [chatMessages, setChatMessages] = useState<CommunityMessageRpcRow[]>([]);
   const chatListRef = useRef<FlatList<CommunityMessageRpcRow>>(null);
+  const latestChatMessageIdRef = useRef<string | null>(null);
+  const chatCommunityIdRef = useRef<string | null>(null);
+  const chatScrolledUpRef = useRef(false);
+  const [chatScrolledUp, setChatScrolledUp] = useState(false);
+  const [newChatMessageCount, setNewChatMessageCount] = useState(0);
   const [chatLoading, setChatLoading] = useState(false);
   const [chatSending, setChatSending] = useState(false);
   const [chatError, setChatError] = useState('');
@@ -120,6 +132,7 @@ export default function CommunityScreen() {
       : []
   ), [community]);
   const visibleMembers = useMemo(() => members.filter((member) => member.status === 'active'), [members]);
+  const newestFirstChatMessages = useMemo(() => [...chatMessages].reverse(), [chatMessages]);
   const requests = useMemo(() => members.filter((member) => member.status === 'pending'), [members]);
   const bannedMembers = useMemo(() => members.filter((member) => member.status === 'banned'), [members]);
 
@@ -165,7 +178,31 @@ export default function CommunityScreen() {
     setChatLoading(true);
     setChatError('');
     try {
-      setChatMessages(await getCommunityMessages(communityId));
+      const nextMessages = await getCommunityMessages(communityId);
+      if (chatCommunityIdRef.current !== communityId) {
+        chatCommunityIdRef.current = communityId;
+        latestChatMessageIdRef.current = null;
+        chatScrolledUpRef.current = false;
+        setChatScrolledUp(false);
+        setNewChatMessageCount(0);
+      }
+      const newestMessage = nextMessages[nextMessages.length - 1];
+      if (
+        newestMessage
+        && latestChatMessageIdRef.current
+        && newestMessage.id !== latestChatMessageIdRef.current
+      ) {
+        if (chatScrolledUpRef.current && !newestMessage.is_mine) {
+          const previousMessageIndex = nextMessages.findIndex(
+            (message) => message.id === latestChatMessageIdRef.current,
+          );
+          setNewChatMessageCount((count) => count + Math.max(1, nextMessages.length - previousMessageIndex - 1));
+        } else if (!chatScrolledUpRef.current) {
+          chatListRef.current?.scrollToOffset({ offset: 0, animated: false });
+        }
+      }
+      if (newestMessage) latestChatMessageIdRef.current = newestMessage.id;
+      setChatMessages(nextMessages);
     } catch (caught) {
       setChatError(readableError(caught));
     } finally {
@@ -710,6 +747,23 @@ export default function CommunityScreen() {
     </View>
   );
 
+  const renderCommunityChatMessage = useCallback(({ item }: { item: CommunityMessageRpcRow }) => (
+    <View style={[styles.chatBubble, item.is_mine ? styles.chatBubbleMine : styles.chatBubbleOther]}>
+      <Text style={styles.chatAuthor}>{item.is_mine ? 'You' : item.display_name}</Text>
+      <Text style={styles.chatBody}>{item.body}</Text>
+      <Text style={styles.chatTime}>{new Date(item.created_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</Text>
+    </View>
+  ), []);
+
+  const handleCommunityChatScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const scrolledUp = event.nativeEvent.contentOffset.y > 220;
+    if (chatScrolledUpRef.current !== scrolledUp) {
+      chatScrolledUpRef.current = scrolledUp;
+      setChatScrolledUp(scrolledUp);
+    }
+    if (!scrolledUp) setNewChatMessageCount(0);
+  }, []);
+
   const renderTabContent = () => {
     if (!community) return null;
     if (activeTab === 'Posts') {
@@ -792,32 +846,47 @@ export default function CommunityScreen() {
               <Text style={styles.errorText}>Community chat could not be loaded or sent.</Text>
               <Pressable onPress={() => void loadChat()}><Text style={styles.retryText}>Retry</Text></Pressable>
             </View>
-          ) : null}
+          ) : networkState.isConnected === false || networkState.isInternetReachable === false
+            ? <View style={styles.offlineBanner}><Text style={styles.offlineText}>You are offline</Text></View>
+            : null}
           list={chatLoading
             ? <ActivityIndicator color={theme.colors.primary} style={styles.inlineLoader} />
             : (
+              <View style={styles.chatListArea}>
               <FlatList
                 ref={chatListRef}
-                data={[...chatMessages].reverse()}
+                data={newestFirstChatMessages}
                 inverted
-                keyExtractor={(item) => item.id}
+                keyExtractor={communityMessageKey}
                 contentContainerStyle={styles.chatMessages}
                 keyboardShouldPersistTaps="handled"
                 keyboardDismissMode="on-drag"
+                onScroll={handleCommunityChatScroll}
+                scrollEventThrottle={16}
                 ListEmptyComponent={
                   <View style={styles.emptyChat}>
                     <Text style={styles.emptyText}>No messages yet. Start the conversation.</Text>
                   </View>
                 }
-                renderItem={({ item }) => (
-                  <View style={[styles.chatBubble, item.is_mine ? styles.chatBubbleMine : styles.chatBubbleOther]}>
-                    <Text style={styles.chatAuthor}>{item.is_mine ? 'You' : item.display_name}</Text>
-                    <Text style={styles.chatBody}>{item.body}</Text>
-                    <Text style={styles.chatTime}>{new Date(item.created_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</Text>
-                  </View>
-                )}
+                renderItem={renderCommunityChatMessage}
                 showsVerticalScrollIndicator={false}
               />
+              {chatScrolledUp ? (
+                <Pressable
+                  onPress={() => {
+                    chatListRef.current?.scrollToOffset({ offset: 0, animated: true });
+                    setNewChatMessageCount(0);
+                  }}
+                  style={styles.chatScrollToBottom}
+                  accessibilityRole="button"
+                  accessibilityLabel="Scroll to newest community messages"
+                >
+                  <Text style={styles.chatScrollToBottomText}>
+                    {newChatMessageCount > 0 ? `New messages (${newChatMessageCount})` : 'Latest messages'}
+                  </Text>
+                </Pressable>
+              ) : null}
+              </View>
             )}
           composer={(
             <View style={styles.chatComposer}>
@@ -881,6 +950,33 @@ export default function CommunityScreen() {
 
   const leaveAllowed = canLeaveCommunity(community?.role);
   const deleteAllowed = canDeleteCommunity(community?.role);
+
+  useEffect(() => {
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (Keyboard.isVisible()) {
+        Keyboard.dismiss();
+        return true;
+      }
+      if (reportsOpen) {
+        setReportsOpen(false);
+        return true;
+      }
+      if (inviteOpen) {
+        setInviteOpen(false);
+        return true;
+      }
+      if (communityActionsOpen) {
+        setCommunityActionsOpen(false);
+        return true;
+      }
+      if (selectedMember) {
+        setSelectedMember(null);
+        return true;
+      }
+      return false;
+    });
+    return () => subscription.remove();
+  }, [communityActionsOpen, inviteOpen, reportsOpen, selectedMember]);
 
   return (
     <KeyboardAwareScreen style={styles.screen}>
@@ -1220,10 +1316,15 @@ const styles = StyleSheet.create({
   reportDetails: { color: theme.colors.textMuted, fontSize: 12, lineHeight: 18 },
   resolveButton: { alignSelf: 'flex-start', paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10, backgroundColor: '#142A38', marginTop: 4 },
   chatMessages: { paddingVertical: 12, flexGrow: 1, justifyContent: 'flex-end' },
+  chatListArea: { flex: 1, minHeight: 120 },
+  chatScrollToBottom: { position: 'absolute', right: 8, bottom: 12, minHeight: 44, justifyContent: 'center', paddingHorizontal: 14, borderRadius: 22, backgroundColor: theme.colors.primary },
+  chatScrollToBottomText: { color: theme.colors.black, fontSize: 12, fontWeight: '700' },
   emptyChat: { flex: 1, minHeight: 120, justifyContent: 'center', alignItems: 'center' },
   chatWrap: { flex: 1, padding: 16 },
   chatHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
   chatPeople: { color: theme.colors.textMuted, fontSize: 12 },
+  offlineBanner: { backgroundColor: '#36230D', paddingVertical: 7 },
+  offlineText: { color: '#FBBF24', textAlign: 'center', fontSize: 12, fontWeight: '700' },
   chatBubble: { maxWidth: '80%', padding: 10, borderRadius: 14, marginBottom: 12 },
   chatBubbleMine: { alignSelf: 'flex-end', backgroundColor: '#142A38' },
   chatBubbleOther: { alignSelf: 'flex-start', backgroundColor: '#171C22' },

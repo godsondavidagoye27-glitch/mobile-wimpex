@@ -1,10 +1,12 @@
 import Animated, { useAnimatedStyle } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { ReactNode } from 'react';
-import { View, StyleSheet, type StyleProp, type ViewStyle } from 'react-native';
+import { Keyboard, Pressable, View, StyleSheet, type StyleProp, type ViewStyle } from 'react-native';
 import { KeyboardAwareScreen, useKeyboardInset } from '../hooks/useKeyboardInset';
 import { minimumChatListHeight } from '../features/chats/chatLayout';
 import { theme } from '../theme/theme';
+
+const dismissKeyboard = () => Keyboard.dismiss();
 
 type ChatScreenLayoutProps = {
   header: ReactNode;
@@ -48,7 +50,7 @@ export function ChatScreenLayout({
         {contextHeader ? (
           <Animated.View style={contextHeaderStyle}>{contextHeader}</Animated.View>
         ) : null}
-        <View style={styles.list}>{list}</View>
+        <Pressable onPress={dismissKeyboard} style={styles.list}>{list}</Pressable>
         {composer ? (
           <Animated.View style={[styles.composer, composerInsetStyle]}>{composer}</Animated.View>
         ) : null}

@@ -52,7 +52,7 @@ import { theme } from '../../theme/theme';
 
 type Conversation = Database['public']['Tables']['conversations']['Row'];
 type Member = Database['public']['Tables']['conversation_members']['Row'];
-type Profile = Pick<ChatProfile, 'id' | 'username' | 'display_name' | 'is_official' | 'date_of_birth'>;
+type Profile = Pick<ChatProfile, 'id' | 'username' | 'display_name' | 'avatar_url' | 'is_official' | 'date_of_birth'>;
 type ReactionGroup = { emoji: string; count: number; mine: boolean };
 
 const quickReactions = ['❤️', '😂', '👍', '😮', '😢', '🔥'];
@@ -174,6 +174,7 @@ export default function ChatThreadScreen() {
   const [mediaLoadStatus, setMediaLoadStatus] = useState<Record<string, 'loading' | 'ready' | 'error'>>({});
   const [composerInputHeight, setComposerInputHeight] = useState(44);
   const latestMessageIdRef = useRef<string | null>(null);
+  const showScrollButtonRef = useRef(false);
 
   useEffect(() => {
     messagesRef.current = messages;
@@ -244,6 +245,16 @@ export default function ChatThreadScreen() {
   const reloadLatest = useCallback(async () => {
     if (!conversationId) return;
     const rows = await fetchConversationMessages(supabase, conversationId, undefined, 30);
+    const newestMessage = rows[0];
+    if (newestMessage && latestMessageIdRef.current && newestMessage.id !== latestMessageIdRef.current) {
+      if (showScrollButtonRef.current && newestMessage.sender_id !== userIdRef.current) {
+        const previousMessageIndex = rows.findIndex((message) => message.id === latestMessageIdRef.current);
+        setNewMessageCount((count) => count + Math.max(1, previousMessageIndex));
+      } else if (!showScrollButtonRef.current) {
+        listRef.current?.scrollToOffset({ offset: 0, animated: false });
+      }
+    }
+    if (newestMessage) latestMessageIdRef.current = newestMessage.id;
     setMessages((current) => mergeChatMessages(
       current.filter((message) => message.id.startsWith('local:') && message.deliveryState !== 'sent'),
       rows.map((message) => ({ ...message, deliveryState: 'sent' })),
@@ -275,7 +286,7 @@ export default function ChatThreadScreen() {
     if (membersError) throw membersError;
     const { data: nextProfiles, error: profilesError } = await supabase
       .from('profiles')
-      .select('id,username,display_name,is_official,date_of_birth')
+      .select('id,username,display_name,avatar_url,is_official,date_of_birth')
       .in('id', nextMembers.map((member) => member.user_id));
     if (profilesError) throw profilesError;
 
@@ -293,6 +304,7 @@ export default function ChatThreadScreen() {
     setMembers(nextMembers);
     setProfiles(nextProfiles);
     setMessages(rows.map((message) => ({ ...message, deliveryState: 'sent' })));
+    latestMessageIdRef.current = rows[0]?.id ?? null;
     setHasMore(rows.length === 30);
     newestMarkedReadId.current = null;
     await loadReactions(rows);
@@ -472,7 +484,7 @@ export default function ChatThreadScreen() {
       void markReadRef.current(newestMessage);
     }
   }, []);
-  const loadOlder = async () => {
+  const loadOlder = useCallback(async () => {
     const oldest = messages[messages.length - 1];
     if (!conversationId || !oldest || loadingOlder || !hasMore) return;
     setLoadingOlder(true);
@@ -487,7 +499,10 @@ export default function ChatThreadScreen() {
     } finally {
       setLoadingOlder(false);
     }
-  };
+  }, [conversationId, hasMore, loadReactions, loadingOlder, messages, supabase]);
+  const handleLoadOlder = useCallback(() => {
+    void loadOlder();
+  }, [loadOlder]);
 
   const sendTyping = () => {
     const now = Date.now();
@@ -504,7 +519,7 @@ export default function ChatThreadScreen() {
       });
   };
 
-  const transmitMessage = async (message: ChatMessage) => {
+  const transmitMessage = useCallback(async (message: ChatMessage) => {
     if (!userId || !conversationId) return;
     setMessages((current) => setMessageDeliveryState(current, message.client_id, 'sending'));
     const insert = {
@@ -546,9 +561,9 @@ export default function ChatThreadScreen() {
         router.replace('/(auth)/welcome?resume=signup');
       }
     }
-  };
+  }, [conversationId, supabase, userId]);
 
-  const transmitMediaMessage = async (
+  const transmitMediaMessage = useCallback(async (
     message: ChatMessage,
     pending: { attachment: ChatMediaAttachment; mediaId: string },
   ) => {
@@ -621,7 +636,7 @@ export default function ChatThreadScreen() {
     } finally {
       setSending(false);
     }
-  };
+  }, [conversationId, supabase, userId]);
 
   const submitMessage = async () => {
     const body = draft.trim();
@@ -669,13 +684,13 @@ export default function ChatThreadScreen() {
     else void transmitMessage(optimistic);
   };
 
-  const retryMessage = (message: ChatMessage) => {
+  const retryMessage = useCallback((message: ChatMessage) => {
     const pending = pendingMediaRef.current.get(message.client_id);
     if (pending) void transmitMediaMessage(message, pending);
     else void transmitMessage(message);
-  };
+  }, [transmitMediaMessage, transmitMessage]);
 
-  const toggleReaction = async (message: ChatMessage, emoji: string) => {
+  const toggleReaction = useCallback(async (message: ChatMessage, emoji: string) => {
     if (!userId || message.id.startsWith('local:')) return;
     const existing = reactions[message.id]?.some((reaction) => reaction.emoji === emoji && reaction.mine);
     const result = existing
@@ -690,7 +705,7 @@ export default function ChatThreadScreen() {
     } catch (reactionError) {
       Alert.alert('Could not refresh reactions', reactionError instanceof Error ? reactionError.message : 'Try again.');
     }
-  };
+  }, [loadReactions, reactions, supabase, userId]);
 
   const deleteMessage = async (message: ChatMessage) => {
     if (!userId || message.sender_id !== userId) return;
@@ -766,7 +781,7 @@ export default function ChatThreadScreen() {
     ]);
   };
 
-  const renderMessage = ({ item, index }: { item: ChatMessage; index: number }) => {
+  const renderMessage = useCallback(({ item, index }: { item: ChatMessage; index: number }) => {
     const mine = item.sender_id === userId;
     const sender = profiles.find((profile) => profile.id === item.sender_id);
     const older = messages[index + 1];
@@ -901,22 +916,28 @@ export default function ChatThreadScreen() {
         ) : null}
       </View>
     );
-  };
+  }, [
+    conversation?.type,
+    latestIsSeen,
+    latestMine?.id,
+    localMediaUris,
+    mediaLoadStatus,
+    messages,
+    profiles,
+    reactions,
+    refreshSignedMedia,
+    retryMessage,
+    signedMediaUrls,
+    toggleReaction,
+    userId,
+  ]);
 
-  const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+  const handleScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const scrolledUp = event.nativeEvent.contentOffset.y > 220;
+    showScrollButtonRef.current = scrolledUp;
     setShowScrollButton(scrolledUp);
     if (!scrolledUp) setNewMessageCount(0);
-  };
-
-  useEffect(() => {
-    const newestId = messages[0]?.id ?? null;
-    if (newestId && latestMessageIdRef.current && newestId !== latestMessageIdRef.current) {
-      if (showScrollButton) setNewMessageCount((count) => count + 1);
-      else listRef.current?.scrollToOffset({ offset: 0, animated: false });
-    }
-    latestMessageIdRef.current = newestId;
-  }, [messages, showScrollButton]);
+  }, []);
 
   if (loading) {
     return (
@@ -959,6 +980,13 @@ export default function ChatThreadScreen() {
             <Pressable onPress={() => router.back()} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Go back">
               <Icon name="back" size={20} color={theme.colors.white} />
             </Pressable>
+            <View style={styles.headerAvatar}>
+              {peer?.avatar_url ? (
+                <Image source={{ uri: peer.avatar_url }} style={styles.headerAvatarImage} />
+              ) : (
+                <Text style={styles.headerAvatarInitial}>{title.trim().charAt(0).toUpperCase() || '?'}</Text>
+              )}
+            </View>
             <View style={styles.headerIdentity}>
               <Text style={styles.headerTitle} numberOfLines={1}>{title}</Text>
               {statusLine ? <Text style={styles.statusText}>{statusLine}</Text> : null}
@@ -1008,7 +1036,7 @@ export default function ChatThreadScreen() {
               inverted
               keyExtractor={(message) => message.id}
               renderItem={renderMessage}
-              onEndReached={() => void loadOlder()}
+              onEndReached={handleLoadOlder}
               onEndReachedThreshold={0.25}
               onViewableItemsChanged={onViewableItemsChanged}
               viewabilityConfig={messageViewability}
@@ -1064,6 +1092,7 @@ export default function ChatThreadScreen() {
             <ChatMediaComposer
               attachment={attachment}
               disabled={sending}
+              showVoiceRecorder={!draft.trim() && !attachment}
               onAttachment={setAttachment}
               onClear={() => setAttachment(null)}
             />
@@ -1087,15 +1116,17 @@ export default function ChatThreadScreen() {
                 onSubmitEditing={() => void submitMessage()}
                 blurOnSubmit={false}
               />
-              <Pressable
-                onPress={() => void submitMessage()}
-                disabled={sending || (!draft.trim() && !attachment)}
-                style={[styles.sendButton, (sending || (!draft.trim() && !attachment)) && styles.sendButtonDisabled]}
-                accessibilityRole="button"
-                accessibilityLabel="Send message"
-              >
-                {sending ? <ActivityIndicator size="small" color={theme.colors.black} /> : <Icon name="send" size={20} color={theme.colors.black} />}
-              </Pressable>
+              {draft.trim() || attachment || sending ? (
+                <Pressable
+                  onPress={() => void submitMessage()}
+                  disabled={sending || (!draft.trim() && !attachment)}
+                  style={[styles.sendButton, (sending || (!draft.trim() && !attachment)) && styles.sendButtonDisabled]}
+                  accessibilityRole="button"
+                  accessibilityLabel="Send message"
+                >
+                  {sending ? <ActivityIndicator size="small" color={theme.colors.black} /> : <Icon name="send" size={20} color={theme.colors.black} />}
+                </Pressable>
+              ) : null}
             </View>
           </View>
         ) : null}
@@ -1200,7 +1231,10 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: theme.colors.line,
   },
-  headerButton: { width: 42, height: 42, alignItems: 'center', justifyContent: 'center' },
+  headerButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
+  headerAvatar: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', overflow: 'hidden', backgroundColor: theme.colors.surface },
+  headerAvatarImage: { width: '100%', height: '100%' },
+  headerAvatarInitial: { color: theme.colors.white, fontSize: 14, fontWeight: '700' },
   headerIdentity: { flex: 1, alignItems: 'center', minWidth: 0 },
   headerTitle: { color: theme.colors.white, fontSize: 16, fontWeight: '800' },
   statusText: { color: theme.colors.primary, fontSize: 11, marginTop: 2 },

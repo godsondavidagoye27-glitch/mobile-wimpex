@@ -1,4 +1,4 @@
-import { forwardRef, useCallback, useEffect, useRef, useState, type RefObject } from 'react';
+import { forwardRef, useCallback, useRef, useState, type RefObject } from 'react';
 import {
   Pressable,
   StyleSheet,
@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import Animated, {
   useAnimatedStyle,
+  useAnimatedReaction,
   useSharedValue,
   withSequence,
   withTiming,
@@ -58,16 +59,22 @@ export function AuthField({
   }));
   const floated = focused || value.length > 0;
 
-  useEffect(() => {
-    if (!error || !shakeOnError) return;
-    shake.value = withSequence(
-      withTiming(-6, { duration: 70 }),
-      withTiming(6, { duration: 70 }),
-      withTiming(-6, { duration: 70 }),
-      withTiming(6, { duration: 70 }),
-      withTiming(0, { duration: 70 }),
-    );
-  }, [error, shake, shakeOnError]);
+  useAnimatedReaction(
+    () => error,
+    (currentError, previousError) => {
+      if (!currentError || currentError === previousError || !shakeOnError) return;
+      // Reanimated shared values are intentionally mutated inside this UI-thread reaction.
+      // eslint-disable-next-line react-hooks/immutability
+      shake.value = withSequence(
+        withTiming(-6, { duration: 70 }),
+        withTiming(6, { duration: 70 }),
+        withTiming(-6, { duration: 70 }),
+        withTiming(6, { duration: 70 }),
+        withTiming(0, { duration: 70 }),
+      );
+    },
+    [error, shakeOnError],
+  );
 
   return (
     <Animated.View style={shakeStyle}>
@@ -151,7 +158,6 @@ const styles = StyleSheet.create({
   field: {
     height: 56,
     position: 'relative',
-    overflow: 'hidden',
     backgroundColor: '#14181D',
     borderRadius: 16,
     borderWidth: 1.5,
@@ -169,7 +175,11 @@ const styles = StyleSheet.create({
     borderColor: theme.colors.danger,
   },
   input: {
-    ...StyleSheet.absoluteFillObject,
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
     color: theme.colors.white,
     fontSize: 16,
     paddingHorizontal: 14,

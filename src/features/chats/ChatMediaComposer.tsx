@@ -27,11 +27,18 @@ import { prepareChatPickerAsset, prepareRecordedVoice } from './chatMediaPrepara
 type Props = {
   attachment: ChatMediaAttachment | null;
   disabled: boolean;
+  showVoiceRecorder?: boolean;
   onAttachment: (attachment: ChatMediaAttachment) => void;
   onClear: () => void;
 };
 
-export function ChatMediaComposer({ attachment, disabled, onAttachment, onClear }: Props) {
+export function ChatMediaComposer({
+  attachment,
+  disabled,
+  showVoiceRecorder = true,
+  onAttachment,
+  onClear,
+}: Props) {
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const recorderState = useAudioRecorderState(recorder);
   const [recording, setRecording] = useState(false);
@@ -62,12 +69,12 @@ export function ChatMediaComposer({ attachment, disabled, onAttachment, onClear 
     return undefined;
   }, [finishRecording, recorderState.durationMillis, recording]);
 
-  const pickMedia = async () => {
+  const pickMedia = async (mediaTypes: ('images' | 'videos')[] = ['images', 'videos']) => {
     if (disabled || busy || recording) return;
     setBusy(true);
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images', 'videos'],
+        mediaTypes,
         allowsEditing: false,
         quality: 0.82,
         videoExportPreset: ImagePicker.VideoExportPreset.H264_1280x720,
@@ -78,6 +85,42 @@ export function ChatMediaComposer({ attachment, disabled, onAttachment, onClear 
     } finally {
       setBusy(false);
     }
+  };
+
+  const captureMedia = async () => {
+    if (disabled || busy || recording) return;
+    setBusy(true);
+    try {
+      const permission = await ImagePicker.requestCameraPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert('Camera access required', 'Allow camera access to capture an attachment.');
+        return;
+      }
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ['images', 'videos'],
+        allowsEditing: false,
+        quality: 0.82,
+        videoExportPreset: ImagePicker.VideoExportPreset.H264_1280x720,
+      });
+      if (!result.canceled) onAttachment(await prepareChatPickerAsset(result.assets[0]));
+    } catch (error) {
+      Alert.alert('Could not capture media', error instanceof Error ? error.message : 'Try again.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const chooseMedia = () => {
+    if (Platform.OS === 'web') {
+      void pickMedia();
+      return;
+    }
+    Alert.alert('Add attachment', 'Choose a photo, video, or use the camera.', [
+      { text: 'Photo', onPress: () => void pickMedia(['images']) },
+      { text: 'Video', onPress: () => void pickMedia(['videos']) },
+      { text: 'Camera', onPress: () => void captureMedia() },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
   };
 
   const toggleRecording = async () => {
@@ -135,7 +178,7 @@ export function ChatMediaComposer({ attachment, disabled, onAttachment, onClear 
       ) : (
         <View style={styles.actions}>
           <Pressable
-            onPress={() => void pickMedia()}
+            onPress={chooseMedia}
             disabled={disabled || busy || recording}
             style={[styles.actionButton, (disabled || busy || recording) && styles.disabled]}
             accessibilityRole="button"
@@ -147,15 +190,17 @@ export function ChatMediaComposer({ attachment, disabled, onAttachment, onClear 
               <Icon name="plus" size={20} color={theme.colors.textMuted} />
             )}
           </Pressable>
-          <Pressable
-            onPress={() => void toggleRecording()}
-            disabled={disabled || busy}
-            style={[styles.recordButton, recording && styles.recordingButton, (disabled || busy) && styles.disabled]}
-            accessibilityRole="button"
-            accessibilityLabel={recording ? 'Stop voice recording' : 'Record voice message'}
-          >
-            <Icon name={recording ? 'pause' : 'mic'} size={20} color={recording ? theme.colors.black : theme.colors.textMuted} />
-          </Pressable>
+          {showVoiceRecorder || recording ? (
+            <Pressable
+              onPress={() => void toggleRecording()}
+              disabled={disabled || busy}
+              style={[styles.recordButton, recording && styles.recordingButton, (disabled || busy) && styles.disabled]}
+              accessibilityRole="button"
+              accessibilityLabel={recording ? 'Stop voice recording' : 'Record voice message'}
+            >
+              <Icon name={recording ? 'pause' : 'mic'} size={20} color={recording ? theme.colors.black : theme.colors.textMuted} />
+            </Pressable>
+          ) : null}
           {recording ? (
             <Text style={styles.recordingLabel}>
               Recording {Math.floor(recorderState.durationMillis / 1000)}s - tap to stop
