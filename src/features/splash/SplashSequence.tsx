@@ -42,7 +42,7 @@ import { useAuthFlow } from '../auth/useAuthFlow';
 import { LogoMark } from './LogoMark';
 import SplashSkiaBackdrop, { SplashLogoGlow } from './SplashSkiaBackdrop';
 import { Wordmark } from './Wordmark';
-import { calculateKeyboardLayout, useKeyboardInset } from '../../hooks/useKeyboardInset';
+import { calculateKeyboardLayout, scrollFocusedInputIntoView, useKeyboardInset } from '../../hooks/useKeyboardInset';
 
 const slides = [
   { title: 'Short videos made for you', art: 'video' },
@@ -85,6 +85,7 @@ function LoginField({
   secureTextEntry,
   error,
   inputRef,
+  onFocusInput,
   onSubmitEditing,
   returnKeyType,
   autoComplete,
@@ -98,6 +99,7 @@ function LoginField({
   secureTextEntry?: boolean;
   error?: string;
   inputRef?: React.RefObject<TextInput | null>;
+  onFocusInput?: () => void;
   onSubmitEditing?: () => void;
   returnKeyType: 'next' | 'done';
   autoComplete?: TextInputProps['autoComplete'];
@@ -128,7 +130,10 @@ function LoginField({
           ref={inputRef}
           value={value}
           onChangeText={onChangeText}
-          onFocus={() => setFocused(true)}
+          onFocus={() => {
+            setFocused(true);
+            onFocusInput?.();
+          }}
           onBlur={() => setFocused(false)}
           onSubmitEditing={onSubmitEditing}
           blurOnSubmit={returnKeyType === 'next' ? false : undefined}
@@ -343,6 +348,7 @@ export function SplashSequence() {
   const setSignupData = useAuthFlow((state) => state.setSignupData);
   const [phase, setPhase] = useState<'splash' | 'welcome'>('splash');
   const [authOpen, setAuthOpen] = useState(false);
+  const [authTransitionReady, setAuthTransitionReady] = useState(false);
   const [authMode, setAuthMode] = useState<AuthMode>('login');
   const [signupFinish, setSignupFinish] = useState<{
     displayName: string;
@@ -362,6 +368,8 @@ export function SplashSequence() {
   const [authError, setAuthError] = useState('');
   const loginEmailRef = useRef<TextInput>(null);
   const loginPasswordRef = useRef<TextInput>(null);
+  const loginScrollRef = useRef<ScrollView>(null);
+  const loginScrollOffset = useRef(0);
   const [buttonState, setButtonState] = useState<'idle' | 'loading' | 'success'>('idle');
   const [toast, setToast] = useState('');
   const [segmentWidth, setSegmentWidth] = useState(0);
@@ -378,6 +386,16 @@ export function SplashSequence() {
   const segmentOffset = useSharedValue(0);
   const segmentOpacity = useSharedValue(1);
   const segmentHeight = useSharedValue(42);
+  const authTransitionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const beginAuthTransition = useCallback(() => {
+    setAuthTransitionReady(false);
+    if (authTransitionTimer.current) clearTimeout(authTransitionTimer.current);
+    authTransitionTimer.current = setTimeout(() => {
+      setAuthTransitionReady(true);
+      authTransitionTimer.current = null;
+    }, skiaFailed ? 0 : 850);
+  }, [skiaFailed]);
 
   useEffect(() => {
     if (Platform.OS !== 'ios') return;
@@ -470,6 +488,7 @@ export function SplashSequence() {
 
   useEffect(
     () => () => {
+      if (authTransitionTimer.current) clearTimeout(authTransitionTimer.current);
       cancelAnimation(translateY);
       cancelAnimation(logoScale);
       cancelAnimation(welcomeOpacity);
@@ -539,6 +558,7 @@ export function SplashSequence() {
 
   const openAuth = (mode: AuthMode) => {
     Keyboard.dismiss();
+    beginAuthTransition();
     setAuthMode(mode);
     setResetOpen(false);
     setResetStep(0);
@@ -554,10 +574,11 @@ export function SplashSequence() {
     const timer = setTimeout(() => {
       setPhase('welcome');
       setAuthMode('signup');
+      beginAuthTransition();
       setAuthOpen(true);
     }, 0);
     return () => clearTimeout(timer);
-  }, [signupFlowType, signupHydrated, signupStep]);
+  }, [beginAuthTransition, signupFlowType, signupHydrated, signupStep]);
 
   const handleAuthBack = () => {
     Keyboard.dismiss();
@@ -582,6 +603,11 @@ export function SplashSequence() {
 
   const closeAuth = () => {
     Keyboard.dismiss();
+    setAuthTransitionReady(false);
+    if (authTransitionTimer.current) {
+      clearTimeout(authTransitionTimer.current);
+      authTransitionTimer.current = null;
+    }
     setResetOpen(false);
     setResetStep(0);
     if (skiaFailed) {
@@ -815,7 +841,10 @@ export function SplashSequence() {
             <View style={styles.segment} onLayout={(event) => setSegmentWidth(event.nativeEvent.layout.width)}>
               <Animated.View style={[styles.segmentPill, segmentPillStyle]} />
               <Pressable
-                onPress={() => setAuthMode('login')}
+                onPress={() => {
+                  Keyboard.dismiss();
+                  setAuthMode('login');
+                }}
                 style={styles.segmentButton}
                 accessibilityRole="button"
                 accessibilityState={{ selected: authMode === 'login' }}
@@ -824,6 +853,7 @@ export function SplashSequence() {
               </Pressable>
               <Pressable
                 onPress={() => {
+                  Keyboard.dismiss();
                   setAuthMode('signup');
                   setSignupData({ flowType: 'email' });
                   setErrors({});
@@ -841,6 +871,7 @@ export function SplashSequence() {
 
         {resetOpen ? (
           <PasswordResetFlow
+            canAutofocus={authTransitionReady}
             email={email}
             step={resetStep}
             setStep={setResetStep}
@@ -860,6 +891,11 @@ export function SplashSequence() {
         ) : authMode === 'login' ? (
           <>
             <ScrollView
+              ref={loginScrollRef}
+              onScroll={(event) => {
+                loginScrollOffset.current = event.nativeEvent.contentOffset.y;
+              }}
+              scrollEventThrottle={16}
               style={styles.authBody}
               contentContainerStyle={styles.authBodyContent}
               keyboardShouldPersistTaps="handled"
@@ -881,6 +917,11 @@ export function SplashSequence() {
                 textContentType="emailAddress"
                 importantForAutofill="yes"
                 onSubmitEditing={() => loginPasswordRef.current?.focus()}
+                onFocusInput={() => scrollFocusedInputIntoView(
+                  loginScrollRef.current,
+                  loginEmailRef.current,
+                  loginScrollOffset.current,
+                )}
               />
               <LoginField
                 label="Password"
@@ -897,6 +938,11 @@ export function SplashSequence() {
                 textContentType="password"
                 importantForAutofill="yes"
                 onSubmitEditing={() => void submitLogin()}
+                onFocusInput={() => scrollFocusedInputIntoView(
+                  loginScrollRef.current,
+                  loginPasswordRef.current,
+                  loginScrollOffset.current,
+                )}
               />
               <Pressable
                 onPress={() => {
@@ -974,6 +1020,7 @@ export function SplashSequence() {
           </>
         ) : (
           <SignUpFlow
+            canAutofocus={authTransitionReady}
             onToast={showToast}
             onSwitchToLogin={() => {
               Keyboard.dismiss();

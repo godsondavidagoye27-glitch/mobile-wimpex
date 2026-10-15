@@ -1,18 +1,27 @@
-import { createElement, useCallback, type ReactNode } from 'react';
-import { View, StyleSheet, type LayoutChangeEvent, type StyleProp, type ViewStyle } from 'react-native';
+import { createElement, useCallback, useContext, useMemo, type ReactNode } from 'react';
+import { View, StyleSheet, type LayoutChangeEvent, type ScrollView, type StyleProp, type TextInput, type ViewStyle } from 'react-native';
 import Animated, { useAnimatedKeyboard, useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { calculateKeyboardLayout } from './keyboardLayout';
+import { KeyboardAwareContainerContext, KeyboardInsetContext, useKeyboardInsetValues } from './keyboardInsetContext';
 
 export { calculateKeyboardLayout } from './keyboardLayout';
 
-export function useKeyboardInset() {
+export function KeyboardInsetProvider({ children }: { children: ReactNode }) {
   const keyboard = useAnimatedKeyboard({ isStatusBarTranslucentAndroid: false });
+  const values = useMemo(
+    () => ({ keyboardHeight: keyboard.height, keyboardState: keyboard.state }),
+    [keyboard.height, keyboard.state],
+  );
+  return createElement(KeyboardInsetContext.Provider, { value: values }, children);
+}
+
+export function useKeyboardInset() {
+  const keyboard = useKeyboardInsetValues();
   const insets = useSafeAreaInsets();
   const containerHeight = useSharedValue(0);
 
   const onLayout = useCallback((event: LayoutChangeEvent) => {
-    // Shared values are written from layout events to avoid a React render per frame.
     // eslint-disable-next-line react-hooks/immutability
     containerHeight.value = event.nativeEvent.layout.height;
   }, [containerHeight]);
@@ -21,7 +30,7 @@ export function useKeyboardInset() {
     const layout = calculateKeyboardLayout(
       containerHeight.value,
       insets.bottom,
-      keyboard.height.value,
+      keyboard.keyboardHeight.value,
     );
     return containerHeight.value > 0
       ? { height: layout.availableHeight, flex: 0 }
@@ -29,14 +38,41 @@ export function useKeyboardInset() {
   }, [insets.bottom]);
 
   return {
-    keyboardHeight: keyboard.height,
-    keyboardState: keyboard.state,
+    keyboardHeight: keyboard.keyboardHeight,
+    keyboardState: keyboard.keyboardState,
     safeAreaTop: insets.top,
     safeAreaBottom: insets.bottom,
     containerHeight,
     contentStyle,
     onLayout,
   };
+}
+
+export function scrollFocusedInputIntoView(
+  scrollView: ScrollView | null,
+  input: TextInput | null,
+  currentScrollOffset: number,
+  margin = 16,
+) {
+  if (!scrollView || !input) return;
+
+  setTimeout(() => {
+    input.measureInWindow((_inputX, inputY, _inputWidth, inputHeight) => {
+      scrollView.getNativeScrollRef()?.measureInWindow((_scrollX, scrollY, _scrollWidth, scrollHeight) => {
+        const topLimit = scrollY + margin;
+        const bottomLimit = scrollY + scrollHeight - margin;
+        const down = inputY + inputHeight - bottomLimit;
+        const up = topLimit - inputY;
+        const delta = down > 0 ? down : up > 0 ? -up : 0;
+        if (delta !== 0) {
+          scrollView.scrollTo({
+            y: Math.max(0, currentScrollOffset + delta),
+            animated: true,
+          });
+        }
+      });
+    });
+  }, 100);
 }
 
 export function KeyboardAwareScreen({
@@ -46,12 +82,25 @@ export function KeyboardAwareScreen({
   children: ReactNode;
   style?: StyleProp<ViewStyle>;
 }) {
+  const nested = useContext(KeyboardAwareContainerContext);
   const { contentStyle, onLayout } = useKeyboardInset();
+
+  if (nested) {
+    return createElement(
+      View,
+      { style: [styles.root, style] },
+      createElement(KeyboardAwareContainerContext.Provider, { value: true }, children),
+    );
+  }
 
   return createElement(
     View,
     { onLayout, style: [styles.root, style] },
-    createElement(Animated.View, { style: [styles.content, contentStyle] }, children),
+    createElement(
+      Animated.View,
+      { style: [styles.content, contentStyle] },
+      createElement(KeyboardAwareContainerContext.Provider, { value: true }, children),
+    ),
   );
 }
 

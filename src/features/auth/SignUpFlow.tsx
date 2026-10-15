@@ -26,6 +26,7 @@ import Animated, {
 import { Icon } from '../../components/Icon';
 import { getSupabaseClient } from '../../lib/supabase';
 import { theme } from '../../theme/theme';
+import { scrollFocusedInputIntoView } from '../../hooks/useKeyboardInset';
 import { runWithMinimumDuration } from './authTiming';
 import { createEmptyOtp, isOtpComplete, normalizeOtpDigits, OTP_CELL_WIDTH, OTP_LENGTH } from './constants';
 import {
@@ -70,6 +71,7 @@ function SignupField({
   autoComplete,
   error,
   inputRef,
+  onFocusInput,
   onSubmitEditing,
   textContentType,
   importantForAutofill,
@@ -86,6 +88,7 @@ function SignupField({
   returnKeyType?: TextInputProps['returnKeyType'];
   error?: string;
   inputRef?: React.RefObject<TextInput | null>;
+  onFocusInput?: () => void;
   onSubmitEditing?: () => void;
 }) {
   const [focused, setFocused] = useState(false);
@@ -99,7 +102,10 @@ function SignupField({
           ref={inputRef}
           value={value}
           onChangeText={onChangeText}
-          onFocus={() => setFocused(true)}
+          onFocus={() => {
+            setFocused(true);
+            onFocusInput?.();
+          }}
           onBlur={() => setFocused(false)}
           onSubmitEditing={onSubmitEditing}
           blurOnSubmit={returnKeyType === 'next' ? false : undefined}
@@ -149,6 +155,7 @@ function OtpCell({
   onChangeText,
   onKeyPress,
   onSubmitEditing,
+  onFocusInput,
 }: {
   index: number;
   digit: string;
@@ -157,6 +164,7 @@ function OtpCell({
   onChangeText: (value: string) => void;
   onKeyPress: (key: string) => void;
   onSubmitEditing: () => void;
+  onFocusInput?: () => void;
 }) {
   const scale = useSharedValue(1);
   const popStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
@@ -175,6 +183,7 @@ function OtpCell({
         ref={inputRef}
         value={digit}
         onChangeText={onChangeText}
+        onFocus={onFocusInput}
         onSubmitEditing={onSubmitEditing}
         onKeyPress={({ nativeEvent }) => onKeyPress(nativeEvent.key)}
         keyboardType="number-pad"
@@ -195,11 +204,13 @@ function OtpCell({
 }
 
 export function SignUpFlow({
+  canAutofocus = true,
   onToast,
   onSwitchToLogin,
   onFinished,
   onUnderage,
 }: {
+  canAutofocus?: boolean;
   onToast: (message: string) => void;
   onSwitchToLogin: () => void;
   onFinished: (displayName: string, username: string) => void;
@@ -226,6 +237,8 @@ export function SignUpFlow({
   const isSubmitting = useRef(false);
   const isVerifying = useRef(false);
   const inputRefs = useRef<(TextInput | null)[]>([]);
+  const scrollRef = useRef<ScrollView>(null);
+  const scrollOffset = useRef(0);
   const emailRef = useRef<TextInput>(null);
   const passwordRef = useRef<TextInput>(null);
   const usernameRef = useRef<TextInput>(null);
@@ -252,14 +265,19 @@ export function SignUpFlow({
 
   useEffect(() => {
     if (!flow.hasHydrated) return;
-    if (previousStep.current === step) return;
-    previousStep.current = step;
-    Keyboard.dismiss();
+    const stepChanged = previousStep.current !== step;
+    if (stepChanged) {
+      previousStep.current = step;
+      Keyboard.dismiss();
+    } else if (!canAutofocus || step !== codeStep) {
+      return;
+    }
+    if (!canAutofocus) return;
     const timer = setTimeout(() => {
       if (step === codeStep) inputRefs.current[0]?.focus();
     }, 120);
     return () => clearTimeout(timer);
-  }, [codeStep, flow.hasHydrated, profileStep, step]);
+  }, [canAutofocus, codeStep, flow.hasHydrated, step]);
 
   useEffect(() => {
     if (step !== codeStep) return;
@@ -717,6 +735,7 @@ export function SignUpFlow({
             onSubmitEditing={() => passwordRef.current?.focus()}
             error={fieldErrors.email}
             inputRef={emailRef}
+            onFocusInput={() => scrollFocusedInputIntoView(scrollRef.current, emailRef.current, scrollOffset.current)}
           />
           <SignupField
             label="Password"
@@ -734,6 +753,7 @@ export function SignUpFlow({
             onSubmitEditing={() => void handleSignup()}
             error={fieldErrors.password}
             inputRef={passwordRef}
+            onFocusInput={() => scrollFocusedInputIntoView(scrollRef.current, passwordRef.current, scrollOffset.current)}
           />
           <View style={styles.strengthMeter} accessibilityLabel={`Password strength ${passwordStrength.score} of 4`}>
             {[0, 1, 2, 3].map((segment) => (
@@ -868,6 +888,11 @@ export function SignUpFlow({
                   inputRefs.current[index] = input;
                 }}
                 onChangeText={(value) => setOtpDigit(index, value)}
+                onFocusInput={() => scrollFocusedInputIntoView(
+                  scrollRef.current,
+                  inputRefs.current[index],
+                  scrollOffset.current,
+                )}
                 onSubmitEditing={() => {
                   if (index < OTP_LENGTH - 1) inputRefs.current[index + 1]?.focus();
                   else void verifyCode(code.join(''));
@@ -927,6 +952,7 @@ export function SignUpFlow({
             inputRef={usernameRef}
             returnKeyType="next"
             onSubmitEditing={() => displayNameRef.current?.focus()}
+            onFocusInput={() => scrollFocusedInputIntoView(scrollRef.current, usernameRef.current, scrollOffset.current)}
           />
           <View style={styles.usernameStatus}>
             {currentUsernameStatus === 'checking' ? (
@@ -963,6 +989,7 @@ export function SignUpFlow({
             onSubmitEditing={() => void handleSignup()}
             inputRef={displayNameRef}
             error={nameError}
+            onFocusInput={() => scrollFocusedInputIntoView(scrollRef.current, displayNameRef.current, scrollOffset.current)}
           />
           {pickerError ? <Text accessibilityRole="alert" style={styles.errorText}>{pickerError}</Text> : null}
           {screenError ? <Text accessibilityRole="alert" style={styles.errorText}>{screenError}</Text> : null}
@@ -1034,6 +1061,11 @@ export function SignUpFlow({
           />
         </View>
         <ScrollView
+          ref={scrollRef}
+          onScroll={(event) => {
+            scrollOffset.current = event.nativeEvent.contentOffset.y;
+          }}
+          scrollEventThrottle={16}
           style={styles.body}
           contentContainerStyle={styles.bodyContent}
           keyboardShouldPersistTaps="handled"

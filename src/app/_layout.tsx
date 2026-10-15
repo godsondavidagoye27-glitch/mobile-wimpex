@@ -8,6 +8,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { OnlinePresence } from '../features/chats/OnlinePresence';
 import { NotificationLifecycle } from '../features/notifications/NotificationLifecycle';
+import { KeyboardInsetProvider } from '../hooks/useKeyboardInset';
 import { preferenceStorage } from '../lib/storage';
 import { resolveThemeMode, type AppThemeMode, theme } from '../theme/theme';
 
@@ -80,15 +81,17 @@ export default function RootLayout() {
       <AppErrorBoundary>
         <QueryClientProvider client={queryClient}>
           <SafeAreaProvider>
-            <StatusBar style={themeMode === 'light' ? 'dark' : 'light'} />
-            <OnlinePresence />
-            <NotificationLifecycle />
-            <View style={styles.rootContent} onLayout={hideSplash}>
-              <Stack screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
-                <Stack.Screen name="create" options={{ presentation: 'transparentModal', animation: 'slide_from_bottom', contentStyle: { backgroundColor: 'transparent' } }} />
-                <Stack.Screen name="story/[authorId]" options={{ presentation: 'transparentModal', animation: 'fade', contentStyle: { backgroundColor: '#000000' } }} />
-              </Stack>
-            </View>
+            <KeyboardInsetProvider>
+              <StatusBar style={themeMode === 'light' ? 'dark' : 'light'} />
+              <OnlinePresence />
+              <NotificationLifecycle />
+              <View style={styles.rootContent} onLayout={hideSplash}>
+                <Stack screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
+                  <Stack.Screen name="create" options={{ presentation: 'transparentModal', animation: 'slide_from_bottom', contentStyle: { backgroundColor: 'transparent' } }} />
+                  <Stack.Screen name="story/[authorId]" options={{ presentation: 'transparentModal', animation: 'fade', contentStyle: { backgroundColor: '#000000' } }} />
+                </Stack>
+              </View>
+            </KeyboardInsetProvider>
           </SafeAreaProvider>
         </QueryClientProvider>
       </AppErrorBoundary>

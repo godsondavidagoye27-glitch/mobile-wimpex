@@ -22,6 +22,7 @@ import Animated, {
 import { Icon } from '../../components/Icon';
 import { getSupabaseClient } from '../../lib/supabase';
 import { theme } from '../../theme/theme';
+import { scrollFocusedInputIntoView } from '../../hooks/useKeyboardInset';
 import { runWithMinimumDuration } from './authTiming';
 import { createEmptyOtp, isOtpComplete, normalizeOtpDigits, OTP_CELL_WIDTH, OTP_LENGTH } from './constants';
 import {
@@ -42,6 +43,7 @@ function ResetField({
   secureTextEntry,
   error,
   inputRef,
+  onFocusInput,
   autoComplete,
   textContentType,
   importantForAutofill,
@@ -55,6 +57,7 @@ function ResetField({
   secureTextEntry?: boolean;
   error?: string;
   inputRef?: React.RefObject<TextInput | null>;
+  onFocusInput?: () => void;
   autoComplete?: TextInputProps['autoComplete'];
   textContentType?: TextInputProps['textContentType'];
   importantForAutofill?: TextInputProps['importantForAutofill'];
@@ -72,7 +75,10 @@ function ResetField({
           ref={inputRef}
           value={value}
           onChangeText={onChangeText}
-          onFocus={() => setFocused(true)}
+          onFocus={() => {
+            setFocused(true);
+            onFocusInput?.();
+          }}
           onBlur={() => setFocused(false)}
           onSubmitEditing={onSubmitEditing}
           blurOnSubmit={returnKeyType === 'next' ? false : undefined}
@@ -121,12 +127,14 @@ function isNetworkError(error: unknown) {
 }
 
 export function PasswordResetFlow({
+  canAutofocus = true,
   email: initialEmail,
   step,
   setStep,
   onToast,
   onFinished,
 }: {
+  canAutofocus?: boolean;
   email: string;
   step: number;
   setStep: (step: number) => void;
@@ -146,6 +154,8 @@ export function PasswordResetFlow({
   const [passwordError, setPasswordError] = useState('');
   const reduceMotion = useReducedMotion();
   const refs = useRef<(TextInput | null)[]>([]);
+  const scrollRef = useRef<ScrollView>(null);
+  const scrollOffset = useRef(0);
   const emailRef = useRef<TextInput>(null);
   const passwordRef = useRef<TextInput>(null);
   const confirmationRef = useRef<TextInput>(null);
@@ -157,12 +167,13 @@ export function PasswordResetFlow({
   const progressPercent = ((step + 1) / 3) * 100;
 
   useEffect(() => {
+    if (!canAutofocus) return undefined;
     const timer = setTimeout(() => {
       if (step === 0) emailRef.current?.focus();
       if (step === 1) refs.current[0]?.focus();
     }, 120);
     return () => clearTimeout(timer);
-  }, [resendCycle, step]);
+  }, [canAutofocus, step]);
 
   useEffect(() => {
     if (step !== 1) return;
@@ -338,6 +349,11 @@ export function PasswordResetFlow({
         />
       </View>
       <ScrollView
+        ref={scrollRef}
+        onScroll={(event) => {
+          scrollOffset.current = event.nativeEvent.contentOffset.y;
+        }}
+        scrollEventThrottle={16}
         style={styles.body}
         contentContainerStyle={styles.bodyContent}
         keyboardShouldPersistTaps="handled"
@@ -364,6 +380,7 @@ export function PasswordResetFlow({
                 importantForAutofill="yes"
                 returnKeyType="done"
                 onSubmitEditing={() => void submit()}
+                onFocusInput={() => scrollFocusedInputIntoView(scrollRef.current, emailRef.current, scrollOffset.current)}
               />
               {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
             </>
@@ -382,6 +399,11 @@ export function PasswordResetFlow({
                       }}
                       value={digit}
                       onChangeText={(value) => setDigit(index, value)}
+                      onFocus={() => scrollFocusedInputIntoView(
+                        scrollRef.current,
+                        refs.current[index],
+                        scrollOffset.current,
+                      )}
                       onSubmitEditing={() => {
                         if (index < OTP_LENGTH - 1) refs.current[index + 1]?.focus();
                         else void verifyCode(code.join(''));
@@ -437,6 +459,7 @@ export function PasswordResetFlow({
                 importantForAutofill="yes"
                 returnKeyType="next"
                 onSubmitEditing={() => confirmationRef.current?.focus()}
+                onFocusInput={() => scrollFocusedInputIntoView(scrollRef.current, passwordRef.current, scrollOffset.current)}
               />
               <View style={styles.strengthMeter}>
                 {[0, 1, 2, 3].map((segment) => (
@@ -475,6 +498,7 @@ export function PasswordResetFlow({
                 returnKeyType="done"
                 onSubmitEditing={() => void submit()}
                 error={passwordError}
+                onFocusInput={() => scrollFocusedInputIntoView(scrollRef.current, confirmationRef.current, scrollOffset.current)}
               />
               {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
             </>
