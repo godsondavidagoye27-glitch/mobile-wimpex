@@ -1,17 +1,18 @@
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useNetworkState } from 'expo-network';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  BackHandler,
   Animated,
   FlatList,
   Image,
+  Keyboard,
   Modal,
   Pressable,
   StyleSheet,
   Text,
-  TextInput,
   View,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
@@ -21,7 +22,10 @@ import * as Clipboard from 'expo-clipboard';
 import * as Crypto from 'expo-crypto';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { Icon } from '../../components/Icon';
+import { FocusableTextInput } from '../../components/AuthField';
+import { ChatScreenLayout } from '../../components/ChatScreenLayout';
 import { KeyboardAwareScreen } from '../../hooks/useKeyboardInset';
+import { calculateChatComposerHeight } from '../../features/chats/chatLayout';
 import { getStoryReplyPreviewUrl } from '../../features/stories/storyService';
 import { ChatMediaComposer } from '../../features/chats/ChatMediaComposer';
 import { ChatMediaMessage } from '../../features/chats/ChatMediaMessage';
@@ -40,6 +44,7 @@ import {
   type ChatMessage,
   type MessageRow,
 } from '../../features/chats/messageState';
+import { beginProfileCompletion } from '../../features/auth/useAuthFlow';
 import type { ChatMediaAttachment } from '../../features/chats/chatMediaValidation';
 import { getSupabaseClient } from '../../lib/supabase';
 import type { Database } from '../../types/database';
@@ -77,6 +82,17 @@ function timeLabel(value: string) {
 
 function compareMessagePosition(first: MessageRow, second: MessageRow) {
   return first.created_at.localeCompare(second.created_at) || first.id.localeCompare(second.id);
+}
+
+function isMissingSenderProfileError(error: unknown) {
+  return (
+    error !== null
+    && typeof error === 'object'
+    && 'code' in error
+    && error.code === 'P0001'
+    && 'message' in error
+    && error.message === 'Message sender profile not found.'
+  );
 }
 
 function isUnder18(dateOfBirth: string) {
@@ -151,10 +167,13 @@ export default function ChatThreadScreen() {
   const [reportReason, setReportReason] = useState('');
   const [reportTarget, setReportTarget] = useState<{ type: 'message' | 'conversation'; id: string } | null>(null);
   const [showScrollButton, setShowScrollButton] = useState(false);
+  const [newMessageCount, setNewMessageCount] = useState(0);
   const [attachment, setAttachment] = useState<ChatMediaAttachment | null>(null);
   const [localMediaUris, setLocalMediaUris] = useState<Record<string, string>>({});
   const [signedMediaUrls, setSignedMediaUrls] = useState<Record<string, string>>({});
   const [mediaLoadStatus, setMediaLoadStatus] = useState<Record<string, 'loading' | 'ready' | 'error'>>({});
+  const [composerInputHeight, setComposerInputHeight] = useState(44);
+  const latestMessageIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     messagesRef.current = messages;
@@ -383,6 +402,29 @@ export default function ChatThreadScreen() {
     };
   }, [loadConversation, supabase]));
 
+  useEffect(() => {
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (Keyboard.isVisible()) {
+        Keyboard.dismiss();
+        return true;
+      }
+      if (menuMessage) {
+        setMenuMessage(null);
+        return true;
+      }
+      if (headerMenuOpen) {
+        setHeaderMenuOpen(false);
+        return true;
+      }
+      if (reportOpen) {
+        setReportOpen(false);
+        return true;
+      }
+      return false;
+    });
+    return () => subscription.remove();
+  }, [headerMenuOpen, menuMessage, reportOpen]);
+
   const latestMessage = messages[0] ?? null;
   const peer = profiles.find((profile) => profile.id !== userId) ?? null;
   const otherReadId = members.find((member) => member.user_id !== userId)?.last_read_message_id;
@@ -413,12 +455,23 @@ export default function ChatThreadScreen() {
     }
   }, [conversationId, focused, supabase, userId]);
 
-  const onViewableItemsChanged = useCallback((info: { viewableItems: ViewToken<ChatMessage>[] }) => {
-    const newestVisible = latestMessage && info.viewableItems.some((token) =>
-      token.isViewable && token.item.id === latestMessage.id,
-    );
-    if (newestVisible && latestMessage && screenFocusedRef.current) void markRead(latestMessage);
+  const latestMessageRef = useRef<ChatMessage | null>(null);
+  const markReadRef = useRef(markRead);
+
+  useLayoutEffect(() => {
+    latestMessageRef.current = latestMessage;
+    markReadRef.current = markRead;
   }, [latestMessage, markRead]);
+
+  const onViewableItemsChanged = useCallback((info: { viewableItems: ViewToken<ChatMessage>[] }) => {
+    const newestMessage = latestMessageRef.current;
+    const newestVisible = newestMessage && info.viewableItems.some((token) =>
+      token.isViewable && token.item.id === newestMessage.id,
+    );
+    if (newestMessage && newestVisible && screenFocusedRef.current) {
+      void markReadRef.current(newestMessage);
+    }
+  }, []);
   const loadOlder = async () => {
     const oldest = messages[messages.length - 1];
     if (!conversationId || !oldest || loadingOlder || !hasMore) return;
@@ -488,6 +541,10 @@ export default function ChatThreadScreen() {
       setMessages((current) => setMessageDeliveryState(current, message.client_id, 'failed'));
       setSending(false);
       console.error('Unable to send chat message.', sendError);
+      if (isMissingSenderProfileError(sendError)) {
+        beginProfileCompletion();
+        router.replace('/(auth)/welcome?resume=signup');
+      }
     }
   };
 
@@ -847,8 +904,19 @@ export default function ChatThreadScreen() {
   };
 
   const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    setShowScrollButton(event.nativeEvent.contentOffset.y > 220);
+    const scrolledUp = event.nativeEvent.contentOffset.y > 220;
+    setShowScrollButton(scrolledUp);
+    if (!scrolledUp) setNewMessageCount(0);
   };
+
+  useEffect(() => {
+    const newestId = messages[0]?.id ?? null;
+    if (newestId && latestMessageIdRef.current && newestId !== latestMessageIdRef.current) {
+      if (showScrollButton) setNewMessageCount((count) => count + 1);
+      else listRef.current?.scrollToOffset({ offset: 0, animated: false });
+    }
+    latestMessageIdRef.current = newestId;
+  }, [messages, showScrollButton]);
 
   if (loading) {
     return (
@@ -883,132 +951,155 @@ export default function ChatThreadScreen() {
   }
 
   return (
-    <KeyboardAwareScreen style={styles.screen}>
-      <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Go back">
-          <Icon name="back" size={20} color={theme.colors.white} />
-        </Pressable>
-        <View style={styles.headerIdentity}>
-          <Text style={styles.headerTitle} numberOfLines={1}>{title}</Text>
-          {statusLine ? <Text style={styles.statusText}>{statusLine}</Text> : null}
-        </View>
-        <View style={styles.callButtons}>
-          {conversation.type === 'direct' && !conversation.read_only ? (
-            <>
-              <Pressable
-                onPress={() => router.push({
-                  pathname: '/call/[conversationId]',
-                  params: { conversationId, mode: 'audio' },
-                })}
-                style={styles.headerButton}
-                accessibilityRole="button"
-                accessibilityLabel="Start voice call"
-              >
-                <Icon name="mic" size={20} color={theme.colors.white} />
-              </Pressable>
-              <Pressable
-                onPress={() => router.push({
-                  pathname: '/call/[conversationId]',
-                  params: { conversationId, mode: 'video' },
-                })}
-                style={styles.headerButton}
-                accessibilityRole="button"
-                accessibilityLabel="Start video call"
-              >
-                <Icon name="video" size={20} color={theme.colors.white} />
-              </Pressable>
-            </>
-          ) : null}
-          <Pressable onPress={() => setHeaderMenuOpen(true)} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Chat options">
-            <Icon name="more" size={20} color={theme.colors.white} />
-          </Pressable>
-        </View>
-      </View>
-
-      {networkState.isConnected === false || networkState.isInternetReachable === false ? (
-        <View style={styles.offlineBanner}><Text style={styles.offlineText}>You are offline</Text></View>
-      ) : null}
-      {loadingOlder ? <ActivityIndicator color={theme.colors.primary} style={styles.olderLoading} /> : null}
-      {messages.length === 0 && !remoteTyping ? (
-        <View style={styles.emptyThread}><Text style={styles.emptyThreadText}>Say hello to {title}.</Text></View>
-      ) : null}
-      <FlatList
-        ref={listRef}
-        data={messages}
-        inverted
-        keyExtractor={(message) => message.id}
-        renderItem={renderMessage}
-        onEndReached={() => void loadOlder()}
-        onEndReachedThreshold={0.25}
-        onViewableItemsChanged={onViewableItemsChanged}
-        viewabilityConfig={messageViewability}
-        onScroll={handleScroll}
-        scrollEventThrottle={100}
-        initialNumToRender={20}
-        maxToRenderPerBatch={10}
-        windowSize={7}
-        keyboardShouldPersistTaps="handled"
-        contentContainerStyle={styles.messageList}
-        showsVerticalScrollIndicator={false}
-        ListFooterComponent={remoteTyping ? <TypingDots /> : null}
-      />
-      {showScrollButton ? (
-        <Pressable
-          onPress={() => listRef.current?.scrollToOffset({ offset: 0, animated: true })}
-          style={styles.scrollBottom}
-          accessibilityRole="button"
-          accessibilityLabel="Scroll to latest message"
-        >
-          <Icon name="chevronRight" size={20} color={theme.colors.white} />
-        </Pressable>
-      ) : null}
-      {!conversation.read_only ? (
-        <View style={styles.composer}>
-          {replyTo ? (
-            <View style={styles.replyPreview}>
-              <View style={styles.replyPreviewContent}>
-                <Text style={styles.replyPreviewLabel}>Replying to {replyTo.sender_id === userId ? 'your message' : title}</Text>
-                <Text style={styles.replyPreviewBody} numberOfLines={1}>{replyTo.body ?? 'Message'}</Text>
-              </View>
-              <Pressable onPress={() => setReplyTo(null)} accessibilityRole="button" accessibilityLabel="Cancel reply">
-                <Icon name="close" size={20} color={theme.colors.textMuted} />
+    <>
+      <ChatScreenLayout
+        style={styles.screen}
+        header={(
+          <View style={styles.header}>
+            <Pressable onPress={() => router.back()} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Go back">
+              <Icon name="back" size={20} color={theme.colors.white} />
+            </Pressable>
+            <View style={styles.headerIdentity}>
+              <Text style={styles.headerTitle} numberOfLines={1}>{title}</Text>
+              {statusLine ? <Text style={styles.statusText}>{statusLine}</Text> : null}
+            </View>
+            <View style={styles.callButtons}>
+              {conversation.type === 'direct' && !conversation.read_only ? (
+                <>
+                  <Pressable
+                    onPress={() => router.push({
+                      pathname: '/call/[conversationId]',
+                      params: { conversationId, mode: 'audio' },
+                    })}
+                    style={styles.headerButton}
+                    accessibilityRole="button"
+                    accessibilityLabel="Start voice call"
+                  >
+                    <Icon name="mic" size={20} color={theme.colors.white} />
+                  </Pressable>
+                  <Pressable
+                    onPress={() => router.push({
+                      pathname: '/call/[conversationId]',
+                      params: { conversationId, mode: 'video' },
+                    })}
+                    style={styles.headerButton}
+                    accessibilityRole="button"
+                    accessibilityLabel="Start video call"
+                  >
+                    <Icon name="video" size={20} color={theme.colors.white} />
+                  </Pressable>
+                </>
+              ) : null}
+              <Pressable onPress={() => setHeaderMenuOpen(true)} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Chat options">
+                <Icon name="more" size={20} color={theme.colors.white} />
               </Pressable>
             </View>
-          ) : null}
-          <ChatMediaComposer
-            attachment={attachment}
-            disabled={sending}
-            onAttachment={setAttachment}
-            onClear={() => setAttachment(null)}
-          />
-          <View style={styles.inputRow}>
-            <TextInput
-              value={draft}
-              onChangeText={(value) => {
-                setDraft(value);
-                if (value.trim()) sendTyping();
-              }}
-              placeholder="Message"
-              placeholderTextColor={theme.colors.textMuted}
-              style={styles.messageInput}
-              multiline
-              maxLength={2000}
-              accessibilityLabel="Message"
-              onSubmitEditing={() => void submitMessage()}
-              blurOnSubmit={false}
-            />
-            <Pressable
-              onPress={() => void submitMessage()}
-              disabled={sending || (!draft.trim() && !attachment)}
-              style={[styles.sendButton, (sending || (!draft.trim() && !attachment)) && styles.sendButtonDisabled]}
-              accessibilityRole="button"
-              accessibilityLabel="Send message"
-            >
-              {sending ? <ActivityIndicator size="small" color={theme.colors.black} /> : <Icon name="send" size={20} color={theme.colors.black} />}
-            </Pressable>
           </View>
-        </View>
-      ) : null}
+        )}
+        notice={networkState.isConnected === false || networkState.isInternetReachable === false
+          ? <View style={styles.offlineBanner}><Text style={styles.offlineText}>You are offline</Text></View>
+          : null}
+        list={(
+          <View style={styles.listRegion}>
+            {loadingOlder ? <ActivityIndicator color={theme.colors.primary} style={styles.olderLoading} /> : null}
+            <FlatList
+              ref={listRef}
+              data={messages}
+              inverted
+              keyExtractor={(message) => message.id}
+              renderItem={renderMessage}
+              onEndReached={() => void loadOlder()}
+              onEndReachedThreshold={0.25}
+              onViewableItemsChanged={onViewableItemsChanged}
+              viewabilityConfig={messageViewability}
+              onScroll={handleScroll}
+              scrollEventThrottle={100}
+              initialNumToRender={20}
+              maxToRenderPerBatch={10}
+              windowSize={7}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
+              contentContainerStyle={styles.messageList}
+              showsVerticalScrollIndicator={false}
+              ListFooterComponent={remoteTyping ? <TypingDots /> : null}
+              ListEmptyComponent={!remoteTyping ? (
+                <View style={styles.emptyThread}>
+                  <Text style={styles.emptyThreadText}>Say hello to {title}.</Text>
+                </View>
+              ) : null}
+            />
+            {showScrollButton ? (
+              <Pressable
+                onPress={() => {
+                  listRef.current?.scrollToOffset({ offset: 0, animated: true });
+                  setNewMessageCount(0);
+                }}
+                style={styles.scrollBottom}
+                accessibilityRole="button"
+                accessibilityLabel="Scroll to latest message"
+              >
+                <View style={styles.scrollIcon}>
+                  <Icon name="chevronRight" size={20} color={theme.colors.white} />
+                </View>
+                {newMessageCount > 0 ? (
+                  <Text style={styles.newMessageCount}>{newMessageCount}</Text>
+                ) : null}
+              </Pressable>
+            ) : null}
+          </View>
+        )}
+        composer={!conversation.read_only ? (
+          <View style={styles.composer}>
+            {replyTo ? (
+              <View style={styles.replyPreview}>
+                <View style={styles.replyPreviewContent}>
+                  <Text style={styles.replyPreviewLabel}>Replying to {replyTo.sender_id === userId ? 'your message' : title}</Text>
+                  <Text style={styles.replyPreviewBody} numberOfLines={1}>{replyTo.body ?? 'Message'}</Text>
+                </View>
+                <Pressable onPress={() => setReplyTo(null)} accessibilityRole="button" accessibilityLabel="Cancel reply">
+                  <Icon name="close" size={20} color={theme.colors.textMuted} />
+                </Pressable>
+              </View>
+            ) : null}
+            <ChatMediaComposer
+              attachment={attachment}
+              disabled={sending}
+              onAttachment={setAttachment}
+              onClear={() => setAttachment(null)}
+            />
+            <View style={styles.inputRow}>
+              <FocusableTextInput
+                value={draft}
+                onChangeText={(value) => {
+                  setDraft(value);
+                  if (value.trim()) sendTyping();
+                }}
+                onContentSizeChange={(event) => {
+                  setComposerInputHeight(calculateChatComposerHeight(event.nativeEvent.contentSize.height));
+                }}
+                placeholder="Message"
+                placeholderTextColor={theme.colors.textMuted}
+                style={[styles.messageInput, { height: composerInputHeight }]}
+                multiline
+                maxLength={2000}
+                accessibilityLabel="Message"
+                onFocus={() => listRef.current?.scrollToOffset({ offset: 0, animated: true })}
+                onSubmitEditing={() => void submitMessage()}
+                blurOnSubmit={false}
+              />
+              <Pressable
+                onPress={() => void submitMessage()}
+                disabled={sending || (!draft.trim() && !attachment)}
+                style={[styles.sendButton, (sending || (!draft.trim() && !attachment)) && styles.sendButtonDisabled]}
+                accessibilityRole="button"
+                accessibilityLabel="Send message"
+              >
+                {sending ? <ActivityIndicator size="small" color={theme.colors.black} /> : <Icon name="send" size={20} color={theme.colors.black} />}
+              </Pressable>
+            </View>
+          </View>
+        ) : null}
+      />
 
       <Modal transparent visible={menuMessage !== null} animationType="fade" onRequestClose={() => setMenuMessage(null)}>
         <Pressable style={styles.menuBackdrop} onPress={() => setMenuMessage(null)}>
@@ -1068,7 +1159,7 @@ export default function ChatThreadScreen() {
             <View style={styles.reportCard}>
               <Text style={styles.reportTitle}>Report this chat</Text>
               <Text style={styles.reportCopy}>Tell us why you are reporting this content.</Text>
-              <TextInput
+              <FocusableTextInput
                 value={reportReason}
                 onChangeText={setReportReason}
                 style={styles.reportInput}
@@ -1094,7 +1185,7 @@ export default function ChatThreadScreen() {
           </View>
         </KeyboardAwareScreen>
       </Modal>
-    </KeyboardAwareScreen>
+    </>
   );
 }
 
@@ -1116,6 +1207,7 @@ const styles = StyleSheet.create({
   callButtons: { flexDirection: 'row', alignItems: 'center' },
   offlineBanner: { backgroundColor: '#36230D', paddingVertical: 7 },
   offlineText: { color: '#FBBF24', textAlign: 'center', fontSize: 12, fontWeight: '700' },
+  listRegion: { flex: 1, minHeight: 120, position: 'relative' },
   messageList: { flexGrow: 1, justifyContent: 'flex-end', paddingHorizontal: 14, paddingVertical: 12 },
   olderLoading: { padding: 8 },
   dateDivider: { alignSelf: 'center', paddingHorizontal: 12, paddingVertical: 5, borderRadius: 12, backgroundColor: '#171C22', marginVertical: 12 },
@@ -1153,10 +1245,12 @@ const styles = StyleSheet.create({
   reactionText: { color: theme.colors.white, fontSize: 11 },
   typingBubble: { alignSelf: 'flex-start', flexDirection: 'row', gap: 4, paddingHorizontal: 14, paddingVertical: 12, borderRadius: 18, backgroundColor: theme.colors.surface, margin: 6 },
   typingDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: theme.colors.white },
-  emptyThread: { position: 'absolute', top: '44%', left: 20, right: 20, alignItems: 'center', zIndex: 1 },
+  emptyThread: { flexGrow: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 20 },
   emptyThreadText: { color: theme.colors.textMuted, fontSize: 15, textAlign: 'center' },
-  scrollBottom: { position: 'absolute', right: 18, bottom: 90, width: 40, height: 40, borderRadius: 20, backgroundColor: '#25313C', alignItems: 'center', justifyContent: 'center', transform: [{ rotate: '90deg' }] },
-  composer: { paddingHorizontal: 12, paddingTop: 8, paddingBottom: 10, borderTopWidth: 1, borderTopColor: theme.colors.line, backgroundColor: theme.colors.black },
+  scrollBottom: { position: 'absolute', right: 18, bottom: 12, minWidth: 44, height: 44, borderRadius: 22, backgroundColor: '#25313C', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 2 },
+  scrollIcon: { transform: [{ rotate: '90deg' }] },
+  newMessageCount: { color: theme.colors.white, fontSize: 10, fontWeight: '700' },
+  composer: { paddingHorizontal: 12, paddingTop: 8, borderTopWidth: 1, borderTopColor: theme.colors.line, backgroundColor: theme.colors.black },
   replyPreview: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 8, marginBottom: 7, borderRadius: 10, backgroundColor: theme.colors.surface },
   replyPreviewContent: { flex: 1 },
   replyPreviewLabel: { color: theme.colors.primary, fontSize: 11, fontWeight: '700' },

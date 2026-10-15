@@ -3,7 +3,7 @@ import { createJSONStorage, persist } from 'zustand/middleware';
 import { secureStorage } from '../../lib/storage';
 
 export type SignupData = {
-  flowType: 'email' | 'social';
+  flowType: 'email' | 'social' | 'profile';
   email: string;
   password: string;
   birthMonth: number | null;
@@ -83,4 +83,13 @@ export const useAuthFlow = create<AuthFlowState>()(
 
 export function rehydrateAuthFlow() {
   return useAuthFlow.persist.rehydrate();
+}
+
+export function beginProfileCompletion(email = '') {
+  useAuthFlow.getState().setSignupData({
+    flowType: 'profile',
+    email,
+    password: '',
+    currentStep: 0,
+  });
 }

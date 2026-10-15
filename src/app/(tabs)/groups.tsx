@@ -9,10 +9,10 @@ import {
   RefreshControl,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 import { Icon } from '../../components/Icon';
+import { FocusableTextInput } from '../../components/AuthField';
 import { getSupabaseClient } from '../../lib/supabase';
 import { theme } from '../../theme/theme';
 import type { CommunityCategory, CommunityListRpcRow, CommunityRow } from '../../types/database';
@@ -255,7 +255,7 @@ export default function GroupsScreen() {
       </View>
       <View style={styles.searchRow}>
         <Icon name="search" size={20} color={theme.colors.textMuted} />
-        <TextInput
+        <FocusableTextInput
           value={input}
           onChangeText={setInput}
           placeholder="Search communities"

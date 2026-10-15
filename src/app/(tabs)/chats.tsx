@@ -9,10 +9,10 @@ import {
   Pressable,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 import { Icon } from '../../components/Icon';
+import { FocusableTextInput } from '../../components/AuthField';
 import {
   fetchChatList,
   searchChatProfiles,
@@ -343,7 +343,7 @@ export default function ChatsScreen() {
               </Pressable>
             ) : (
               <View style={styles.groupControls}>
-                <TextInput
+                <FocusableTextInput
                   value={groupTitle}
                   onChangeText={setGroupTitle}
                   placeholder="Group name"
@@ -357,7 +357,7 @@ export default function ChatsScreen() {
             )}
             <View style={styles.searchBox}>
               <Icon name="search" size={20} color={theme.colors.textMuted} />
-              <TextInput
+              <FocusableTextInput
                 value={searchTerm}
                 onChangeText={setSearchTerm}
                 placeholder="Search people"

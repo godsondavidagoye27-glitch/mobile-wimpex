@@ -1,7 +1,8 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Icon } from '../../components/Icon';
+import { FocusableTextInput } from '../../components/AuthField';
 import { startLive } from '../../features/live/liveService';
 import { theme } from '../../theme/theme';
 import { KeyboardAwareScreen } from '../../hooks/useKeyboardInset';
@@ -39,7 +40,7 @@ export default function CreateLiveScreen() {
       <View style={styles.content}>
         <Text style={styles.title}>Go live with your community</Text>
         <Text style={styles.description}>Only adults can host live streams. Your camera and microphone will turn on when the stream connects.</Text>
-        <TextInput
+        <FocusableTextInput
           value={title}
           onChangeText={setTitle}
           placeholder="Add a title (optional)"

@@ -3,7 +3,7 @@ import { useEffect } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { getSupabaseClient } from '../lib/supabase';
 import { theme } from '../theme/theme';
-import { rehydrateAuthFlow, useAuthFlow } from '../features/auth/useAuthFlow';
+import { beginProfileCompletion, rehydrateAuthFlow } from '../features/auth/useAuthFlow';
 
 export default function IndexRoute() {
   const resolveInitialRoute = async () => {
@@ -29,7 +29,7 @@ export default function IndexRoute() {
           if (profileError) throw profileError;
           if (profile) return { route: 'tabs' as const };
 
-          return { route: 'signup' as const, session: data.session };
+          return { route: 'signup' as const, email: data.session.user.email ?? '' };
         })(),
         new Promise<never>((_, reject) => {
           timeout = setTimeout(() => reject(new Error('Session check timed out.')), 5000);
@@ -39,13 +39,7 @@ export default function IndexRoute() {
       if (destination.route === 'tabs') {
         router.replace('/(tabs)');
       } else if (destination.route === 'signup') {
-        const flow = useAuthFlow.getState();
-        flow.setSignupData({
-          flowType: flow.flowType,
-          email: destination.session.user.email ?? flow.email,
-          password: '',
-          currentStep: flow.flowType === 'social' ? flow.currentStep : 3,
-        });
+        beginProfileCompletion(destination.email);
         router.replace('/(auth)/welcome?resume=signup');
       } else {
         router.replace('/(auth)/welcome');

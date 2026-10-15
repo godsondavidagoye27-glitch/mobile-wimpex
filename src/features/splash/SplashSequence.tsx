@@ -10,7 +10,6 @@ import {
   StyleSheet,
   Text,
   TextInput,
-  type TextInputProps,
   View,
   useWindowDimensions,
 } from 'react-native';
@@ -32,13 +31,14 @@ import * as Haptics from 'expo-haptics';
 import { theme } from '../../theme/theme';
 import { motion } from '../../theme/motion';
 import { Icon } from '../../components/Icon';
+import { AuthField } from '../../components/AuthField';
 import { getSupabaseClient } from '../../lib/supabase';
 import { SignUpFlow } from '../auth/SignUpFlow';
 import { PasswordResetFlow } from '../auth/PasswordResetFlow';
 import { runWithMinimumDuration } from '../auth/authTiming';
 import { changePasswordResetStep } from '../auth/signupValidation';
 import { signInWithApple, signInWithGoogle, signOutProviders, SocialSignInError } from '../auth/socialAuth';
-import { useAuthFlow } from '../auth/useAuthFlow';
+import { beginProfileCompletion, useAuthFlow } from '../auth/useAuthFlow';
 import { LogoMark } from './LogoMark';
 import SplashSkiaBackdrop, { SplashLogoGlow } from './SplashSkiaBackdrop';
 import { Wordmark } from './Wordmark';
@@ -75,98 +75,6 @@ class SkiaSetupBoundary extends Component<
   render() {
     return this.state.hasError ? null : this.props.children;
   }
-}
-
-function LoginField({
-  label,
-  value,
-  onChangeText,
-  keyboardType,
-  secureTextEntry,
-  error,
-  inputRef,
-  onFocusInput,
-  onSubmitEditing,
-  returnKeyType,
-  autoComplete,
-  textContentType,
-  importantForAutofill,
-}: {
-  label: string;
-  value: string;
-  onChangeText: (value: string) => void;
-  keyboardType?: 'email-address';
-  secureTextEntry?: boolean;
-  error?: string;
-  inputRef?: React.RefObject<TextInput | null>;
-  onFocusInput?: () => void;
-  onSubmitEditing?: () => void;
-  returnKeyType: 'next' | 'done';
-  autoComplete?: TextInputProps['autoComplete'];
-  textContentType?: TextInputProps['textContentType'];
-  importantForAutofill?: TextInputProps['importantForAutofill'];
-}) {
-  const [focused, setFocused] = useState(false);
-  const [visible, setVisible] = useState(false);
-  const shake = useSharedValue(0);
-  const shakeStyle = useAnimatedStyle(() => ({ transform: [{ translateX: shake.value }] }));
-  const floated = focused || value.length > 0;
-
-  useEffect(() => {
-    if (!error) return;
-    shake.value = withSequence(
-      withTiming(-6, { duration: 70 }),
-      withTiming(6, { duration: 70 }),
-      withTiming(-6, { duration: 70 }),
-      withTiming(6, { duration: 70 }),
-      withTiming(0, { duration: 70 }),
-    );
-  }, [error, shake]);
-
-  return (
-    <Animated.View style={shakeStyle}>
-      <View style={[styles.field, focused && styles.fieldFocused, error && styles.fieldError]}>
-        <TextInput
-          ref={inputRef}
-          value={value}
-          onChangeText={onChangeText}
-          onFocus={() => {
-            setFocused(true);
-            onFocusInput?.();
-          }}
-          onBlur={() => setFocused(false)}
-          onSubmitEditing={onSubmitEditing}
-          blurOnSubmit={returnKeyType === 'next' ? false : undefined}
-          keyboardType={keyboardType}
-          autoComplete={autoComplete}
-          textContentType={textContentType}
-          importantForAutofill={importantForAutofill}
-          autoCapitalize="none"
-          autoCorrect={false}
-          secureTextEntry={secureTextEntry && !visible}
-          keyboardAppearance="dark"
-          cursorColor={theme.colors.primary}
-          returnKeyType={returnKeyType}
-          accessibilityLabel={label}
-          style={[styles.input, floated && styles.inputFloated, secureTextEntry && styles.passwordInput]}
-        />
-        <Text style={[styles.fieldLabel, floated && styles.fieldLabelFloated, focused && styles.fieldLabelFocused]}>
-          {label}
-        </Text>
-        {secureTextEntry ? (
-          <Pressable
-            onPress={() => setVisible((current) => !current)}
-            accessibilityRole="button"
-            accessibilityLabel={visible ? 'Hide password' : 'Show password'}
-            style={styles.eyeButton}
-          >
-            <Icon name={visible ? 'eyeOff' : 'eye'} size={20} color={theme.colors.textMuted} />
-          </Pressable>
-        ) : null}
-      </View>
-      {error ? <Text style={styles.errorText}>{error}</Text> : null}
-    </Animated.View>
-  );
 }
 
 function SlideArt({ index }: { index: number }) {
@@ -575,7 +483,7 @@ export function SplashSequence() {
   };
 
   useEffect(() => {
-    if (!signupHydrated || (signupStep === 0 && signupFlowType !== 'social')) return;
+    if (!signupHydrated || (signupStep === 0 && signupFlowType === 'email')) return;
     const timer = setTimeout(() => {
       setPhase('welcome');
       setAuthMode('signup');
@@ -724,6 +632,19 @@ export function SplashSequence() {
       const { data, error } = await getSupabaseClient().auth.signInWithPassword({ email, password });
       if (error) throw error;
       if (!data.session) throw new Error('The sign-in completed without an active session.');
+      const { data: profile, error: profileError } = await getSupabaseClient()
+        .from('profiles')
+        .select('id')
+        .eq('id', data.session.user.id)
+        .maybeSingle();
+      if (profileError) throw profileError;
+      if (!profile) {
+        beginProfileCompletion(data.session.user.email ?? email.trim());
+        setButtonState('idle');
+        setAuthMode('signup');
+        setAuthError('');
+        return;
+      }
       router.replace('/(tabs)');
     } catch (error) {
       setButtonState('idle');
@@ -768,7 +689,7 @@ export function SplashSequence() {
         style={[styles.welcome, welcomeStyle]}
         pointerEvents={displayedPhase === 'welcome' && !authOpen ? 'auto' : 'none'}
       >
-        {displayedPhase === 'welcome' ? (
+        {displayedPhase === 'welcome' && !authOpen ? (
           <>
             {__DEV__ ? (
               <Pressable style={styles.replayButton} onPress={replay} accessibilityRole="button" accessibilityLabel="Replay splash">
@@ -823,6 +744,7 @@ export function SplashSequence() {
       <Animated.View
         style={[styles.authCard, { height: authCardHeight, maxHeight: '100%' }, cardStyle, authKeyboardStyle]}
         pointerEvents={authOpen ? 'auto' : 'none'}
+        collapsable={false}
       >
         <Pressable
           onPress={Keyboard.dismiss}
@@ -907,7 +829,7 @@ export function SplashSequence() {
               keyboardDismissMode="on-drag"
               showsVerticalScrollIndicator={false}
             >
-              <LoginField
+              <AuthField
                 label="Email"
                 inputRef={loginEmailRef}
                 value={email}
@@ -917,6 +839,7 @@ export function SplashSequence() {
                 }}
                 keyboardType="email-address"
                 error={errors.email}
+                shakeOnError
                 returnKeyType="next"
                 autoComplete="email"
                 textContentType="emailAddress"
@@ -928,7 +851,7 @@ export function SplashSequence() {
                   loginScrollOffset.current,
                 )}
               />
-              <LoginField
+              <AuthField
                 label="Password"
                 inputRef={loginPasswordRef}
                 value={password}
@@ -938,6 +861,7 @@ export function SplashSequence() {
                 }}
                 secureTextEntry
                 error={errors.password}
+                shakeOnError
                 returnKeyType="done"
                 autoComplete="current-password"
                 textContentType="password"

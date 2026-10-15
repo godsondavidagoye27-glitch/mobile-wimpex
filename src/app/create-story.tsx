@@ -11,11 +11,11 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { Icon } from '../components/Icon';
+import { FocusableTextInput } from '../components/AuthField';
 import { createStory } from '../features/stories/storyService';
 import {
   fitStoryImageDimensions,
@@ -266,7 +266,7 @@ export default function CreateStoryScreen() {
             <Text style={styles.label}>Caption</Text>
             <Text style={styles.counter}>{caption.length}/120</Text>
           </View>
-          <TextInput
+          <FocusableTextInput
             value={caption}
             onChangeText={(value) => {
               setCaption(value.slice(0, 120));

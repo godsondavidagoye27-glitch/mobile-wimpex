@@ -13,6 +13,7 @@ import {
   View,
 } from 'react-native';
 import { Icon } from '../components/Icon';
+import { FocusableTextInput } from '../components/AuthField';
 import { getSignedUrls } from '../features/feed/useFeed';
 import { addRecentSearch, removeRecentSearch } from '../features/search/recentSearches';
 import {
@@ -523,7 +524,7 @@ export default function SearchScreen() {
 
       <View style={styles.searchRow}>
         <Icon name="search" size={20} color={theme.colors.textMuted} />
-        <TextInput
+        <FocusableTextInput
           ref={inputRef}
           value={input}
           onChangeText={setInput}

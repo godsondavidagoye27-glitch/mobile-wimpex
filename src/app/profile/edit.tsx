@@ -10,10 +10,10 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 import { Icon } from '../../components/Icon';
+import { FocusableTextInput } from '../../components/AuthField';
 import { isValidUsername } from '../../features/auth/signupValidation';
 import { getSupabaseClient } from '../../lib/supabase';
 import { theme } from '../../theme/theme';
@@ -277,7 +277,7 @@ export default function EditProfileScreen() {
 
         <View style={styles.field}>
           <Text style={styles.label}>Display name</Text>
-          <TextInput
+          <FocusableTextInput
             value={draft.displayName}
             onChangeText={(displayName) => updateDraft({ displayName })}
             style={styles.input}
@@ -288,7 +288,7 @@ export default function EditProfileScreen() {
 
         <View style={styles.field}>
           <Text style={styles.label}>Username</Text>
-          <TextInput
+          <FocusableTextInput
             value={draft.username}
             onChangeText={(value) => updateDraft({ username: value.toLowerCase() })}
             style={styles.input}
@@ -305,7 +305,7 @@ export default function EditProfileScreen() {
 
         <View style={styles.field}>
           <Text style={styles.label}>Bio</Text>
-          <TextInput
+          <FocusableTextInput
             value={draft.bio}
             onChangeText={(bio) => bio.length <= 150 && updateDraft({ bio })}
             multiline
@@ -318,7 +318,7 @@ export default function EditProfileScreen() {
 
         <View style={styles.field}>
           <Text style={styles.label}>Link</Text>
-          <TextInput
+          <FocusableTextInput
             value={draft.link}
             onChangeText={(link) => updateDraft({ link })}
             style={styles.input}

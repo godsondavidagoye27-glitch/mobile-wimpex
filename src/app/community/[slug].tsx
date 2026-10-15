@@ -10,11 +10,12 @@ import {
   RefreshControl,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { Icon } from '../../components/Icon';
+import { FocusableTextInput } from '../../components/AuthField';
+import { ChatScreenLayout } from '../../components/ChatScreenLayout';
 import {
   canBanCommunityMember,
   canChangeCommunityRole,
@@ -42,6 +43,7 @@ import type {
   SearchPersonRpcRow,
 } from '../../types/database';
 import { KeyboardAwareScreen } from '../../hooks/useKeyboardInset';
+import { calculateChatComposerHeight } from '../../features/chats/chatLayout';
 
 type CommunityTab = 'Posts' | 'About' | 'Members' | 'Chat';
 type MemberCursor = { joinedAt: string; id: string; status: CommunityMemberRpcRow['status'] };
@@ -95,7 +97,9 @@ export default function CommunityScreen() {
   const [postsLoading, setPostsLoading] = useState(false);
   const [postsError, setPostsError] = useState('');
   const [chatDraft, setChatDraft] = useState('');
+  const [chatInputHeight, setChatInputHeight] = useState(44);
   const [chatMessages, setChatMessages] = useState<CommunityMessageRpcRow[]>([]);
+  const chatListRef = useRef<FlatList<CommunityMessageRpcRow>>(null);
   const [chatLoading, setChatLoading] = useState(false);
   const [chatSending, setChatSending] = useState(false);
   const [chatError, setChatError] = useState('');
@@ -552,7 +556,7 @@ export default function CommunityScreen() {
       )}
       <View style={styles.memberSearch}>
         <Icon name="search" size={20} color={theme.colors.textMuted} />
-        <TextInput
+        <FocusableTextInput
           value={memberInput}
           onChangeText={setMemberInput}
           placeholder="Search members"
@@ -774,24 +778,37 @@ export default function CommunityScreen() {
         );
       }
       return (
-        <View style={styles.chatWrap}>
-          <View style={styles.chatHeader}>
-            <Text style={styles.sectionHeading}>Community chat</Text>
-            <Text style={styles.chatPeople}>{chatMessages.length} messages</Text>
-          </View>
-          {chatError ? (
+        <ChatScreenLayout
+          style={styles.chatWrap}
+          safeAreaTop={false}
+          header={(
+            <View style={styles.chatHeader}>
+              <Text style={styles.sectionHeading}>Community chat</Text>
+              <Text style={styles.chatPeople}>{chatMessages.length} messages</Text>
+            </View>
+          )}
+          notice={chatError ? (
             <View style={styles.errorBox}>
               <Text style={styles.errorText}>Community chat could not be loaded or sent.</Text>
               <Pressable onPress={() => void loadChat()}><Text style={styles.retryText}>Retry</Text></Pressable>
             </View>
           ) : null}
-          {chatLoading
+          list={chatLoading
             ? <ActivityIndicator color={theme.colors.primary} style={styles.inlineLoader} />
-            : <FlatList
-                data={chatMessages}
+            : (
+              <FlatList
+                ref={chatListRef}
+                data={[...chatMessages].reverse()}
+                inverted
                 keyExtractor={(item) => item.id}
                 contentContainerStyle={styles.chatMessages}
-                ListEmptyComponent={<Text style={styles.emptyText}>No messages yet. Start the conversation.</Text>}
+                keyboardShouldPersistTaps="handled"
+                keyboardDismissMode="on-drag"
+                ListEmptyComponent={
+                  <View style={styles.emptyChat}>
+                    <Text style={styles.emptyText}>No messages yet. Start the conversation.</Text>
+                  </View>
+                }
                 renderItem={({ item }) => (
                   <View style={[styles.chatBubble, item.is_mine ? styles.chatBubbleMine : styles.chatBubbleOther]}>
                     <Text style={styles.chatAuthor}>{item.is_mine ? 'You' : item.display_name}</Text>
@@ -800,29 +817,40 @@ export default function CommunityScreen() {
                   </View>
                 )}
                 showsVerticalScrollIndicator={false}
-              />}
-          <View style={styles.chatComposer}>
-            <TextInput
-              value={chatDraft}
-              onChangeText={setChatDraft}
-              placeholder="Message the community"
-              placeholderTextColor={theme.colors.textMuted}
-              style={styles.chatInput}
-              autoCapitalize="sentences"
-              maxLength={1000}
-            />
-            <Pressable
-              onPress={() => void sendMessage()}
-              disabled={chatSending || !chatDraft.trim()}
-              accessibilityRole="button"
-              accessibilityLabel="Send community chat message"
-            >
-              {chatSending
-                ? <ActivityIndicator size="small" color={theme.colors.primary} />
-                : <Icon name="send" size={20} color={theme.colors.primary} />}
-            </Pressable>
-          </View>
-        </View>
+              />
+            )}
+          composer={(
+            <View style={styles.chatComposer}>
+              <FocusableTextInput
+                value={chatDraft}
+                onChangeText={setChatDraft}
+                onContentSizeChange={(event) => {
+                  setChatInputHeight(calculateChatComposerHeight(event.nativeEvent.contentSize.height));
+                }}
+                onFocus={() => chatListRef.current?.scrollToOffset({ offset: 0, animated: true })}
+                placeholder="Message the community"
+                placeholderTextColor={theme.colors.textMuted}
+                style={[styles.chatInput, { height: chatInputHeight }]}
+                autoCapitalize="sentences"
+                multiline
+                maxLength={1000}
+                returnKeyType="send"
+                blurOnSubmit={false}
+              />
+              <Pressable
+                onPress={() => void sendMessage()}
+                disabled={chatSending || !chatDraft.trim()}
+                style={styles.chatSendButton}
+                accessibilityRole="button"
+                accessibilityLabel="Send community chat message"
+              >
+                {chatSending
+                  ? <ActivityIndicator size="small" color={theme.colors.primary} />
+                  : <Icon name="send" size={20} color={theme.colors.primary} />}
+              </Pressable>
+            </View>
+          )}
+        />
       );
     }
     return (
@@ -1060,7 +1088,7 @@ export default function CommunityScreen() {
             </View>
             <View style={styles.memberSearch}>
               <Icon name="search" size={20} color={theme.colors.textMuted} />
-              <TextInput
+              <FocusableTextInput
                 value={inviteInput}
                 onChangeText={setInviteInput}
                 onSubmitEditing={() => setInviteQuery(inviteInput.trim())}
@@ -1191,7 +1219,8 @@ const styles = StyleSheet.create({
   reportPostBody: { color: theme.colors.white, fontSize: 13, lineHeight: 19, marginTop: 6 },
   reportDetails: { color: theme.colors.textMuted, fontSize: 12, lineHeight: 18 },
   resolveButton: { alignSelf: 'flex-start', paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10, backgroundColor: '#142A38', marginTop: 4 },
-  chatMessages: { paddingBottom: 12, flexGrow: 1, justifyContent: 'flex-end' },
+  chatMessages: { paddingVertical: 12, flexGrow: 1, justifyContent: 'flex-end' },
+  emptyChat: { flex: 1, minHeight: 120, justifyContent: 'center', alignItems: 'center' },
   chatWrap: { flex: 1, padding: 16 },
   chatHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
   chatPeople: { color: theme.colors.textMuted, fontSize: 12 },
@@ -1201,6 +1230,7 @@ const styles = StyleSheet.create({
   chatAuthor: { color: theme.colors.textMuted, fontSize: 11, marginBottom: 4 },
   chatBody: { color: theme.colors.white, fontSize: 14, lineHeight: 20 },
   chatTime: { color: theme.colors.textMuted, fontSize: 10, marginTop: 6, alignSelf: 'flex-end' },
-  chatComposer: { flexDirection: 'row', alignItems: 'center', gap: 8, borderTopWidth: 1, borderTopColor: theme.colors.line, paddingTop: 12, marginTop: 8 },
-  chatInput: { flex: 1, minHeight: 44, color: theme.colors.white, backgroundColor: '#171C22', borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10 },
+  chatComposer: { flexDirection: 'row', alignItems: 'flex-end', gap: 8, borderTopWidth: 1, borderTopColor: theme.colors.line, paddingTop: 12, marginTop: 8 },
+  chatInput: { flex: 1, minHeight: 44, maxHeight: 120, color: theme.colors.white, backgroundColor: '#171C22', borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, textAlignVertical: 'top' },
+  chatSendButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
 });

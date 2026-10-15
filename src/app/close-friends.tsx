@@ -6,10 +6,10 @@ import {
   Pressable,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 import { Icon } from '../components/Icon';
+import { FocusableTextInput } from '../components/AuthField';
 import { getSupabaseClient } from '../lib/supabase';
 import { theme } from '../theme/theme';
 import { KeyboardAwareScreen } from '../hooks/useKeyboardInset';
@@ -139,7 +139,7 @@ export default function CloseFriendsScreen() {
       </View>
       <View style={styles.search}>
         <Icon name="search" size={20} color={theme.colors.textMuted} />
-        <TextInput
+        <FocusableTextInput
           value={query}
           onChangeText={setQuery}
           placeholder="Search people you follow"

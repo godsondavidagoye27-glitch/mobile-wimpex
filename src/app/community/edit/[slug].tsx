@@ -7,10 +7,10 @@ import {
   StyleSheet,
   Switch,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 import { Icon } from '../../../components/Icon';
+import { FocusableTextInput } from '../../../components/AuthField';
 import { getSupabaseClient } from '../../../lib/supabase';
 import { theme } from '../../../theme/theme';
 import type { CommunityCategory, CommunityDetailRpcRow, CommunityVisibility } from '../../../types/database';
@@ -184,12 +184,12 @@ export default function EditCommunityScreen() {
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         {!community ? <Text style={styles.errorText}>Community not found.</Text> : null}
         <Text style={styles.label}>Name</Text>
-        <TextInput value={name} onChangeText={setName} maxLength={40} style={styles.input} accessibilityLabel="Community name" />
+        <FocusableTextInput value={name} onChangeText={setName} maxLength={40} style={styles.input} accessibilityLabel="Community name" />
         {nameError ? <Text style={styles.helper}>{nameError}</Text> : null}
         {nameChanged && nameAvailability === 'checking' ? <Text style={styles.helper}>Checking community name.</Text> : null}
 
         <Text style={styles.label}>Description</Text>
-        <TextInput
+        <FocusableTextInput
           value={description}
           onChangeText={setDescription}
           maxLength={300}
@@ -240,7 +240,7 @@ export default function EditCommunityScreen() {
         ))}
         {rules.length < 10 ? (
           <View style={styles.ruleEntry}>
-            <TextInput value={ruleDraft} onChangeText={setRuleDraft} maxLength={120} placeholder="Add a rule" placeholderTextColor={theme.colors.textMuted} style={[styles.input, styles.ruleInput]} />
+            <FocusableTextInput value={ruleDraft} onChangeText={setRuleDraft} maxLength={120} placeholder="Add a rule" placeholderTextColor={theme.colors.textMuted} style={[styles.input, styles.ruleInput]} />
             <Pressable onPress={addRule}><Text style={styles.addRule}>Add a rule</Text></Pressable>
           </View>
         ) : null}

@@ -9,10 +9,10 @@ import {
   StyleSheet,
   Switch,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 import { Icon } from '../components/Icon';
+import { FocusableTextInput } from '../components/AuthField';
 import { getSupabaseClient } from '../lib/supabase';
 import { theme } from '../theme/theme';
 import { KeyboardAwareScreen } from '../hooks/useKeyboardInset';
@@ -213,7 +213,7 @@ export default function CreateCommunityScreen() {
         </Pressable>
 
         <Text style={styles.label}>Name</Text>
-        <TextInput
+        <FocusableTextInput
           value={name}
           onChangeText={setName}
           maxLength={40}
@@ -227,7 +227,7 @@ export default function CreateCommunityScreen() {
         {nameCheck === 'error' ? <Text style={styles.errorText}>{error || 'Community name could not be checked.'}</Text> : null}
 
         <Text style={styles.label}>Description</Text>
-        <TextInput
+        <FocusableTextInput
           value={description}
           onChangeText={setDescription}
           maxLength={300}
@@ -292,7 +292,7 @@ export default function CreateCommunityScreen() {
         ))}
         {rules.length < 10 ? (
           <View style={styles.addRuleRow}>
-            <TextInput
+            <FocusableTextInput
               value={ruleDraft}
               onChangeText={setRuleDraft}
               maxLength={120}

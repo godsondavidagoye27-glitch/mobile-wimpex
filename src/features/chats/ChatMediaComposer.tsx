@@ -170,8 +170,8 @@ export function ChatMediaComposer({ attachment, disabled, onAttachment, onClear 
 const styles = StyleSheet.create({
   container: { paddingBottom: 7 },
   actions: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  actionButton: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.surface },
-  recordButton: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.surface },
+  actionButton: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.surface },
+  recordButton: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.surface },
   recordingButton: { backgroundColor: theme.colors.danger },
   recordingLabel: { color: theme.colors.danger, fontSize: 12, fontWeight: '700' },
   readyRow: { minHeight: 36, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 12, borderRadius: 18, backgroundColor: theme.colors.surface },

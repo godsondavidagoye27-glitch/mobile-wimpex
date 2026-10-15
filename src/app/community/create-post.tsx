@@ -9,11 +9,11 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { Icon } from '../../components/Icon';
+import { FocusableTextInput } from '../../components/AuthField';
 import {
   createCommunityPost,
   type CommunityMediaInput,
@@ -212,7 +212,7 @@ export default function CommunityPostComposerScreen() {
                 </View>
                 <Icon name="chevronRight" size={20} color={theme.colors.textMuted} />
               </Pressable>
-              <TextInput
+              <FocusableTextInput
                 value={body}
                 onChangeText={setBody}
                 placeholder="Share something with your community..."

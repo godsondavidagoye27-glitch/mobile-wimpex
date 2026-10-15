@@ -10,10 +10,10 @@ import {
   StyleSheet,
   Switch,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 import { Icon, type AppIconName } from '../components/Icon';
+import { FocusableTextInput } from '../components/AuthField';
 import { useFollowRequestCount } from '../features/profiles/useFollowRequestCount';
 import { signOutProviders } from '../features/auth/socialAuth';
 import { useAuthFlow } from '../features/auth/useAuthFlow';
@@ -450,7 +450,7 @@ export default function SettingsScreen() {
             {dialog === 'logout' ? <Text style={styles.sheetCopy}>Are you sure you want to log out?</Text> : (
               <>
                 <Text style={styles.sheetCopy}>Type your username to confirm.</Text>
-                <TextInput
+                <FocusableTextInput
                   value={typedUsername}
                   onChangeText={setTypedUsername}
                   style={styles.input}

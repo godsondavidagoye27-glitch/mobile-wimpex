@@ -10,7 +10,6 @@ import {
   StyleSheet,
   Text,
   TextInput,
-  type TextInputProps,
   View,
 } from 'react-native';
 import Animated, {
@@ -24,6 +23,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { Icon } from '../../components/Icon';
+import { AuthField } from '../../components/AuthField';
 import { getSupabaseClient } from '../../lib/supabase';
 import { theme } from '../../theme/theme';
 import { scrollFocusedInputIntoView } from '../../hooks/useKeyboardInset';
@@ -59,91 +59,6 @@ function isRateLimitError(error: unknown) {
     /rate.?limit|too many requests|over_request_rate_limit/i.test(
       `${candidate.code ?? ''} ${candidate.message ?? ''}`,
     )
-  );
-}
-
-function SignupField({
-  label,
-  value,
-  onChangeText,
-  secure = false,
-  keyboardType,
-  autoComplete,
-  error,
-  inputRef,
-  onFocusInput,
-  onSubmitEditing,
-  textContentType,
-  importantForAutofill,
-  returnKeyType,
-}: {
-  label: string;
-  value: string;
-  onChangeText: (value: string) => void;
-  secure?: boolean;
-  keyboardType?: 'email-address';
-  autoComplete?: TextInputProps['autoComplete'];
-  textContentType?: TextInputProps['textContentType'];
-  importantForAutofill?: TextInputProps['importantForAutofill'];
-  returnKeyType?: TextInputProps['returnKeyType'];
-  error?: string;
-  inputRef?: React.RefObject<TextInput | null>;
-  onFocusInput?: () => void;
-  onSubmitEditing?: () => void;
-}) {
-  const [focused, setFocused] = useState(false);
-  const [visible, setVisible] = useState(false);
-  const floated = focused || value.length > 0;
-
-  return (
-    <View>
-      <View style={[styles.field, focused && styles.fieldFocused, error && styles.fieldError]}>
-        <TextInput
-          ref={inputRef}
-          value={value}
-          onChangeText={onChangeText}
-          onFocus={() => {
-            setFocused(true);
-            onFocusInput?.();
-          }}
-          onBlur={() => setFocused(false)}
-          onSubmitEditing={onSubmitEditing}
-          blurOnSubmit={returnKeyType === 'next' ? false : undefined}
-          keyboardType={keyboardType}
-          autoComplete={autoComplete}
-          textContentType={textContentType}
-          importantForAutofill={importantForAutofill}
-          autoCapitalize="none"
-          autoCorrect={false}
-          cursorColor={theme.colors.primary}
-          secureTextEntry={secure && !visible}
-          keyboardAppearance="dark"
-          returnKeyType={returnKeyType ?? 'next'}
-          accessibilityLabel={label}
-          style={[styles.input, floated && styles.inputFloated, secure && styles.passwordInput]}
-        />
-        <Text
-          style={[
-            styles.fieldLabel,
-            floated && styles.fieldLabelFloated,
-            focused && styles.fieldLabelFocused,
-          ]}
-        >
-          {label}
-        </Text>
-        {secure ? (
-          <Pressable
-            onPress={() => setVisible((current) => !current)}
-            accessibilityRole="button"
-            accessibilityLabel={visible ? 'Hide password' : 'Show password'}
-            style={styles.eyeButton}
-          >
-            <Icon name={visible ? 'eyeOff' : 'eye'} size={20} color={theme.colors.textMuted} />
-          </Pressable>
-        ) : null}
-      </View>
-      {error ? <Text style={styles.errorText}>{error}</Text> : null}
-    </View>
   );
 }
 
@@ -249,12 +164,12 @@ export function SignUpFlow({
   }));
   const step = flow.currentStep;
   const previousStep = useRef(step);
-  const isSocial = flow.flowType === 'social';
-  const birthdayStep = isSocial ? 0 : 1;
-  const codeStep = isSocial ? -1 : 2;
-  const profileStep = isSocial ? 1 : 3;
-  const interestsStep = isSocial ? 2 : 4;
-  const stepCount = isSocial ? 3 : 5;
+  const isAuthenticatedProfileFlow = flow.flowType !== 'email';
+  const birthdayStep = isAuthenticatedProfileFlow ? 0 : 1;
+  const codeStep = isAuthenticatedProfileFlow ? -1 : 2;
+  const profileStep = isAuthenticatedProfileFlow ? 1 : 3;
+  const interestsStep = isAuthenticatedProfileFlow ? 2 : 4;
+  const stepCount = isAuthenticatedProfileFlow ? 3 : 5;
   const progressPercent = ((step + 1) / stepCount) * 100;
   const passwordStrength = getPasswordStrength(flow.password);
   const todayYear = new Date().getFullYear();
@@ -388,7 +303,7 @@ export function SignUpFlow({
     setScreenError('');
     setFieldErrors({});
 
-    if (step === 0 && !isSocial) {
+    if (step === 0 && !isAuthenticatedProfileFlow) {
       const errors = validateCredentials(flow.email.trim(), flow.password);
       if (errors.email) {
         setFieldErrors({ email: errors.email });
@@ -437,7 +352,7 @@ export function SignUpFlow({
       );
       if ('error' in result && typeof result.error === 'string') {
         setBirthdayError(result.error);
-        if (isSocial && result.error === 'You must be 13 or older to join Wimpex.') {
+        if (isAuthenticatedProfileFlow && result.error === 'You must be 13 or older to join Wimpex.') {
           await performAction(
             async () => {
               await onUnderage();
@@ -451,13 +366,13 @@ export function SignUpFlow({
       setBirthdayError('');
       await performAction(
         async () => () => {
-          if (!isSocial) {
+          if (!isAuthenticatedProfileFlow) {
             setCode(createEmptyOtp());
             setCodeError('');
             setResendSeconds(30);
             setResendCycle((cycle) => cycle + 1);
           }
-          flow.setSignupData({ currentStep: isSocial ? 1 : 2 });
+          flow.setSignupData({ currentStep: isAuthenticatedProfileFlow ? 1 : 2 });
         },
         (error) => setScreenError(getSignupErrorMessage(error)),
       );
@@ -576,7 +491,7 @@ export function SignUpFlow({
                 && existingProfile.date_of_birth === profile.date_of_birth;
               if (!isSameProfile) throw profileError;
             } else {
-              if (isSocial && profileError.code === '23514') await onUnderage();
+              if (isAuthenticatedProfileFlow && profileError.code === '23514') await onUnderage();
               throw profileError;
             }
           }
@@ -715,11 +630,11 @@ export function SignUpFlow({
   };
 
   const renderStep = () => {
-    if (step === 0 && !isSocial) {
+    if (step === 0 && !isAuthenticatedProfileFlow) {
       return (
         <>
           <Text style={styles.title}>Create your account</Text>
-          <SignupField
+          <AuthField
             label="Email"
             value={flow.email}
             onChangeText={(email) => {
@@ -737,7 +652,7 @@ export function SignUpFlow({
             inputRef={emailRef}
             onFocusInput={() => scrollFocusedInputIntoView(scrollRef.current, emailRef.current, scrollOffset.current)}
           />
-          <SignupField
+          <AuthField
             label="Password"
             value={flow.password}
             onChangeText={(password) => {
@@ -745,7 +660,7 @@ export function SignUpFlow({
               setFieldErrors((current) => ({ ...current, password: undefined }));
               setScreenError('');
             }}
-            secure
+            secureTextEntry
             autoComplete="new-password"
             textContentType="newPassword"
             importantForAutofill="yes"
@@ -939,7 +854,7 @@ export function SignUpFlow({
               <Icon name="plus" size={24} color={theme.colors.primary} />
             )}
           </Pressable>
-          <SignupField
+          <AuthField
             label="Username"
             value={flow.username}
             onChangeText={(username) => {
@@ -976,7 +891,7 @@ export function SignUpFlow({
               </Text>
             ) : null}
           </View>
-          <SignupField
+          <AuthField
             label="Display name"
             value={flow.displayName}
             onChangeText={(displayName) => {

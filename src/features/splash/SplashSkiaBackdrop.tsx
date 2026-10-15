@@ -18,7 +18,7 @@ type SplashSkiaBackdropProps = {
 export default function SplashSkiaBackdrop({ backdropOpacity }: SplashSkiaBackdropProps) {
   const { ref: canvasRef, size: canvasSize } = useCanvasSize();
   return (
-    <Canvas ref={canvasRef} style={StyleSheet.absoluteFill}>
+    <Canvas pointerEvents="none" ref={canvasRef} style={StyleSheet.absoluteFill}>
       <Group layer={<Paint><Blur blur={motion.blur.blob} /></Paint>}>
         <SkiaCircle cx={canvasSize.width * 0.12} cy={canvasSize.height * 0.08} r={160} color={theme.colors.primary} opacity={backdropOpacity} />
         <SkiaCircle cx={canvasSize.width * 0.9} cy={canvasSize.height * 0.92} r={160} color={theme.colors.success} opacity={backdropOpacity} />

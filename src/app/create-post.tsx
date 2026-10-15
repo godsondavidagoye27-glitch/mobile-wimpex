@@ -11,11 +11,11 @@ import {
   StyleSheet,
   Switch,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { Icon } from '../components/Icon';
+import { FocusableTextInput } from '../components/AuthField';
 import { getSupabaseClient } from '../lib/supabase';
 import { preferenceStorage } from '../lib/storage';
 import { theme } from '../theme/theme';
@@ -307,7 +307,7 @@ export default function CreatePostScreen() {
 
         <View style={styles.fieldCard}>
           <Text style={styles.fieldLabel}>Caption</Text>
-          <TextInput
+          <FocusableTextInput
             value={draft.caption}
             onChangeText={(caption) => setDraft((current) => ({ ...current, caption }))}
             multiline

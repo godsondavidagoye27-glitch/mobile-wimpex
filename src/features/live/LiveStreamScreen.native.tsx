@@ -18,10 +18,10 @@ import {
   Pressable,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 import { Icon } from '../../components/Icon';
+import { FocusableTextInput } from '../../components/AuthField';
 import { KeyboardAwareScreen } from '../../hooks/useKeyboardInset';
 import {
   endLive,
@@ -149,7 +149,7 @@ function LiveRoomContent({
           ListEmptyComponent={<Text style={styles.chatHint}>Say hello in the live chat.</Text>}
         />
         <View style={styles.chatComposer}>
-          <TextInput
+          <FocusableTextInput
             value={message}
             onChangeText={setMessage}
             placeholder="Say something…"

@@ -14,7 +14,6 @@ import {
   Pressable,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 import Animated, {
@@ -26,6 +25,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { Icon } from '../../components/Icon';
+import { FocusableTextInput } from '../../components/AuthField';
 import {
   blockStoryAuthor,
   canReplyToStory,
@@ -515,7 +515,7 @@ export default function StoryViewerScreen() {
       </View>
       {!author.is_owner && canReply ? (
         <View style={styles.replyBar}>
-          <TextInput
+          <FocusableTextInput
             value={replyDraft}
             onChangeText={setReplyDraft}
             placeholder={`Reply to ${author.display_name}`}

@@ -1,7 +1,7 @@
 import { useEvent } from 'expo';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -12,11 +12,12 @@ import {
   Share,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { Icon } from '../../components/Icon';
+import { FocusableTextInput } from '../../components/AuthField';
+import { ChatScreenLayout } from '../../components/ChatScreenLayout';
 import { KeyboardAwareScreen } from '../../hooks/useKeyboardInset';
 import { HashtagText } from '../../components/HashtagText';
 import { CaptionOverlay } from '../../features/captions/CaptionOverlay';
@@ -26,6 +27,7 @@ import { getSignedUrls } from '../../features/feed/useFeed';
 import { getSupabaseClient } from '../../lib/supabase';
 import type { Post } from '../../types/database';
 import { theme } from '../../theme/theme';
+import { calculateChatComposerHeight } from '../../features/chats/chatLayout';
 
 type PostDetail = {
   post: Post;
@@ -218,6 +220,8 @@ export default function PostDetailScreen() {
   const postId = Array.isArray(routeId) ? routeId[0] : routeId;
   const queryClient = useQueryClient();
   const [commentText, setCommentText] = useState('');
+  const [commentInputHeight, setCommentInputHeight] = useState(44);
+  const commentListRef = useRef<FlatList<CommentItem>>(null);
   const [replyTo, setReplyTo] = useState<CommentItem | null>(null);
   const [commentError, setCommentError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
@@ -426,127 +430,134 @@ export default function PostDetailScreen() {
   }
 
   return (
-    <KeyboardAwareScreen style={styles.screen}>
-      <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.backButton} accessibilityRole="button" accessibilityLabel="Go back">
-          <Icon name="back" size={20} color={theme.colors.white} />
-        </Pressable>
-        <Text style={styles.headerTitle}>Video</Text>
-        <Pressable onPress={() => void sharePost()} style={styles.headerAction} accessibilityRole="button" accessibilityLabel="Share video">
-          <Icon name="share" size={20} color={theme.colors.white} />
-        </Pressable>
-      </View>
-
-      <FlatList
-        data={detail.post.allow_comments ? comments : []}
-        keyExtractor={(item) => item.id}
-        renderItem={renderComment}
-        onEndReached={() => {
-          if (commentsQuery.hasNextPage && !commentsQuery.isFetchingNextPage) void commentsQuery.fetchNextPage();
-        }}
-        onEndReachedThreshold={0.4}
-        refreshing={postQuery.isRefetching}
-        onRefresh={() => void refreshPost()}
-        keyboardShouldPersistTaps="handled"
-        contentContainerStyle={styles.listContent}
-        ListHeaderComponent={
-          <View>
-            <PostVideo
-              uri={detail.videoUrl}
-              post={detail.post}
-              isAuthor={detail.currentUserId === detail.post.author_id}
-            />
-            {detail.currentUserId === detail.post.author_id ? (
-              <View style={styles.captionOwnerTools}>
-                {detail.post.captions_status === 'ready' ? (
-                  <Pressable onPress={() => void openCaptionEditor()} style={styles.captionToolButton} accessibilityRole="button">
-                    <Text style={styles.captionToolText}>Edit captions</Text>
-                  </Pressable>
-                ) : null}
-                <Pressable onPress={() => void toggleAutoCaptions()} style={styles.captionToolButton} accessibilityRole="button">
-                  <Text style={styles.captionToolText}>Turn captions off or on</Text>
+    <>
+    <ChatScreenLayout
+      style={styles.screen}
+      header={(
+        <View style={styles.header}>
+          <Pressable onPress={() => router.back()} style={styles.backButton} accessibilityRole="button" accessibilityLabel="Go back">
+            <Icon name="back" size={20} color={theme.colors.white} />
+          </Pressable>
+          <Text style={styles.headerTitle}>Video</Text>
+          <Pressable onPress={() => void sharePost()} style={styles.headerAction} accessibilityRole="button" accessibilityLabel="Share video">
+            <Icon name="share" size={20} color={theme.colors.white} />
+          </Pressable>
+        </View>
+      )}
+      contextHeader={(
+        <View>
+          <PostVideo
+            uri={detail.videoUrl}
+            post={detail.post}
+            isAuthor={detail.currentUserId === detail.post.author_id}
+          />
+          {detail.currentUserId === detail.post.author_id ? (
+            <View style={styles.captionOwnerTools}>
+              {detail.post.captions_status === 'ready' ? (
+                <Pressable onPress={() => void openCaptionEditor()} style={styles.captionToolButton} accessibilityRole="button">
+                  <Text style={styles.captionToolText}>Edit captions</Text>
                 </Pressable>
-              </View>
-            ) : null}
-            <View style={styles.authorRow}>
+              ) : null}
+              <Pressable onPress={() => void toggleAutoCaptions()} style={styles.captionToolButton} accessibilityRole="button">
+                <Text style={styles.captionToolText}>Turn captions off or on</Text>
+              </Pressable>
+            </View>
+          ) : null}
+          <View style={styles.authorRow}>
+            <Link href={{ pathname: '/user/[username]', params: { username: detail.author.username } }} asChild>
+              <Pressable accessibilityRole="button" accessibilityLabel={`Open ${detail.author.display_name}'s profile`}>
+                <Avatar author={detail.author} size={46} />
+              </Pressable>
+            </Link>
+            <View style={styles.authorMeta}>
               <Link href={{ pathname: '/user/[username]', params: { username: detail.author.username } }} asChild>
-                <Pressable accessibilityRole="button" accessibilityLabel={`Open ${detail.author.display_name}'s profile`}>
-                  <Avatar author={detail.author} size={46} />
+                <Pressable accessibilityRole="button">
+                  <Text style={styles.authorName}>{detail.author.display_name}</Text>
+                  <Text style={styles.handle}>@{detail.author.username}</Text>
                 </Pressable>
               </Link>
-              <View style={styles.authorMeta}>
-                <Link href={{ pathname: '/user/[username]', params: { username: detail.author.username } }} asChild>
-                  <Pressable accessibilityRole="button">
-                    <Text style={styles.authorName}>{detail.author.display_name}</Text>
-                    <Text style={styles.handle}>@{detail.author.username}</Text>
-                  </Pressable>
-                </Link>
-              </View>
-              <Text style={styles.postDate}>{formatCommentDate(detail.post.created_at)}</Text>
             </View>
-
-            <HashtagText text={detail.post.caption} style={styles.caption} />
-            {detail.post.hashtags.length ? (
-              <HashtagText text={detail.post.hashtags.map((tag) => `#${tag}`).join(' ')} style={styles.hashtags} />
-            ) : null}
-
-            <View style={styles.actionRow}>
-              <Pressable
-                onPress={() => {
-                  void setPostLiked(detail.post.id, detail.liked)
-                    .then(refreshPost)
-                    .catch((error: unknown) => Alert.alert('Could not update like', error instanceof Error ? error.message : 'Try again.'));
-                }}
-                style={styles.statButton}
-                accessibilityRole="button"
-                accessibilityLabel={detail.liked ? 'Unlike video' : 'Like video'}
-              >
-                <Icon name="heart" size={20} color={detail.liked ? theme.colors.danger : theme.colors.white} filled={detail.liked} />
-                <Text style={styles.metric}>{detail.post.like_count}</Text>
-              </Pressable>
-              <View style={styles.statButton}>
-                <Icon name="comment" size={20} color={theme.colors.white} />
-                <Text style={styles.metric}>{detail.post.comment_count}</Text>
-              </View>
-              <Pressable
-                onPress={() => {
-                  void setPostSaved(detail.post.id, detail.saved)
-                    .then(refreshPost)
-                    .catch((error: unknown) => Alert.alert('Could not update saved videos', error instanceof Error ? error.message : 'Try again.'));
-                }}
-                style={styles.statButton}
-                accessibilityRole="button"
-                accessibilityLabel={detail.saved ? 'Remove saved video' : 'Save video'}
-              >
-                <Icon name="bookmark" size={20} color={theme.colors.white} filled={detail.saved} />
-                <Text style={styles.metric}>{detail.post.save_count}</Text>
-              </Pressable>
-            </View>
-
-            {detail.post.allow_comments ? (
-              <View style={styles.commentHeader}>
-                <Text style={styles.sectionTitle}>Comments</Text>
-                {commentsQuery.isPending ? <ActivityIndicator color={theme.colors.primary} /> : null}
-                {commentsQuery.isError ? (
-                  <Pressable onPress={() => void commentsQuery.refetch()} accessibilityRole="button">
-                    <Text style={styles.retryText}>Retry</Text>
-                  </Pressable>
-                ) : null}
-              </View>
-            ) : (
-              <Text style={styles.commentsDisabled}>Comments are turned off for this video.</Text>
-            )}
+            <Text style={styles.postDate}>{formatCommentDate(detail.post.created_at)}</Text>
           </View>
-        }
-        ListEmptyComponent={
-          detail.post.allow_comments && !commentsQuery.isPending && !commentsQuery.isError
-            ? <Text style={styles.emptyComments}>Be the first to comment.</Text>
-            : null
-        }
-        ListFooterComponent={commentsQuery.isFetchingNextPage ? <ActivityIndicator color={theme.colors.primary} style={styles.listFooter} /> : null}
-      />
 
-      {detail.post.allow_comments ? (
+          <HashtagText text={detail.post.caption} style={styles.caption} />
+          {detail.post.hashtags.length ? (
+            <HashtagText text={detail.post.hashtags.map((tag) => `#${tag}`).join(' ')} style={styles.hashtags} />
+          ) : null}
+
+          <View style={styles.actionRow}>
+            <Pressable
+              onPress={() => {
+                void setPostLiked(detail.post.id, detail.liked)
+                  .then(refreshPost)
+                  .catch((error: unknown) => Alert.alert('Could not update like', error instanceof Error ? error.message : 'Try again.'));
+              }}
+              style={styles.statButton}
+              accessibilityRole="button"
+              accessibilityLabel={detail.liked ? 'Unlike video' : 'Like video'}
+            >
+              <Icon name="heart" size={20} color={detail.liked ? theme.colors.danger : theme.colors.white} filled={detail.liked} />
+              <Text style={styles.metric}>{detail.post.like_count}</Text>
+            </Pressable>
+            <View style={styles.statButton}>
+              <Icon name="comment" size={20} color={theme.colors.white} />
+              <Text style={styles.metric}>{detail.post.comment_count}</Text>
+            </View>
+            <Pressable
+              onPress={() => {
+                void setPostSaved(detail.post.id, detail.saved)
+                  .then(refreshPost)
+                  .catch((error: unknown) => Alert.alert('Could not update saved videos', error instanceof Error ? error.message : 'Try again.'));
+              }}
+              style={styles.statButton}
+              accessibilityRole="button"
+              accessibilityLabel={detail.saved ? 'Remove saved video' : 'Save video'}
+            >
+              <Icon name="bookmark" size={20} color={theme.colors.white} filled={detail.saved} />
+              <Text style={styles.metric}>{detail.post.save_count}</Text>
+            </Pressable>
+          </View>
+
+          {detail.post.allow_comments ? (
+            <View style={styles.commentHeader}>
+              <Text style={styles.sectionTitle}>Comments</Text>
+              {commentsQuery.isPending ? <ActivityIndicator color={theme.colors.primary} /> : null}
+              {commentsQuery.isError ? (
+                <Pressable onPress={() => void commentsQuery.refetch()} accessibilityRole="button">
+                  <Text style={styles.retryText}>Retry</Text>
+                </Pressable>
+              ) : null}
+            </View>
+          ) : (
+            <Text style={styles.commentsDisabled}>Comments are turned off for this video.</Text>
+          )}
+        </View>
+      )}
+      hideContextHeaderWhenKeyboardOpen
+      list={(
+        <FlatList
+          ref={commentListRef}
+          data={detail.post.allow_comments ? comments : []}
+          keyExtractor={(item) => item.id}
+          renderItem={renderComment}
+          onEndReached={() => {
+            if (commentsQuery.hasNextPage && !commentsQuery.isFetchingNextPage) void commentsQuery.fetchNextPage();
+          }}
+          onEndReachedThreshold={0.4}
+          refreshing={postQuery.isRefetching}
+          onRefresh={() => void refreshPost()}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          contentContainerStyle={styles.listContent}
+          ListEmptyComponent={
+            detail.post.allow_comments && !commentsQuery.isPending && !commentsQuery.isError
+              ? <Text style={styles.emptyComments}>Be the first to comment.</Text>
+              : null
+          }
+          ListFooterComponent={commentsQuery.isFetchingNextPage ? <ActivityIndicator color={theme.colors.primary} style={styles.listFooter} /> : null}
+        />
+      )}
+      composer={detail.post.allow_comments ? (
         <View style={styles.composer}>
           {replyTo ? (
             <View style={styles.replying}>
@@ -558,14 +569,20 @@ export default function PostDetailScreen() {
           ) : null}
           {commentError ? <Text style={styles.errorText}>{commentError}</Text> : null}
           <View style={styles.composerRow}>
-            <TextInput
+            <FocusableTextInput
               value={commentText}
               onChangeText={setCommentText}
+              onContentSizeChange={(event) => {
+                setCommentInputHeight(calculateChatComposerHeight(event.nativeEvent.contentSize.height));
+              }}
+              onFocus={() => commentListRef.current?.scrollToEnd({ animated: true })}
               maxLength={500}
+              multiline
               placeholder={replyTo ? 'Write a reply' : 'Write a comment'}
               placeholderTextColor={theme.colors.textMuted}
-              style={styles.commentInput}
+              style={[styles.commentInput, { height: commentInputHeight }]}
               returnKeyType="send"
+              blurOnSubmit={false}
               onSubmitEditing={() => void sendComment()}
             />
             <Pressable
@@ -582,6 +599,7 @@ export default function PostDetailScreen() {
           </View>
         </View>
       ) : null}
+    />
       <Modal
         visible={captionEditorOpen}
         animationType="slide"
@@ -599,7 +617,7 @@ export default function PostDetailScreen() {
               {captionCues.map((cue, index) => (
                 <View key={`${cue.startMs}-${cue.endMs}-${index}`} style={styles.captionCue}>
                   <Text style={styles.captionCueTime}>{cue.startMs} ms</Text>
-                  <TextInput
+                  <FocusableTextInput
                     value={cue.text}
                     onChangeText={(text) => setCaptionCues((current) => current.map((item, cueIndex) => (
                       cueIndex === index ? { ...item, text } : item
@@ -626,7 +644,7 @@ export default function PostDetailScreen() {
           </View>
         </KeyboardAwareScreen>
       </Modal>
-    </KeyboardAwareScreen>
+    </>
   );
 }
 
@@ -706,7 +724,7 @@ const styles = StyleSheet.create({
   },
   headerTitle: { color: theme.colors.white, fontSize: 17, fontWeight: '700' },
   headerAction: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-  listContent: { paddingBottom: 24 },
+  listContent: { flexGrow: 1, paddingBottom: 24 },
   videoContainer: { width: '100%', height: 440, backgroundColor: '#050607', position: 'relative' },
   videoUnavailable: {
     height: 260,
@@ -770,9 +788,9 @@ const styles = StyleSheet.create({
   commentActions: { flexDirection: 'row', gap: 16, marginTop: 6 },
   commentAction: { minHeight: 32, justifyContent: 'center' },
   commentActionText: { color: theme.colors.textMuted, fontSize: 12, fontWeight: '700' },
-  composer: { borderTopWidth: 1, borderTopColor: theme.colors.line, backgroundColor: theme.colors.surface, paddingHorizontal: 14, paddingTop: 8, paddingBottom: 12 },
+  composer: { borderTopWidth: 1, borderTopColor: theme.colors.line, backgroundColor: theme.colors.surface, paddingHorizontal: 14, paddingTop: 8 },
   composerRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  commentInput: { flex: 1, minHeight: 44, maxHeight: 96, borderRadius: 22, backgroundColor: '#171C22', paddingHorizontal: 16, color: theme.colors.white },
+  commentInput: { flex: 1, minHeight: 44, maxHeight: 120, borderRadius: 22, backgroundColor: '#171C22', paddingHorizontal: 16, paddingVertical: 10, color: theme.colors.white, textAlignVertical: 'top' },
   sendButton: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.primary },
   disabledButton: { opacity: 0.45 },
   replying: { minHeight: 34, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },

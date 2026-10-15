@@ -7,7 +7,6 @@ import {
   StyleSheet,
   Text,
   TextInput,
-  type TextInputProps,
   View,
 } from 'react-native';
 import Animated, {
@@ -20,6 +19,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { Icon } from '../../components/Icon';
+import { AuthField } from '../../components/AuthField';
 import { getSupabaseClient } from '../../lib/supabase';
 import { theme } from '../../theme/theme';
 import { scrollFocusedInputIntoView } from '../../hooks/useKeyboardInset';
@@ -34,85 +34,6 @@ import {
 type ButtonState = 'idle' | 'loading' | 'success';
 
 const validEmail = (value: string) => /^\S+@\S+\.\S+$/.test(value);
-
-function ResetField({
-  label,
-  value,
-  onChangeText,
-  keyboardType,
-  secureTextEntry,
-  error,
-  inputRef,
-  onFocusInput,
-  autoComplete,
-  textContentType,
-  importantForAutofill,
-  returnKeyType,
-  onSubmitEditing,
-}: {
-  label: string;
-  value: string;
-  onChangeText: (value: string) => void;
-  keyboardType?: 'email-address';
-  secureTextEntry?: boolean;
-  error?: string;
-  inputRef?: React.RefObject<TextInput | null>;
-  onFocusInput?: () => void;
-  autoComplete?: TextInputProps['autoComplete'];
-  textContentType?: TextInputProps['textContentType'];
-  importantForAutofill?: TextInputProps['importantForAutofill'];
-  returnKeyType?: TextInputProps['returnKeyType'];
-  onSubmitEditing?: () => void;
-}) {
-  const [focused, setFocused] = useState(false);
-  const [visible, setVisible] = useState(false);
-  const floated = focused || value.length > 0;
-
-  return (
-    <View>
-      <View style={[styles.field, focused && styles.fieldFocused, error && styles.fieldError]}>
-        <TextInput
-          ref={inputRef}
-          value={value}
-          onChangeText={onChangeText}
-          onFocus={() => {
-            setFocused(true);
-            onFocusInput?.();
-          }}
-          onBlur={() => setFocused(false)}
-          onSubmitEditing={onSubmitEditing}
-          blurOnSubmit={returnKeyType === 'next' ? false : undefined}
-          keyboardType={keyboardType}
-          autoComplete={autoComplete}
-          textContentType={textContentType}
-          importantForAutofill={importantForAutofill}
-          autoCapitalize="none"
-          autoCorrect={false}
-          cursorColor={theme.colors.primary}
-          secureTextEntry={secureTextEntry && !visible}
-          keyboardAppearance="dark"
-          returnKeyType={returnKeyType}
-          accessibilityLabel={label}
-          style={[styles.input, floated && styles.inputFloated, secureTextEntry && styles.passwordInput]}
-        />
-        <Text style={[styles.fieldLabel, floated && styles.fieldLabelFloated, focused && styles.fieldLabelFocused]}>
-          {label}
-        </Text>
-        {secureTextEntry ? (
-          <Pressable
-            onPress={() => setVisible((current) => !current)}
-            accessibilityRole="button"
-            accessibilityLabel={visible ? 'Hide password' : 'Show password'}
-            style={styles.eyeButton}
-          >
-            <Icon name={visible ? 'eyeOff' : 'eye'} size={20} color={theme.colors.textMuted} />
-          </Pressable>
-        ) : null}
-      </View>
-      {error ? <Text style={styles.error}>{error}</Text> : null}
-    </View>
-  );
-}
 
 function isRateLimitError(error: unknown) {
   if (!error || typeof error !== 'object') return false;
@@ -365,7 +286,7 @@ export function PasswordResetFlow({
             <>
               <Text style={styles.title}>Reset your password</Text>
               <Text style={styles.description}>Enter your email and we will send you a {OTP_LENGTH} digit code.</Text>
-              <ResetField
+              <AuthField
                 label="Email"
                 value={email}
                 onChangeText={(value) => {
@@ -445,7 +366,7 @@ export function PasswordResetFlow({
           ) : (
             <>
               <Text style={styles.title}>Choose a new password</Text>
-              <ResetField
+              <AuthField
                 label="New password"
                 value={newPassword}
                 onChangeText={(value) => {
@@ -483,7 +404,7 @@ export function PasswordResetFlow({
                   </View>
                 ))}
               </View>
-              <ResetField
+              <AuthField
                 label="Confirm password"
                 value={confirmation}
                 onChangeText={(value) => {
