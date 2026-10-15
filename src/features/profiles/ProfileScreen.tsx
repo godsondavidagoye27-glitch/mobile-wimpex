@@ -298,7 +298,9 @@ export function ProfileScreen({ username }: { username: string | null }) {
         if (error) throw error;
         setProfileRefreshOverride({ ...shownProfile, is_blocked_by_me: true, can_view_posts: false });
       } else if (action.type === 'delete') {
-        const { error } = await client.from('posts').delete().eq('id', action.post.id).eq('author_id', shownProfile.id);
+        const { error } = await client.functions.invoke('delete-own-post', {
+          body: { postId: action.post.id },
+        });
         if (error) throw error;
         setPostResult((current) => current?.key === currentTabKey
           ? { ...current, rows: current.rows.filter((row) => row.post.id !== action.post.id) }

@@ -21,6 +21,7 @@ import {
 import { getSupabaseClient } from '../../lib/supabase';
 import { theme } from '../../theme/theme';
 import type { CommunityListRpcRow } from '../../types/database';
+import { KeyboardAwareScreen } from '../../hooks/useKeyboardInset';
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : 'Try again.';
@@ -154,7 +155,7 @@ export default function CommunityPostComposerScreen() {
   };
 
   return (
-    <View style={styles.screen}>
+    <KeyboardAwareScreen style={styles.screen}>
       <View style={styles.header}>
         <Pressable onPress={() => router.back()} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Close composer">
           <Icon name="close" size={20} color={theme.colors.white} />
@@ -249,7 +250,7 @@ export default function CommunityPostComposerScreen() {
           {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
         </ScrollView>
       )}
-    </View>
+    </KeyboardAwareScreen>
   );
 }
 

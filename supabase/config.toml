@@ -9,3 +9,18 @@ verify_jwt = true
 
 [functions.chat-push]
 verify_jwt = false
+
+[functions.captions-start]
+verify_jwt = false
+
+[functions.captions-callback]
+verify_jwt = false
+
+[functions.captions-retry]
+verify_jwt = false
+
+[functions.captions-save]
+verify_jwt = true
+
+[functions.delete-own-post]
+verify_jwt = true

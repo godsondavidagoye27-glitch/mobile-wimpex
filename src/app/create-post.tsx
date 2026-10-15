@@ -17,7 +17,9 @@ import {
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { Icon } from '../components/Icon';
 import { getSupabaseClient } from '../lib/supabase';
+import { preferenceStorage } from '../lib/storage';
 import { theme } from '../theme/theme';
+import { KeyboardAwareScreen } from '../hooks/useKeyboardInset';
 import {
   clearVideoDraft,
   enqueueVideoUpload,
@@ -46,6 +48,9 @@ const emptyDraft: VideoDraft = {
   autoCaptions: true,
 };
 
+const captionsNoticePreferenceKey = 'wimpex.captions.disclosure-seen';
+const captionsNotice = "Wimpex sends your video's audio to a speech-to-text service to make captions. Captions are saved with your video. Turn this off to keep the audio on Wimpex only.";
+
 function LocalVideoPreview({ uri }: { uri: string }) {
   const player = useVideoPlayer(uri, (videoPlayer) => {
     videoPlayer.loop = true;
@@ -61,6 +66,8 @@ export default function CreatePostScreen() {
   const [ownerId, setOwnerId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [captionsNoticeSeen, setCaptionsNoticeSeen] = useState<boolean | null>(null);
+  const [showCaptionsNoticeAfterToggle, setShowCaptionsNoticeAfterToggle] = useState(false);
 
   const draftError = useMemo(
     () => draft.uri ? validateVideo({ durationMs: draft.durationMs, sizeBytes: draft.fileSize }) : null,
@@ -92,6 +99,24 @@ export default function CreatePostScreen() {
       mounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    void preferenceStorage.getItem(captionsNoticePreferenceKey).then((value) => {
+      if (mounted) setCaptionsNoticeSeen(value === 'true');
+    }).catch((loadError: unknown) => {
+      if (mounted) {
+        setCaptionsNoticeSeen(true);
+        setError(loadError instanceof Error ? loadError.message : 'Could not load caption settings.');
+      }
+    });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const showCaptionsNotice = showCaptionsNoticeAfterToggle
+    || (draftReady && captionsNoticeSeen === false && draft.autoCaptions);
 
   useEffect(() => {
     if (!ownerId) return undefined;
@@ -239,7 +264,7 @@ export default function CreatePostScreen() {
   };
 
   return (
-    <View style={styles.screen}>
+    <KeyboardAwareScreen style={styles.screen}>
       <View style={styles.header}>
         <Pressable
           onPress={() => router.back()}
@@ -337,10 +362,29 @@ export default function CreatePostScreen() {
             <Text style={styles.fieldLabel}>Auto captions</Text>
             <Switch
               value={draft.autoCaptions}
-              onValueChange={(autoCaptions) => setDraft((current) => ({ ...current, autoCaptions }))}
+              onValueChange={(autoCaptions) => {
+                setDraft((current) => ({ ...current, autoCaptions }));
+                if (!autoCaptions || captionsNoticeSeen) {
+                  setShowCaptionsNoticeAfterToggle(false);
+                  return;
+                }
+                setShowCaptionsNoticeAfterToggle(true);
+                setCaptionsNoticeSeen(true);
+                void preferenceStorage.setItem(captionsNoticePreferenceKey, 'true').catch((noticeError: unknown) => {
+                  setError(noticeError instanceof Error ? noticeError.message : 'Could not save caption settings.');
+                });
+              }}
               trackColor={{ false: theme.colors.line, true: theme.colors.success }}
             />
           </View>
+          {showCaptionsNotice ? (
+            <View style={styles.captionsNotice}>
+              <Text style={styles.helper}>{captionsNotice}</Text>
+              <Pressable onPress={() => router.push('/settings')} accessibilityRole="link">
+                <Text style={styles.captionsSettingsLink}>Settings</Text>
+              </Pressable>
+            </View>
+          ) : null}
         </View>
 
         {error ? <Text accessibilityRole="alert" style={styles.errorText}>{error}</Text> : null}
@@ -369,7 +413,7 @@ export default function CreatePostScreen() {
           </View>
         ))}
       </ScrollView>
-    </View>
+    </KeyboardAwareScreen>
   );
 }
 
@@ -486,6 +530,8 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: theme.colors.line,
   },
+  captionsNotice: { paddingVertical: 12, gap: 8 },
+  captionsSettingsLink: { color: theme.colors.primary, fontSize: 12, fontWeight: '700' },
   audienceChoices: { flexDirection: 'row', gap: 8 },
   audienceButton: {
     borderRadius: 14,

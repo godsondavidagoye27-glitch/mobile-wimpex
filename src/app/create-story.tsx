@@ -24,6 +24,7 @@ import {
 } from '../features/stories/storyTimeline';
 import { getSupabaseClient } from '../lib/supabase';
 import { theme } from '../theme/theme';
+import { KeyboardAwareScreen } from '../hooks/useKeyboardInset';
 import type { Database } from '../types/database';
 
 type Audience = 'everyone' | 'followers' | 'close_friends';
@@ -221,7 +222,7 @@ export default function CreateStoryScreen() {
   const previewColor = captionColors.find((item) => item.token === captionColor)?.color ?? theme.colors.surface;
 
   return (
-    <View style={styles.screen}>
+    <KeyboardAwareScreen style={styles.screen}>
       <View style={styles.header}>
         <Pressable onPress={() => router.back()} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Go back">
           <Icon name="back" size={20} color={theme.colors.white} />
@@ -316,7 +317,7 @@ export default function CreateStoryScreen() {
         ) : null}
         {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
       </ScrollView>
-    </View>
+    </KeyboardAwareScreen>
   );
 }
 

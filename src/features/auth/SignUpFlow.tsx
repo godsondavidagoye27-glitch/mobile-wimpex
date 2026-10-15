@@ -10,6 +10,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  type TextInputProps,
   View,
 } from 'react-native';
 import Animated, {
@@ -70,13 +71,19 @@ function SignupField({
   error,
   inputRef,
   onSubmitEditing,
+  textContentType,
+  importantForAutofill,
+  returnKeyType,
 }: {
   label: string;
   value: string;
   onChangeText: (value: string) => void;
   secure?: boolean;
   keyboardType?: 'email-address';
-  autoComplete?: 'email' | 'new-password' | 'off';
+  autoComplete?: TextInputProps['autoComplete'];
+  textContentType?: TextInputProps['textContentType'];
+  importantForAutofill?: TextInputProps['importantForAutofill'];
+  returnKeyType?: TextInputProps['returnKeyType'];
   error?: string;
   inputRef?: React.RefObject<TextInput | null>;
   onSubmitEditing?: () => void;
@@ -95,13 +102,17 @@ function SignupField({
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
           onSubmitEditing={onSubmitEditing}
+          blurOnSubmit={returnKeyType === 'next' ? false : undefined}
           keyboardType={keyboardType}
           autoComplete={autoComplete}
+          textContentType={textContentType}
+          importantForAutofill={importantForAutofill}
           autoCapitalize="none"
           autoCorrect={false}
+          cursorColor={theme.colors.primary}
           secureTextEntry={secure && !visible}
           keyboardAppearance="dark"
-          returnKeyType="next"
+          returnKeyType={returnKeyType ?? 'next'}
           accessibilityLabel={label}
           style={[styles.input, floated && styles.inputFloated, secure && styles.passwordInput]}
         />
@@ -137,6 +148,7 @@ function OtpCell({
   inputRef,
   onChangeText,
   onKeyPress,
+  onSubmitEditing,
 }: {
   index: number;
   digit: string;
@@ -144,6 +156,7 @@ function OtpCell({
   inputRef: (input: TextInput | null) => void;
   onChangeText: (value: string) => void;
   onKeyPress: (key: string) => void;
+  onSubmitEditing: () => void;
 }) {
   const scale = useSharedValue(1);
   const popStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
@@ -162,8 +175,17 @@ function OtpCell({
         ref={inputRef}
         value={digit}
         onChangeText={onChangeText}
+        onSubmitEditing={onSubmitEditing}
         onKeyPress={({ nativeEvent }) => onKeyPress(nativeEvent.key)}
         keyboardType="number-pad"
+        inputMode="numeric"
+        autoComplete={index === 0 ? 'sms-otp' : 'off'}
+        textContentType={index === 0 ? 'oneTimeCode' : 'none'}
+        importantForAutofill={index === 0 ? 'yes' : 'no'}
+        autoCapitalize="none"
+        autoCorrect={false}
+        returnKeyType={index === OTP_LENGTH - 1 ? 'done' : 'next'}
+        blurOnSubmit={false}
         maxLength={OTP_LENGTH}
         accessibilityLabel={`Digit ${index + 1}`}
         style={styles.codeInput}
@@ -205,7 +227,9 @@ export function SignUpFlow({
   const isVerifying = useRef(false);
   const inputRefs = useRef<(TextInput | null)[]>([]);
   const emailRef = useRef<TextInput>(null);
+  const passwordRef = useRef<TextInput>(null);
   const usernameRef = useRef<TextInput>(null);
+  const displayNameRef = useRef<TextInput>(null);
   const codeShake = useSharedValue(0);
   const codeShakeStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: codeShake.value }],
@@ -232,7 +256,6 @@ export function SignUpFlow({
     previousStep.current = step;
     Keyboard.dismiss();
     const timer = setTimeout(() => {
-      if (step === profileStep) usernameRef.current?.focus();
       if (step === codeStep) inputRefs.current[0]?.focus();
     }, 120);
     return () => clearTimeout(timer);
@@ -687,7 +710,11 @@ export function SignUpFlow({
               setScreenError('');
             }}
             keyboardType="email-address"
+            textContentType="emailAddress"
+            importantForAutofill="yes"
             autoComplete="email"
+            returnKeyType="next"
+            onSubmitEditing={() => passwordRef.current?.focus()}
             error={fieldErrors.email}
             inputRef={emailRef}
           />
@@ -701,7 +728,12 @@ export function SignUpFlow({
             }}
             secure
             autoComplete="new-password"
+            textContentType="newPassword"
+            importantForAutofill="yes"
+            returnKeyType="done"
+            onSubmitEditing={() => void handleSignup()}
             error={fieldErrors.password}
+            inputRef={passwordRef}
           />
           <View style={styles.strengthMeter} accessibilityLabel={`Password strength ${passwordStrength.score} of 4`}>
             {[0, 1, 2, 3].map((segment) => (
@@ -836,6 +868,10 @@ export function SignUpFlow({
                   inputRefs.current[index] = input;
                 }}
                 onChangeText={(value) => setOtpDigit(index, value)}
+                onSubmitEditing={() => {
+                  if (index < OTP_LENGTH - 1) inputRefs.current[index + 1]?.focus();
+                  else void verifyCode(code.join(''));
+                }}
                 onKeyPress={(key) => {
                   if (key === 'Backspace' && !code[index] && index > 0) {
                     inputRefs.current[index - 1]?.focus();
@@ -886,8 +922,11 @@ export function SignUpFlow({
               setUsernameError('');
             }}
             autoComplete="off"
+            textContentType="none"
             error={usernameError && !currentUsernameStatusText ? usernameError : undefined}
             inputRef={usernameRef}
+            returnKeyType="next"
+            onSubmitEditing={() => displayNameRef.current?.focus()}
           />
           <View style={styles.usernameStatus}>
             {currentUsernameStatus === 'checking' ? (
@@ -918,7 +957,11 @@ export function SignUpFlow({
               flow.setSignupData({ displayName });
               setNameError('');
             }}
-            autoComplete="off"
+            autoComplete="name"
+            textContentType="name"
+            returnKeyType="done"
+            onSubmitEditing={() => void handleSignup()}
+            inputRef={displayNameRef}
             error={nameError}
           />
           {pickerError ? <Text accessibilityRole="alert" style={styles.errorText}>{pickerError}</Text> : null}
@@ -1054,7 +1097,7 @@ const styles = StyleSheet.create({
   },
   bodyContent: {
     paddingHorizontal: 2,
-    paddingBottom: 12,
+    paddingBottom: 16,
     gap: 12,
   },
   stepContent: {

@@ -46,6 +46,9 @@
       },
       "predictiveBackGestureEnabled": false
     },
+    "androidStatusBar": {
+      "translucent": false
+    },
     "web": {
       "favicon": "./assets/favicon.png"
     },

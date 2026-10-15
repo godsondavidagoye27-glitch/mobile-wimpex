@@ -6,9 +6,9 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
-  KeyboardAvoidingView,
-  Platform,
+  Modal,
   Pressable,
+  ScrollView,
   Share,
   StyleSheet,
   Text,
@@ -17,7 +17,10 @@ import {
 } from 'react-native';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { Icon } from '../../components/Icon';
+import { KeyboardAwareScreen } from '../../hooks/useKeyboardInset';
 import { HashtagText } from '../../components/HashtagText';
+import { CaptionOverlay } from '../../features/captions/CaptionOverlay';
+import { parseWebVtt, writeWebVtt, type VttCue } from '../../features/captions/vtt';
 import { incrementPostShare, setPostLiked, setPostSaved } from '../../features/feed/postActions';
 import { getSignedUrls } from '../../features/feed/useFeed';
 import { getSupabaseClient } from '../../lib/supabase';
@@ -160,7 +163,7 @@ async function loadCommentPage(postId: string, cursor: CommentCursor | null): Pr
   };
 }
 
-function PostVideo({ uri }: { uri: string | null }) {
+function PostVideo({ uri, post, isAuthor }: { uri: string | null; post: Post; isAuthor: boolean }) {
   if (!uri) {
     return (
       <View style={styles.videoUnavailable}>
@@ -169,10 +172,10 @@ function PostVideo({ uri }: { uri: string | null }) {
       </View>
     );
   }
-  return <PlayingPostVideo uri={uri} />;
+  return <PlayingPostVideo uri={uri} post={post} isAuthor={isAuthor} />;
 }
 
-function PlayingPostVideo({ uri }: { uri: string }) {
+function PlayingPostVideo({ uri, post, isAuthor }: { uri: string; post: Post; isAuthor: boolean }) {
   const player = useVideoPlayer(uri, (videoPlayer) => {
     videoPlayer.loop = true;
   });
@@ -185,6 +188,7 @@ function PlayingPostVideo({ uri }: { uri: string }) {
   return (
     <View style={styles.videoContainer}>
       <VideoView player={player} style={StyleSheet.absoluteFill} contentFit="contain" nativeControls />
+      <CaptionOverlay player={player} post={post} active isAuthor={isAuthor} />
       {!isPlaying ? (
         <View pointerEvents="none" style={styles.pausedVideoOverlay}>
           <Icon name="play" size={24} color={theme.colors.white} />
@@ -217,10 +221,18 @@ export default function PostDetailScreen() {
   const [replyTo, setReplyTo] = useState<CommentItem | null>(null);
   const [commentError, setCommentError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
+  const [captionEditorOpen, setCaptionEditorOpen] = useState(false);
+  const [captionCues, setCaptionCues] = useState<VttCue[]>([]);
+  const [captionEditorError, setCaptionEditorError] = useState<string | null>(null);
+  const [savingCaptions, setSavingCaptions] = useState(false);
   const postQuery = useQuery({
     queryKey: ['post-detail', postId],
     queryFn: () => loadPost(postId),
     enabled: Boolean(postId),
+    refetchInterval: (query) => {
+      const status = query.state.data?.post.captions_status;
+      return status === 'queued' || status === 'processing' ? 5000 : false;
+    },
   });
   const commentsQuery = useInfiniteQuery({
     queryKey: ['post-comments', postId],
@@ -262,6 +274,53 @@ export default function PostDetailScreen() {
       queryClient.invalidateQueries({ queryKey: ['feed', 'for_you'] }),
       queryClient.invalidateQueries({ queryKey: ['feed', 'following'] }),
     ]);
+  };
+
+  const openCaptionEditor = async () => {
+    if (!detail?.post.captions_path) return;
+    setCaptionEditorError(null);
+    try {
+      const { data, error } = await getSupabaseClient().storage.from('captions').download(detail.post.captions_path);
+      if (error) throw error;
+      const cues = parseWebVtt(await data.text());
+      if (!cues.length) throw new Error('The caption file could not be read.');
+      setCaptionCues(cues);
+      setCaptionEditorOpen(true);
+    } catch (error) {
+      setCaptionEditorError(error instanceof Error ? error.message : 'Could not load captions for editing.');
+    }
+  };
+
+  const saveCaptionEdits = async () => {
+    if (!detail || savingCaptions) return;
+    setSavingCaptions(true);
+    setCaptionEditorError(null);
+    try {
+      const { error } = await getSupabaseClient().functions.invoke('captions-save', {
+        body: { postId: detail.post.id, captions: writeWebVtt(captionCues) },
+      });
+      if (error) throw error;
+      setCaptionEditorOpen(false);
+      await refreshPost();
+    } catch (error) {
+      setCaptionEditorError(error instanceof Error ? error.message : 'Could not save captions.');
+    } finally {
+      setSavingCaptions(false);
+    }
+  };
+
+  const toggleAutoCaptions = async () => {
+    if (!detail) return;
+    try {
+      const { error } = await getSupabaseClient().rpc('set_post_captions_enabled', {
+        post_id: detail.post.id,
+        enabled: !detail.post.auto_captions,
+      });
+      if (error) throw error;
+      await refreshPost();
+    } catch (error) {
+      Alert.alert('Could not update caption settings', error instanceof Error ? error.message : 'Try again.');
+    }
   };
 
   const sendComment = async () => {
@@ -367,11 +426,7 @@ export default function PostDetailScreen() {
   }
 
   return (
-    <KeyboardAvoidingView
-      style={styles.screen}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 12 : 0}
-    >
+    <KeyboardAwareScreen style={styles.screen}>
       <View style={styles.header}>
         <Pressable onPress={() => router.back()} style={styles.backButton} accessibilityRole="button" accessibilityLabel="Go back">
           <Icon name="back" size={20} color={theme.colors.white} />
@@ -396,7 +451,23 @@ export default function PostDetailScreen() {
         contentContainerStyle={styles.listContent}
         ListHeaderComponent={
           <View>
-            <PostVideo uri={detail.videoUrl} />
+            <PostVideo
+              uri={detail.videoUrl}
+              post={detail.post}
+              isAuthor={detail.currentUserId === detail.post.author_id}
+            />
+            {detail.currentUserId === detail.post.author_id ? (
+              <View style={styles.captionOwnerTools}>
+                {detail.post.captions_status === 'ready' ? (
+                  <Pressable onPress={() => void openCaptionEditor()} style={styles.captionToolButton} accessibilityRole="button">
+                    <Text style={styles.captionToolText}>Edit captions</Text>
+                  </Pressable>
+                ) : null}
+                <Pressable onPress={() => void toggleAutoCaptions()} style={styles.captionToolButton} accessibilityRole="button">
+                  <Text style={styles.captionToolText}>Turn captions off or on</Text>
+                </Pressable>
+              </View>
+            ) : null}
             <View style={styles.authorRow}>
               <Link href={{ pathname: '/user/[username]', params: { username: detail.author.username } }} asChild>
                 <Pressable accessibilityRole="button" accessibilityLabel={`Open ${detail.author.display_name}'s profile`}>
@@ -511,7 +582,51 @@ export default function PostDetailScreen() {
           </View>
         </View>
       ) : null}
-    </KeyboardAvoidingView>
+      <Modal
+        visible={captionEditorOpen}
+        animationType="slide"
+        onRequestClose={() => setCaptionEditorOpen(false)}
+      >
+        <KeyboardAwareScreen style={{ flex: 1 }}>
+          <View style={styles.captionEditor}>
+            <View style={styles.captionEditorHeader}>
+              <Text style={styles.sectionTitle}>Edit captions</Text>
+              <Pressable onPress={() => setCaptionEditorOpen(false)} accessibilityRole="button" accessibilityLabel="Close caption editor">
+                <Icon name="close" size={20} color={theme.colors.white} />
+              </Pressable>
+            </View>
+            <ScrollView contentContainerStyle={styles.captionCueList} keyboardShouldPersistTaps="handled">
+              {captionCues.map((cue, index) => (
+                <View key={`${cue.startMs}-${cue.endMs}-${index}`} style={styles.captionCue}>
+                  <Text style={styles.captionCueTime}>{cue.startMs} ms</Text>
+                  <TextInput
+                    value={cue.text}
+                    onChangeText={(text) => setCaptionCues((current) => current.map((item, cueIndex) => (
+                      cueIndex === index ? { ...item, text } : item
+                    )))}
+                    multiline
+                    maxLength={84}
+                    style={styles.captionCueInput}
+                    accessibilityLabel={`Caption text ${index + 1}`}
+                  />
+                </View>
+              ))}
+            </ScrollView>
+            {captionEditorError ? <Text accessibilityRole="alert" style={styles.errorText}>{captionEditorError}</Text> : null}
+            <Pressable
+              onPress={() => void saveCaptionEdits()}
+              disabled={savingCaptions}
+              style={styles.captionSaveButton}
+              accessibilityRole="button"
+            >
+              {savingCaptions
+                ? <ActivityIndicator color={theme.colors.black} />
+                : <Text style={styles.primaryButtonText}>Save captions</Text>}
+            </Pressable>
+          </View>
+        </KeyboardAwareScreen>
+      </Modal>
+    </KeyboardAwareScreen>
   );
 }
 
@@ -601,6 +716,16 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   videoUnavailableText: { color: theme.colors.textMuted },
+  captionOwnerTools: { flexDirection: 'row', gap: 16, paddingHorizontal: 18, paddingTop: 10 },
+  captionToolButton: { minHeight: 40, justifyContent: 'center' },
+  captionToolText: { color: theme.colors.primary, fontSize: 12, fontWeight: '700' },
+  captionEditor: { flex: 1, backgroundColor: theme.colors.black, padding: 18, paddingTop: 48, gap: 14 },
+  captionEditorHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  captionCueList: { gap: 12, paddingBottom: 20 },
+  captionCue: { borderRadius: 12, backgroundColor: theme.colors.surface, padding: 12, gap: 8 },
+  captionCueTime: { color: theme.colors.textMuted, fontSize: 11 },
+  captionCueInput: { minHeight: 52, color: theme.colors.white, textAlignVertical: 'top' },
+  captionSaveButton: { minHeight: 48, alignItems: 'center', justifyContent: 'center', borderRadius: 24, backgroundColor: theme.colors.primary },
   pausedVideoOverlay: {
     ...StyleSheet.absoluteFill,
     alignItems: 'center',

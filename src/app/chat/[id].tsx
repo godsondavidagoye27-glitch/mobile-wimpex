@@ -7,9 +7,7 @@ import {
   Animated,
   FlatList,
   Image,
-  KeyboardAvoidingView,
   Modal,
-  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -23,6 +21,7 @@ import * as Clipboard from 'expo-clipboard';
 import * as Crypto from 'expo-crypto';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { Icon } from '../../components/Icon';
+import { KeyboardAwareScreen } from '../../hooks/useKeyboardInset';
 import { getStoryReplyPreviewUrl } from '../../features/stories/storyService';
 import { ChatMediaComposer } from '../../features/chats/ChatMediaComposer';
 import { ChatMediaMessage } from '../../features/chats/ChatMediaMessage';
@@ -884,11 +883,7 @@ export default function ChatThreadScreen() {
   }
 
   return (
-    <KeyboardAvoidingView
-      style={styles.screen}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 12 : 0}
-    >
+    <KeyboardAwareScreen style={styles.screen}>
       <View style={styles.header}>
         <Pressable onPress={() => router.back()} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Go back">
           <Icon name="back" size={20} color={theme.colors.white} />
@@ -1068,36 +1063,38 @@ export default function ChatThreadScreen() {
       </Modal>
 
       <Modal transparent visible={reportOpen} animationType="slide" onRequestClose={() => setReportOpen(false)}>
-        <View style={styles.reportBackdrop}>
-          <View style={styles.reportCard}>
-            <Text style={styles.reportTitle}>Report this chat</Text>
-            <Text style={styles.reportCopy}>Tell us why you are reporting this content.</Text>
-            <TextInput
-              value={reportReason}
-              onChangeText={setReportReason}
-              style={styles.reportInput}
-              placeholder="Reason"
-              placeholderTextColor={theme.colors.textMuted}
-              maxLength={500}
-              accessibilityLabel="Report reason"
-            />
-            <View style={styles.reportActions}>
-              <Pressable onPress={() => setReportOpen(false)} style={styles.reportCancel} accessibilityRole="button">
-                <Text style={styles.reportCancelText}>Cancel</Text>
-              </Pressable>
-              <Pressable
-                onPress={() => void reportMessage()}
-                disabled={!reportReason.trim()}
-                style={[styles.reportSubmit, !reportReason.trim() && styles.sendButtonDisabled]}
-                accessibilityRole="button"
-              >
-                <Text style={styles.reportSubmitText}>Submit report</Text>
-              </Pressable>
+        <KeyboardAwareScreen style={{ flex: 1 }}>
+          <View style={styles.reportBackdrop}>
+            <View style={styles.reportCard}>
+              <Text style={styles.reportTitle}>Report this chat</Text>
+              <Text style={styles.reportCopy}>Tell us why you are reporting this content.</Text>
+              <TextInput
+                value={reportReason}
+                onChangeText={setReportReason}
+                style={styles.reportInput}
+                placeholder="Reason"
+                placeholderTextColor={theme.colors.textMuted}
+                maxLength={500}
+                accessibilityLabel="Report reason"
+              />
+              <View style={styles.reportActions}>
+                <Pressable onPress={() => setReportOpen(false)} style={styles.reportCancel} accessibilityRole="button">
+                  <Text style={styles.reportCancelText}>Cancel</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => void reportMessage()}
+                  disabled={!reportReason.trim()}
+                  style={[styles.reportSubmit, !reportReason.trim() && styles.sendButtonDisabled]}
+                  accessibilityRole="button"
+                >
+                  <Text style={styles.reportSubmitText}>Submit report</Text>
+                </Pressable>
+              </View>
             </View>
           </View>
-        </View>
+        </KeyboardAwareScreen>
       </Modal>
-    </KeyboardAvoidingView>
+    </KeyboardAwareScreen>
   );
 }
 

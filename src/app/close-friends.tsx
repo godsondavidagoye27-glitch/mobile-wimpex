@@ -12,6 +12,7 @@ import {
 import { Icon } from '../components/Icon';
 import { getSupabaseClient } from '../lib/supabase';
 import { theme } from '../theme/theme';
+import { KeyboardAwareScreen } from '../hooks/useKeyboardInset';
 
 type CloseFriendRow = {
   id: string;
@@ -128,7 +129,7 @@ export default function CloseFriendsScreen() {
   );
 
   return (
-    <View style={styles.screen}>
+    <KeyboardAwareScreen style={styles.screen}>
       <View style={styles.header}>
         <Pressable onPress={() => router.back()} style={styles.backButton} accessibilityRole="button" accessibilityLabel="Go back">
           <Icon name="back" size={20} color={theme.colors.white} />
@@ -175,7 +176,7 @@ export default function CloseFriendsScreen() {
         />
       )}
       {error && !loading ? <Text accessibilityRole="alert" style={styles.errorInline}>{error}</Text> : null}
-    </View>
+    </KeyboardAwareScreen>
   );
 }
 

@@ -16,6 +16,7 @@ import { Icon } from '../../components/Icon';
 import { getSupabaseClient } from '../../lib/supabase';
 import { theme } from '../../theme/theme';
 import type { CommunityCategory, CommunityListRpcRow, CommunityRow } from '../../types/database';
+import { KeyboardAwareScreen } from '../../hooks/useKeyboardInset';
 
 const categories: (CommunityCategory | 'All')[] = [
   'All', 'Music', 'Food', 'Sport', 'Travel', 'Gaming', 'Art',
@@ -335,7 +336,7 @@ export default function GroupsScreen() {
   );
 
   return (
-    <View style={styles.screen}>
+    <KeyboardAwareScreen style={styles.screen}>
       <FlatList
         data={loading || (input.trim() !== query && input.trim().length > 0) ? [] : visibleRows}
         keyExtractor={(item) => item.id}
@@ -355,7 +356,7 @@ export default function GroupsScreen() {
         onEndReachedThreshold={0.5}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void refresh(true)} tintColor={theme.colors.primary} />}
       />
-    </View>
+    </KeyboardAwareScreen>
   );
 }
 

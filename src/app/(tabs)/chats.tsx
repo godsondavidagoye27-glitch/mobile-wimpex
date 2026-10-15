@@ -22,6 +22,7 @@ import {
 import { unreadBadgeCount } from '../../features/chats/messageState';
 import { getSupabaseClient } from '../../lib/supabase';
 import { theme } from '../../theme/theme';
+import { KeyboardAwareScreen } from '../../hooks/useKeyboardInset';
 
 const formatMessageTime = (date: string | null) => {
   if (!date) return '';
@@ -303,7 +304,7 @@ export default function ChatsScreen() {
   };
 
   return (
-    <View style={styles.screen}>
+    <KeyboardAwareScreen style={styles.screen}>
       <View style={styles.header}>
         <Text style={styles.title}>Chats</Text>
         <Pressable onPress={openComposer} style={styles.iconButton} accessibilityRole="button" accessibilityLabel="Compose chat">
@@ -325,8 +326,9 @@ export default function ChatsScreen() {
       />
 
       <Modal visible={composerOpen} animationType="slide" transparent onRequestClose={() => setComposerOpen(false)}>
-        <View style={styles.modalBackdrop}>
-          <View style={styles.composer}>
+        <KeyboardAwareScreen style={{ flex: 1 }}>
+          <View style={styles.modalBackdrop}>
+            <View style={styles.composer}>
             <View style={styles.composerHeader}>
               <Text style={styles.composerTitle}>{groupMode ? 'New group' : 'New conversation'}</Text>
               <Pressable onPress={() => setComposerOpen(false)} accessibilityRole="button" accessibilityLabel="Close">
@@ -420,10 +422,11 @@ export default function ChatsScreen() {
               </View>
             ) : null}
             {creating && !groupMode ? <ActivityIndicator color={theme.colors.primary} /> : null}
+            </View>
           </View>
-        </View>
+        </KeyboardAwareScreen>
       </Modal>
-    </View>
+    </KeyboardAwareScreen>
   );
 }
 

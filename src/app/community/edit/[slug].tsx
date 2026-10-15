@@ -14,6 +14,7 @@ import { Icon } from '../../../components/Icon';
 import { getSupabaseClient } from '../../../lib/supabase';
 import { theme } from '../../../theme/theme';
 import type { CommunityCategory, CommunityDetailRpcRow, CommunityVisibility } from '../../../types/database';
+import { KeyboardAwareScreen } from '../../../hooks/useKeyboardInset';
 
 const categories: CommunityCategory[] = [
   'Music', 'Food', 'Sport', 'Travel', 'Gaming', 'Art',
@@ -172,7 +173,7 @@ export default function EditCommunityScreen() {
   if (loading) return <View style={styles.center}><ActivityIndicator color={theme.colors.primary} /></View>;
 
   return (
-    <View style={styles.screen}>
+    <KeyboardAwareScreen style={styles.screen}>
       <View style={styles.header}>
         <Pressable onPress={() => router.back()} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Go back">
           <Icon name="back" size={20} color={theme.colors.white} />
@@ -249,7 +250,7 @@ export default function EditCommunityScreen() {
           {saving ? <ActivityIndicator color={theme.colors.black} /> : <Text style={styles.saveText}>Save</Text>}
         </Pressable>
       </ScrollView>
-    </View>
+    </KeyboardAwareScreen>
   );
 }
 

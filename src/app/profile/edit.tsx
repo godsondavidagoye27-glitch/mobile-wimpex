@@ -17,6 +17,7 @@ import { Icon } from '../../components/Icon';
 import { isValidUsername } from '../../features/auth/signupValidation';
 import { getSupabaseClient } from '../../lib/supabase';
 import { theme } from '../../theme/theme';
+import { KeyboardAwareScreen } from '../../hooks/useKeyboardInset';
 import type { ProfileRpcRow } from '../../types/database';
 import { validateProfileLink } from '../../features/profiles/profileValidation';
 
@@ -246,7 +247,7 @@ export default function EditProfileScreen() {
   }
 
   return (
-    <View style={styles.screen}>
+    <KeyboardAwareScreen style={styles.screen}>
       <View style={styles.header}>
         <Pressable onPress={() => router.back()} accessibilityRole="button" style={styles.iconButton} accessibilityLabel="Go back">
           <Icon name="back" size={20} color={theme.colors.white} />
@@ -343,7 +344,7 @@ export default function EditProfileScreen() {
           </Pressable>
         </View>
       </Modal>
-    </View>
+    </KeyboardAwareScreen>
   );
 }
 

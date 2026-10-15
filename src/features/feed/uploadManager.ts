@@ -183,14 +183,13 @@ async function upsertPostRecord(job: VideoUploadJob): Promise<Post['status']> {
     return existing.status;
   }
 
-  const post: Post = {
+  const post: Omit<Post, 'captions_path' | 'captions_status' | 'captions_language' | 'captions_updated_at' | 'captions_attempts'> = {
     id: job.postId,
     author_id: job.ownerId,
     caption: job.caption,
     hashtags: job.hashtags,
     video_path: `${job.ownerId}/${job.postId}.${job.fileName.split('.').at(-1)?.toLowerCase() === 'mov' ? 'mov' : 'mp4'}`,
     thumb_path: null,
-    captions_path: null,
     duration_ms: job.durationMs,
     width: job.width,
     height: job.height,

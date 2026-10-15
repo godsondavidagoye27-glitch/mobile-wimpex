@@ -36,6 +36,7 @@ import type { FeedItem } from '../../features/feed/useFeed';
 import { useFeed } from '../../features/feed/useFeed';
 import { queryKeys } from '../../features/feed/queryKeys';
 import { getSupabaseClient } from '../../lib/supabase';
+import { CaptionOverlay } from '../../features/captions/CaptionOverlay';
 import { theme } from '../../theme/theme';
 
 const viewabilityConfig = { itemVisiblePercentThreshold: 65 };
@@ -45,11 +46,15 @@ function FeedVideo({
   active,
   shouldLoad,
   onOpenPost,
+  post,
+  isAuthor,
 }: {
   uri: string | null;
   active: boolean;
   shouldLoad: boolean;
   onOpenPost: () => void;
+  post: FeedItem['post'];
+  isAuthor: boolean;
 }) {
   if (!uri || !shouldLoad) {
     return (
@@ -61,10 +66,20 @@ function FeedVideo({
       </Pressable>
     );
   }
-  return <PlayingVideo uri={uri} active={active} />;
+  return <PlayingVideo uri={uri} active={active} post={post} isAuthor={isAuthor} />;
 }
 
-function PlayingVideo({ uri, active }: { uri: string; active: boolean }) {
+function PlayingVideo({
+  uri,
+  active,
+  post,
+  isAuthor,
+}: {
+  uri: string;
+  active: boolean;
+  post: FeedItem['post'];
+  isAuthor: boolean;
+}) {
   const [pausedByUser, setPausedByUser] = useState(false);
   const player = useVideoPlayer(uri, (videoPlayer) => {
     videoPlayer.loop = true;
@@ -87,6 +102,7 @@ function PlayingVideo({ uri, active }: { uri: string; active: boolean }) {
       >
         <Icon name={isPlaying ? 'pause' : 'play'} size={20} color={theme.colors.white} />
       </Pressable>
+      <CaptionOverlay player={player} post={post} active={active} isAuthor={isAuthor} />
     </View>
   );
 }
@@ -109,6 +125,7 @@ function FeedPostCard({
   onShare,
   busy,
   itemHeight,
+  isAuthor,
 }: {
   item: FeedItem;
   active: boolean;
@@ -118,12 +135,20 @@ function FeedPostCard({
   onShare: () => void;
   busy: boolean;
   itemHeight: number;
+  isAuthor: boolean;
 }) {
   const openPost = () => router.push({ pathname: '/post/[id]', params: { id: item.post.id } });
 
   return (
     <View style={[styles.videoCardWrap, { height: itemHeight }]}>
-      <FeedVideo uri={item.videoUrl} active={active} shouldLoad={shouldLoadVideo} onOpenPost={openPost} />
+      <FeedVideo
+        uri={item.videoUrl}
+        active={active}
+        shouldLoad={shouldLoadVideo}
+        onOpenPost={openPost}
+        post={item.post}
+        isAuthor={isAuthor}
+      />
       <View pointerEvents="box-none" style={styles.videoOverlay}>
         <View pointerEvents="box-none" style={styles.metaStack}>
           <Link href={{ pathname: '/user/[username]', params: { username: item.author.username } }} asChild>
@@ -135,11 +160,6 @@ function FeedPostCard({
           <HashtagText text={item.post.caption} style={styles.caption} />
           {item.post.hashtags.length > 0 ? (
             <HashtagText text={item.post.hashtags.map((tag) => `#${tag}`).join(' ')} style={styles.hashtags} />
-          ) : null}
-          {item.post.auto_captions ? (
-            <View style={styles.autoCaption}>
-              <Text style={styles.autoCaptionText}>Auto captions</Text>
-            </View>
           ) : null}
         </View>
         <View style={styles.rightRail}>
@@ -192,6 +212,7 @@ export default function HomeScreen() {
   const [listHeight, setListHeight] = useState(0);
   const [busyPostIds, setBusyPostIds] = useState<Set<string>>(() => new Set());
   const [uploadJobs, setUploadJobs] = useState<VideoUploadJob[]>([]);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const networkState = useNetworkState();
   const viewedPostIds = useRef(new Set<string>());
   const queryClient = useQueryClient();
@@ -227,6 +248,7 @@ export default function HomeScreen() {
     void getSupabaseClient().auth.getUser().then(async ({ data, error }) => {
       if (error) throw error;
       currentOwnerId = data.user?.id ?? null;
+      setCurrentUserId(currentOwnerId);
       if (!currentOwnerId) return;
       const savedJobs = await loadUploadJobs(currentOwnerId);
       if (!mounted) return;
@@ -319,6 +341,7 @@ export default function HomeScreen() {
       shouldLoadVideo={activeIndex !== null && Math.abs(index - activeIndex) <= 1}
       busy={busyPostIds.has(item.post.id)}
       itemHeight={listHeight || 480}
+      isAuthor={item.post.author_id === currentUserId}
       onToggleLike={() => void runPostAction(item.post.id, () => setPostLiked(item.post.id, item.is_liked))}
       onToggleSave={() => void runPostAction(item.post.id, () => setPostSaved(item.post.id, item.is_saved))}
       onShare={() => void sharePost(item)}

@@ -41,6 +41,7 @@ import type {
   CommunityMemberRpcRow,
   SearchPersonRpcRow,
 } from '../../types/database';
+import { KeyboardAwareScreen } from '../../hooks/useKeyboardInset';
 
 type CommunityTab = 'Posts' | 'About' | 'Members' | 'Chat';
 type MemberCursor = { joinedAt: string; id: string; status: CommunityMemberRpcRow['status'] };
@@ -854,7 +855,7 @@ export default function CommunityScreen() {
   const deleteAllowed = canDeleteCommunity(community?.role);
 
   return (
-    <View style={styles.screen}>
+    <KeyboardAwareScreen style={styles.screen}>
       <View style={styles.header}>
         <Pressable onPress={() => router.back()} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Go back">
           <Icon name="back" size={20} color={theme.colors.white} />
@@ -1048,8 +1049,9 @@ export default function CommunityScreen() {
       </Modal>
 
       <Modal visible={inviteOpen} transparent animationType="slide" onRequestClose={() => setInviteOpen(false)}>
-        <View style={styles.inviteBackdrop}>
-          <View style={styles.inviteSheet}>
+        <KeyboardAwareScreen style={{ flex: 1 }}>
+          <View style={styles.inviteBackdrop}>
+            <View style={styles.inviteSheet}>
             <View style={styles.inviteHeader}>
               <Text style={styles.modalTitle}>Invite members</Text>
               <Pressable onPress={() => setInviteOpen(false)} accessibilityRole="button" accessibilityLabel="Close invite search">
@@ -1080,10 +1082,11 @@ export default function CommunityScreen() {
                     : inviteQuery.length >= 2
                       ? <Text style={styles.emptyText}>No people found.</Text>
                       : <Text style={styles.emptyText}>Search by name or username.</Text>}
+            </View>
           </View>
-        </View>
+        </KeyboardAwareScreen>
       </Modal>
-    </View>
+    </KeyboardAwareScreen>
   );
 }
 

@@ -3,7 +3,6 @@ import { Component, useCallback, useEffect, useMemo, useRef, useState, type Erro
 import {
   ActivityIndicator,
   Keyboard,
-  KeyboardAvoidingView,
   PanResponder,
   Pressable,
   Platform,
@@ -11,6 +10,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  type TextInputProps,
   View,
   useWindowDimensions,
 } from 'react-native';
@@ -40,8 +40,9 @@ import { changePasswordResetStep } from '../auth/signupValidation';
 import { signInWithApple, signInWithGoogle, signOutProviders, SocialSignInError } from '../auth/socialAuth';
 import { useAuthFlow } from '../auth/useAuthFlow';
 import { LogoMark } from './LogoMark';
-import SplashSkiaBackdrop from './SplashSkiaBackdrop';
+import SplashSkiaBackdrop, { SplashLogoGlow } from './SplashSkiaBackdrop';
 import { Wordmark } from './Wordmark';
+import { calculateKeyboardLayout, useKeyboardInset } from '../../hooks/useKeyboardInset';
 
 const slides = [
   { title: 'Short videos made for you', art: 'video' },
@@ -86,6 +87,9 @@ function LoginField({
   inputRef,
   onSubmitEditing,
   returnKeyType,
+  autoComplete,
+  textContentType,
+  importantForAutofill,
 }: {
   label: string;
   value: string;
@@ -96,6 +100,9 @@ function LoginField({
   inputRef?: React.RefObject<TextInput | null>;
   onSubmitEditing?: () => void;
   returnKeyType: 'next' | 'done';
+  autoComplete?: TextInputProps['autoComplete'];
+  textContentType?: TextInputProps['textContentType'];
+  importantForAutofill?: TextInputProps['importantForAutofill'];
 }) {
   const [focused, setFocused] = useState(false);
   const [visible, setVisible] = useState(false);
@@ -124,11 +131,16 @@ function LoginField({
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
           onSubmitEditing={onSubmitEditing}
+          blurOnSubmit={returnKeyType === 'next' ? false : undefined}
           keyboardType={keyboardType}
+          autoComplete={autoComplete}
+          textContentType={textContentType}
+          importantForAutofill={importantForAutofill}
           autoCapitalize="none"
           autoCorrect={false}
           secureTextEntry={secureTextEntry && !visible}
           keyboardAppearance="dark"
+          cursorColor={theme.colors.primary}
           returnKeyType={returnKeyType}
           accessibilityLabel={label}
           style={[styles.input, floated && styles.inputFloated, secureTextEntry && styles.passwordInput]}
@@ -315,7 +327,15 @@ const finishStyles = StyleSheet.create({
 
 export function SplashSequence() {
   const { height } = useWindowDimensions();
-  const [authCardHeight] = useState(() => height * 0.7);
+  const [stableWindowHeight] = useState(() => height);
+  const authCardHeight = stableWindowHeight * 0.7;
+  const {
+    keyboardHeight,
+    safeAreaTop,
+    safeAreaBottom,
+    containerHeight,
+    onLayout: onRootLayout,
+  } = useKeyboardInset();
   const reduceMotion = useReducedMotion();
   const signupStep = useAuthFlow((state) => state.currentStep);
   const signupFlowType = useAuthFlow((state) => state.flowType);
@@ -405,7 +425,7 @@ export function SplashSequence() {
       welcomeTranslateY.value = 0;
       pulseOpacity.value = 0;
       backdropOpacity.value = 0;
-      goldGlowOpacity.value = 0;
+      goldGlowOpacity.value = 0.15;
       cardTranslateY.value = authOpen ? 0 : height * 0.735;
       return;
     }
@@ -471,6 +491,29 @@ export function SplashSequence() {
     transform: [{ translateY: welcomeTranslateY.value }],
   }));
   const cardStyle = useAnimatedStyle(() => ({ transform: [{ translateY: cardTranslateY.value }] }));
+  const authKeyboardStyle = useAnimatedStyle(() => {
+    const layout = calculateKeyboardLayout(containerHeight.value || height, safeAreaBottom, keyboardHeight.value);
+    const keyboardOpen = keyboardHeight.value > 0;
+    return {
+      bottom: layout.bottomInset,
+      height: keyboardOpen
+        ? Math.max(0, layout.availableHeight - safeAreaTop)
+        : authCardHeight,
+    };
+  }, [authCardHeight, containerHeight, height, safeAreaBottom, safeAreaTop]);
+  const keyboardAwareLogoStyle = useAnimatedStyle(() => {
+    const keyboardAmount = keyboardHeight.value;
+    return {
+      opacity: Math.max(0.45, 1 - keyboardAmount / 650),
+      transform: [
+        { translateY: translateY.value - keyboardAmount * 0.1 },
+        { scale: logoScale.value * Math.max(0.72, 1 - keyboardAmount / 1500) },
+      ],
+    };
+  });
+  const fallbackGlowStyle = useAnimatedStyle(() => ({
+    opacity: goldGlowOpacity.value,
+  }));
   const segmentPillStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: segmentOffset.value }],
   }));
@@ -670,12 +713,19 @@ export function SplashSequence() {
   const displayedPhase = skiaFailed ? 'welcome' : phase;
 
   return (
-    <View style={styles.container}>
+    <View onLayout={onRootLayout} style={styles.container}>
       <SkiaSetupBoundary onError={() => setSkiaFailed(true)}>
-      <SplashSkiaBackdrop backdropOpacity={backdropOpacity} goldGlowOpacity={goldGlowOpacity} />
+      <SplashSkiaBackdrop backdropOpacity={backdropOpacity} />
       </SkiaSetupBoundary>
 
-      <Animated.View style={[styles.logoStack, { top: 0 }, logoStyle]}>
+      <Animated.View style={[styles.logoStack, { top: 0 }, logoStyle, keyboardAwareLogoStyle]}>
+        {skiaFailed ? (
+          <Animated.View style={[styles.logoGlowFallback, fallbackGlowStyle]} pointerEvents="none" />
+        ) : (
+          <SkiaSetupBoundary onError={() => setSkiaFailed(true)}>
+            <SplashLogoGlow opacity={goldGlowOpacity} />
+          </SkiaSetupBoundary>
+        )}
         <View style={styles.logoMarkWrap}>
           <Animated.View style={[styles.pulseRing, pulseStyle]} />
           <LogoMark key={replayKey} size={120} />
@@ -689,9 +739,11 @@ export function SplashSequence() {
       >
         {displayedPhase === 'welcome' ? (
           <>
-            <Pressable style={styles.replayButton} onPress={replay} accessibilityRole="button" accessibilityLabel="Replay splash">
-              <Text style={styles.replayLabel}>Replay</Text>
-            </Pressable>
+            {__DEV__ ? (
+              <Pressable style={styles.replayButton} onPress={replay} accessibilityRole="button" accessibilityLabel="Replay splash">
+                <Text style={styles.replayLabel}>Replay</Text>
+              </Pressable>
+            ) : null}
 
             <Animated.View
               key={slideIndex}
@@ -738,14 +790,16 @@ export function SplashSequence() {
       </Animated.View>
 
       <Animated.View
-        style={[styles.authCard, { height: authCardHeight, maxHeight: '100%' }, cardStyle]}
+        style={[styles.authCard, { height: authCardHeight, maxHeight: '100%' }, cardStyle, authKeyboardStyle]}
         pointerEvents={authOpen ? 'auto' : 'none'}
       >
-        <KeyboardAvoidingView
-          style={styles.authCardKeyboard}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          enabled={authOpen}
-        >
+        <Pressable
+          onPress={Keyboard.dismiss}
+          style={StyleSheet.absoluteFill}
+          accessibilityElementsHidden
+          importantForAccessibility="no"
+        />
+        <View style={styles.authCardKeyboard}>
         <View style={styles.authHeader}>
           <Pressable onPress={handleAuthBack} style={styles.backButton} accessibilityRole="button" accessibilityLabel="Back">
             <Icon name="back" size={20} color={theme.colors.white} />
@@ -761,10 +815,7 @@ export function SplashSequence() {
             <View style={styles.segment} onLayout={(event) => setSegmentWidth(event.nativeEvent.layout.width)}>
               <Animated.View style={[styles.segmentPill, segmentPillStyle]} />
               <Pressable
-                onPress={() => {
-                  Keyboard.dismiss();
-                  setAuthMode('login');
-                }}
+                onPress={() => setAuthMode('login')}
                 style={styles.segmentButton}
                 accessibilityRole="button"
                 accessibilityState={{ selected: authMode === 'login' }}
@@ -773,7 +824,6 @@ export function SplashSequence() {
               </Pressable>
               <Pressable
                 onPress={() => {
-                  Keyboard.dismiss();
                   setAuthMode('signup');
                   setSignupData({ flowType: 'email' });
                   setErrors({});
@@ -827,6 +877,9 @@ export function SplashSequence() {
                 keyboardType="email-address"
                 error={errors.email}
                 returnKeyType="next"
+                autoComplete="email"
+                textContentType="emailAddress"
+                importantForAutofill="yes"
                 onSubmitEditing={() => loginPasswordRef.current?.focus()}
               />
               <LoginField
@@ -840,6 +893,9 @@ export function SplashSequence() {
                 secureTextEntry
                 error={errors.password}
                 returnKeyType="done"
+                autoComplete="current-password"
+                textContentType="password"
+                importantForAutofill="yes"
                 onSubmitEditing={() => void submitLogin()}
               />
               <Pressable
@@ -927,7 +983,7 @@ export function SplashSequence() {
             onUnderage={deleteUnderageSocialAccount}
           />
         )}
-        </KeyboardAvoidingView>
+        </View>
       </Animated.View>
 
       {signupFinish ? (
@@ -971,6 +1027,19 @@ const styles = StyleSheet.create({
     height: 100,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  logoGlowFallback: {
+    position: 'absolute',
+    top: 104,
+    left: 28,
+    right: 28,
+    height: 34,
+    borderRadius: 24,
+    backgroundColor: theme.colors.gold,
+    shadowColor: theme.colors.gold,
+    shadowOpacity: 0.28,
+    shadowRadius: 26,
+    elevation: 8,
   },
   pulseRing: {
     position: 'absolute',
@@ -1059,7 +1128,7 @@ const styles = StyleSheet.create({
   },
   authBodyContent: {
     paddingHorizontal: 2,
-    paddingBottom: 8,
+    paddingBottom: 16,
     gap: 12,
   },
   field: {

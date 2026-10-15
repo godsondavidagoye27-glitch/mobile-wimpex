@@ -15,6 +15,7 @@ import {
 import { Icon } from '../components/Icon';
 import { getSupabaseClient } from '../lib/supabase';
 import { theme } from '../theme/theme';
+import { KeyboardAwareScreen } from '../hooks/useKeyboardInset';
 import type { CommunityCategory, CommunityVisibility } from '../types/database';
 
 const categories: CommunityCategory[] = [
@@ -197,7 +198,7 @@ export default function CreateCommunityScreen() {
   }
 
   return (
-    <View style={styles.screen}>
+    <KeyboardAwareScreen style={styles.screen}>
       <View style={styles.header}>
         <Pressable onPress={() => router.back()} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Go back">
           <Icon name="back" size={20} color={theme.colors.white} />
@@ -316,7 +317,7 @@ export default function CreateCommunityScreen() {
           {saving ? <ActivityIndicator color={theme.colors.black} /> : <Text style={styles.submitText}>Create</Text>}
         </Pressable>
       </ScrollView>
-    </View>
+    </KeyboardAwareScreen>
   );
 }
 

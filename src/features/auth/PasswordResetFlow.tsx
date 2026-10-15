@@ -7,6 +7,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  type TextInputProps,
   View,
 } from 'react-native';
 import Animated, {
@@ -41,6 +42,11 @@ function ResetField({
   secureTextEntry,
   error,
   inputRef,
+  autoComplete,
+  textContentType,
+  importantForAutofill,
+  returnKeyType,
+  onSubmitEditing,
 }: {
   label: string;
   value: string;
@@ -49,6 +55,11 @@ function ResetField({
   secureTextEntry?: boolean;
   error?: string;
   inputRef?: React.RefObject<TextInput | null>;
+  autoComplete?: TextInputProps['autoComplete'];
+  textContentType?: TextInputProps['textContentType'];
+  importantForAutofill?: TextInputProps['importantForAutofill'];
+  returnKeyType?: TextInputProps['returnKeyType'];
+  onSubmitEditing?: () => void;
 }) {
   const [focused, setFocused] = useState(false);
   const [visible, setVisible] = useState(false);
@@ -63,11 +74,18 @@ function ResetField({
           onChangeText={onChangeText}
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
+          onSubmitEditing={onSubmitEditing}
+          blurOnSubmit={returnKeyType === 'next' ? false : undefined}
           keyboardType={keyboardType}
+          autoComplete={autoComplete}
+          textContentType={textContentType}
+          importantForAutofill={importantForAutofill}
           autoCapitalize="none"
           autoCorrect={false}
+          cursorColor={theme.colors.primary}
           secureTextEntry={secureTextEntry && !visible}
           keyboardAppearance="dark"
+          returnKeyType={returnKeyType}
           accessibilityLabel={label}
           style={[styles.input, floated && styles.inputFloated, secureTextEntry && styles.passwordInput]}
         />
@@ -129,6 +147,8 @@ export function PasswordResetFlow({
   const reduceMotion = useReducedMotion();
   const refs = useRef<(TextInput | null)[]>([]);
   const emailRef = useRef<TextInput>(null);
+  const passwordRef = useRef<TextInput>(null);
+  const confirmationRef = useRef<TextInput>(null);
   const submitting = useRef(false);
   const verifying = useRef(false);
   const strength = getPasswordStrength(newPassword);
@@ -339,6 +359,11 @@ export function PasswordResetFlow({
                 keyboardType="email-address"
                 error={emailError}
                 inputRef={emailRef}
+                autoComplete="email"
+                textContentType="emailAddress"
+                importantForAutofill="yes"
+                returnKeyType="done"
+                onSubmitEditing={() => void submit()}
               />
               {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
             </>
@@ -357,12 +382,24 @@ export function PasswordResetFlow({
                       }}
                       value={digit}
                       onChangeText={(value) => setDigit(index, value)}
+                      onSubmitEditing={() => {
+                        if (index < OTP_LENGTH - 1) refs.current[index + 1]?.focus();
+                        else void verifyCode(code.join(''));
+                      }}
                       onKeyPress={({ nativeEvent }) => {
                         if (nativeEvent.key === 'Backspace' && !code[index] && index > 0) {
                           refs.current[index - 1]?.focus();
                         }
                       }}
                       keyboardType="number-pad"
+                      inputMode="numeric"
+                      autoComplete={index === 0 ? 'sms-otp' : 'off'}
+                      textContentType={index === 0 ? 'oneTimeCode' : 'none'}
+                      importantForAutofill={index === 0 ? 'yes' : 'no'}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      returnKeyType={index === OTP_LENGTH - 1 ? 'done' : 'next'}
+                      blurOnSubmit={false}
                       maxLength={OTP_LENGTH}
                       accessibilityLabel={`Digit ${index + 1}`}
                       style={styles.codeInput}
@@ -394,6 +431,12 @@ export function PasswordResetFlow({
                   setPasswordError('');
                 }}
                 secureTextEntry
+                inputRef={passwordRef}
+                autoComplete="new-password"
+                textContentType="newPassword"
+                importantForAutofill="yes"
+                returnKeyType="next"
+                onSubmitEditing={() => confirmationRef.current?.focus()}
               />
               <View style={styles.strengthMeter}>
                 {[0, 1, 2, 3].map((segment) => (
@@ -425,6 +468,12 @@ export function PasswordResetFlow({
                   setPasswordError('');
                 }}
                 secureTextEntry
+                inputRef={confirmationRef}
+                autoComplete="new-password"
+                textContentType="newPassword"
+                importantForAutofill="yes"
+                returnKeyType="done"
+                onSubmitEditing={() => void submit()}
                 error={passwordError}
               />
               {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
@@ -465,7 +514,7 @@ const styles = StyleSheet.create({
   },
   progressFill: { height: '100%', borderRadius: 2, backgroundColor: theme.colors.success },
   body: { flex: 1, marginTop: 14 },
-  bodyContent: { paddingHorizontal: 2, paddingBottom: 12, gap: 12 },
+  bodyContent: { paddingHorizontal: 2, paddingBottom: 16, gap: 12 },
   step: { gap: 12 },
   title: { color: theme.colors.white, fontSize: 22, fontWeight: '700' },
   description: { color: theme.colors.textMuted, fontSize: 14, lineHeight: 20 },

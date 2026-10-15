@@ -79,5 +79,11 @@ export function useFeed(mode: FeedMode) {
     },
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
     staleTime: 30_000,
+    refetchInterval: (query) => {
+      const hasPendingCaptions = query.state.data?.pages.some((page) =>
+        page.items.some(({ post }) => post.captions_status === 'queued' || post.captions_status === 'processing'),
+      );
+      return hasPendingCaptions ? 5000 : false;
+    },
   });
 }

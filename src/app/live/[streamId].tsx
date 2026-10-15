@@ -15,8 +15,6 @@ import {
   Alert,
   AppState,
   FlatList,
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -24,6 +22,7 @@ import {
   View,
 } from 'react-native';
 import { Icon } from '../../components/Icon';
+import { KeyboardAwareScreen } from '../../hooks/useKeyboardInset';
 import {
   endLive,
   getLiveMessages,
@@ -106,7 +105,7 @@ function LiveRoomContent({
   };
 
   return (
-    <KeyboardAvoidingView style={styles.room} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    <KeyboardAwareScreen style={styles.room}>
       {videoTrack && isTrackReference(videoTrack) ? (
         <VideoTrack trackRef={videoTrack} style={styles.video} objectFit="cover" />
       ) : (
@@ -182,7 +181,7 @@ function LiveRoomContent({
           </View>
         ) : null}
       </View>
-    </KeyboardAvoidingView>
+    </KeyboardAwareScreen>
   );
 }
 

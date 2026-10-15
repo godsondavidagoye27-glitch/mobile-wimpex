@@ -25,6 +25,7 @@ import { preferenceStorage } from '../lib/storage';
 import { getSupabaseClient } from '../lib/supabase';
 import { resolveThemeMode, theme, type AppThemeMode } from '../theme/theme';
 import type { Database, ProfileRpcRow } from '../types/database';
+import { KeyboardAwareScreen } from '../hooks/useKeyboardInset';
 
 type PrivacyPolicy = 'everyone' | 'friends' | 'none';
 type StoryReplyPolicy = 'everyone' | 'followers' | 'off';
@@ -354,7 +355,7 @@ export default function SettingsScreen() {
   );
 
   return (
-    <View style={styles.screen}>
+    <KeyboardAwareScreen style={styles.screen}>
       <View style={styles.header}>
         <Pressable onPress={() => router.back()} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Go back">
           <Icon name="back" size={20} color={theme.colors.white} />
@@ -442,39 +443,41 @@ export default function SettingsScreen() {
       </Modal>
 
       <Modal transparent animationType="slide" visible={dialog !== null} onRequestClose={() => setDialog(null)}>
-        <Pressable style={styles.modalOverlay} onPress={() => setDialog(null)} />
-        <View style={styles.sheet}>
-          <Text style={styles.sheetTitle}>{dialog === 'logout' ? 'Log out' : 'Delete account'}</Text>
-          {dialog === 'logout' ? <Text style={styles.sheetCopy}>Are you sure you want to log out?</Text> : (
-            <>
-              <Text style={styles.sheetCopy}>Type your username to confirm.</Text>
-              <TextInput
-                value={typedUsername}
-                onChangeText={setTypedUsername}
-                style={styles.input}
-                placeholder={profile.username}
-                placeholderTextColor={theme.colors.textMuted}
-                autoCapitalize="none"
-                accessibilityLabel="Type your username to confirm"
-              />
-            </>
-          )}
-          <Pressable
-            style={[
-              styles.confirmButton,
-              dialog === 'delete' && styles.deleteConfirmButton,
-              dialog === 'delete' && typedUsername.trim().toLowerCase() !== profile.username.toLowerCase() && styles.disabledConfirm,
-            ]}
-            onPress={() => dialog === 'logout' ? void logOut() : void deleteAccount()}
-            disabled={saving || (dialog === 'delete' && typedUsername.trim().toLowerCase() !== profile.username.toLowerCase())}
-            accessibilityRole="button"
-          >
-            {saving ? <ActivityIndicator color={theme.colors.white} /> : <Text style={styles.confirmText}>{dialog === 'logout' ? 'Log out' : 'Delete account'}</Text>}
-          </Pressable>
-          <Pressable style={styles.sheetCancel} onPress={() => setDialog(null)}><Text style={styles.cancelText}>Cancel</Text></Pressable>
-        </View>
+        <KeyboardAwareScreen style={{ flex: 1 }}>
+          <Pressable style={styles.modalOverlay} onPress={() => setDialog(null)} />
+          <View style={styles.sheet}>
+            <Text style={styles.sheetTitle}>{dialog === 'logout' ? 'Log out' : 'Delete account'}</Text>
+            {dialog === 'logout' ? <Text style={styles.sheetCopy}>Are you sure you want to log out?</Text> : (
+              <>
+                <Text style={styles.sheetCopy}>Type your username to confirm.</Text>
+                <TextInput
+                  value={typedUsername}
+                  onChangeText={setTypedUsername}
+                  style={styles.input}
+                  placeholder={profile.username}
+                  placeholderTextColor={theme.colors.textMuted}
+                  autoCapitalize="none"
+                  accessibilityLabel="Type your username to confirm"
+                />
+              </>
+            )}
+            <Pressable
+              style={[
+                styles.confirmButton,
+                dialog === 'delete' && styles.deleteConfirmButton,
+                dialog === 'delete' && typedUsername.trim().toLowerCase() !== profile.username.toLowerCase() && styles.disabledConfirm,
+              ]}
+              onPress={() => dialog === 'logout' ? void logOut() : void deleteAccount()}
+              disabled={saving || (dialog === 'delete' && typedUsername.trim().toLowerCase() !== profile.username.toLowerCase())}
+              accessibilityRole="button"
+            >
+              {saving ? <ActivityIndicator color={theme.colors.white} /> : <Text style={styles.confirmText}>{dialog === 'logout' ? 'Log out' : 'Delete account'}</Text>}
+            </Pressable>
+            <Pressable style={styles.sheetCancel} onPress={() => setDialog(null)}><Text style={styles.cancelText}>Cancel</Text></Pressable>
+          </View>
+        </KeyboardAwareScreen>
       </Modal>
-    </View>
+    </KeyboardAwareScreen>
   );
 }
 

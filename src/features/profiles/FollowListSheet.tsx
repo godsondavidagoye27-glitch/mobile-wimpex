@@ -12,6 +12,7 @@ import {
   View,
 } from 'react-native';
 import { Icon } from '../../components/Icon';
+import { KeyboardAwareScreen } from '../../hooks/useKeyboardInset';
 import { getSupabaseClient } from '../../lib/supabase';
 import { theme } from '../../theme/theme';
 import type { ProfileListRpcRow } from '../../types/database';
@@ -141,35 +142,36 @@ export function FollowListSheet({
 
   return (
     <Modal transparent animationType="slide" visible={visible} onRequestClose={onClose}>
-      <Pressable style={styles.overlay} onPress={onClose} />
-      <View style={styles.sheet}>
-        <View style={styles.heading}>
-          <Text style={styles.title}>{kind === 'followers' ? 'Followers' : 'Following'}</Text>
-          <Pressable onPress={onClose} accessibilityRole="button" accessibilityLabel="Close">
-            <Icon name="close" size={20} color={theme.colors.textMuted} />
-          </Pressable>
-        </View>
-        <TextInput
-          value={searchText}
-          onChangeText={setSearchText}
-          style={styles.search}
-          placeholder="Search"
-          placeholderTextColor={theme.colors.textMuted}
-          accessibilityLabel={`Search ${kind}`}
-        />
-        {currentResult?.error ? <Text accessibilityRole="alert" style={styles.error}>{currentResult.error}</Text> : null}
-        {!currentResult ? (
-          <View style={styles.center}><ActivityIndicator color={theme.colors.primary} /></View>
-        ) : (
-          <FlatList
-            data={currentResult.rows}
-            keyExtractor={(row) => row.id}
-            onEndReached={() => void loadMore()}
-            onEndReachedThreshold={0.4}
-            ListEmptyComponent={<Text style={styles.empty}>No accounts found.</Text>}
-            ListFooterComponent={loadingMore ? <ActivityIndicator color={theme.colors.primary} /> : null}
-            renderItem={({ item }) => (
-              <View style={styles.row}>
+      <KeyboardAwareScreen style={{ flex: 1 }}>
+        <Pressable style={styles.overlay} onPress={onClose} />
+        <View style={styles.sheet}>
+          <View style={styles.heading}>
+            <Text style={styles.title}>{kind === 'followers' ? 'Followers' : 'Following'}</Text>
+            <Pressable onPress={onClose} accessibilityRole="button" accessibilityLabel="Close">
+              <Icon name="close" size={20} color={theme.colors.textMuted} />
+            </Pressable>
+          </View>
+          <TextInput
+            value={searchText}
+            onChangeText={setSearchText}
+            style={styles.search}
+            placeholder="Search"
+            placeholderTextColor={theme.colors.textMuted}
+            accessibilityLabel={`Search ${kind}`}
+          />
+          {currentResult?.error ? <Text accessibilityRole="alert" style={styles.error}>{currentResult.error}</Text> : null}
+          {!currentResult ? (
+            <View style={styles.center}><ActivityIndicator color={theme.colors.primary} /></View>
+          ) : (
+            <FlatList
+              data={currentResult.rows}
+              keyExtractor={(row) => row.id}
+              onEndReached={() => void loadMore()}
+              onEndReachedThreshold={0.4}
+              ListEmptyComponent={<Text style={styles.empty}>No accounts found.</Text>}
+              ListFooterComponent={loadingMore ? <ActivityIndicator color={theme.colors.primary} /> : null}
+              renderItem={({ item }) => (
+                <View style={styles.row}>
                 <Pressable
                   style={styles.identity}
                   onPress={() => {
@@ -195,11 +197,12 @@ export function FollowListSheet({
                     {item.follow_status === 'pending' ? 'Requested' : item.follow_status === 'accepted' ? 'Following' : 'Follow'}
                   </Text>
                 </Pressable>
-              </View>
-            )}
-          />
-        )}
-      </View>
+                </View>
+              )}
+            />
+          )}
+        </View>
+      </KeyboardAwareScreen>
     </Modal>
   );
 }

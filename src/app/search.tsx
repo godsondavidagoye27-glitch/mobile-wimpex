@@ -22,6 +22,7 @@ import {
 } from '../features/search/recentSearchStorage';
 import { getSupabaseClient } from '../lib/supabase';
 import { theme } from '../theme/theme';
+import { KeyboardAwareScreen } from '../hooks/useKeyboardInset';
 import type {
   CommunityRow,
   FeedRpcRow,
@@ -511,7 +512,7 @@ export default function SearchScreen() {
   };
 
   return (
-    <View style={styles.screen}>
+    <KeyboardAwareScreen style={styles.screen}>
       <View style={styles.header}>
         <Pressable onPress={() => router.back()} style={styles.backButton} accessibilityRole="button" accessibilityLabel="Go back">
           <Icon name="back" size={20} color={theme.colors.white} />
@@ -697,7 +698,7 @@ export default function SearchScreen() {
           </>
         )}
       </ScrollView>
-    </View>
+    </KeyboardAwareScreen>
   );
 }
 

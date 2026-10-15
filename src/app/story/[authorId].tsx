@@ -42,6 +42,7 @@ import {
 import { formatStoryExpiry } from '../../features/stories/storyTimeline';
 import type { StoryRailRow } from '../../types/database';
 import { theme } from '../../theme/theme';
+import { KeyboardAwareScreen } from '../../hooks/useKeyboardInset';
 
 const railQueryKey = ['story-rail'];
 const authorStoriesQueryKey = (authorId: string) => ['author-stories', authorId];
@@ -419,7 +420,7 @@ export default function StoryViewerScreen() {
 
   const failed = failedMediaIds.has(activeStory.id);
   return (
-    <View style={styles.screen}>
+    <KeyboardAwareScreen style={styles.screen}>
       <View style={styles.viewer} {...panResponder.panHandlers}>
         <View style={styles.progressRow}>
           {stories.map((story, index) => (
@@ -437,7 +438,7 @@ export default function StoryViewerScreen() {
               ) : null}
             </View>
           ))}
-        </View>
+      </View>
 
         <View style={styles.header}>
           <View style={styles.authorInfo}>
@@ -602,7 +603,7 @@ export default function StoryViewerScreen() {
           </View>
         </View>
       </Modal>
-    </View>
+    </KeyboardAwareScreen>
   );
 }
 

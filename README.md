@@ -10,6 +10,8 @@ Wimpex is an Expo and React Native mobile application using Expo Router and Supa
 - [Social sign-in and password reset testing](#social-sign-in-and-password-reset-checks)
 - [Profile and follow testing](#profile-and-follow-testing)
 - [Feed testing](#feed-test-checklist)
+- [AI captions](#ai-captions)
+- [AI captions](#ai-captions)
 - [Search testing](#search-test-guide)
 - [Communities testing](#communities-test-guide)
 - [Chat testing](#chat-manual-test-checklist)
@@ -540,6 +542,50 @@ select cron.unschedule('reap-stale-lives');
 - **Stale live cleanup:** Apply the live-stream migration. In **Database > Extensions**, enable `pg_cron`. In **Integrations > Cron**, schedule `select public.reap_stale_lives();` to run every minute. Verify the job and its runs in the Cron dashboard or `cron.job_run_details`.
 
 The `live-token` Edge Function issues tokens with a 10-minute TTL; the live client refreshes them before expiry.
+
+## AI captions
+
+Apply `supabase/migrations/20261017000000_ai_captions.sql` after the feed migrations. Deploy the caption functions and the post cleanup function:
+
+```powershell
+npx supabase functions deploy captions-start
+npx supabase functions deploy captions-callback
+npx supabase functions deploy captions-retry
+npx supabase functions deploy captions-save
+npx supabase functions deploy delete-own-post
+```
+
+In **Project Settings > Edge Functions > Secrets**, add these server-only values:
+
+```text
+ASSEMBLYAI_API_KEY=<AssemblyAI API key>
+CAPTIONS_WEBHOOK_SECRET=<long random secret>
+AI_ENABLED=true
+AI_CAPTIONS_ENABLED=true
+AI_CAPTIONS_GLOBAL_DAILY_CAP=<positive integer>
+```
+
+The functions also use Supabase's server-provided `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY`. Keep all provider and service-role credentials out of Expo environment variables.
+
+Configure the database webhook after deploying `captions-start`:
+
+1. Open **Database > Webhooks** and create a webhook named `start-post-captions`.
+2. Select schema `public`, table `posts`, and the `UPDATE` event.
+3. Set the URL to `https://<project-ref>.supabase.co/functions/v1/captions-start`.
+4. Add the HTTP header `x-captions-webhook-secret` with the same value as `CAPTIONS_WEBHOOK_SECRET`.
+5. Save the webhook. The function ignores updates unless the post is queued, published as a video, and captions remain enabled.
+
+Configure stale-job recovery after deploying `captions-retry`:
+
+1. Open **Integrations > Cron** and create a job named `retry-post-captions`.
+2. Set the schedule to every ten minutes (`*/10 * * * *`).
+3. Choose an HTTP request to `https://<project-ref>.supabase.co/functions/v1/captions-retry`.
+4. Add the `x-captions-webhook-secret` header with the same value as `CAPTIONS_WEBHOOK_SECRET`, then save and enable the job.
+5. Verify successful runs in the Cron dashboard and function logs.
+
+The callback URL is sent to AssemblyAI with each transcription request. AssemblyAI sends a callback when transcription completes; captions are saved as private WebVTT files and are readable only when the viewer can view the post. For account-level transcription data retention and model-training controls, configure the privacy options in the AssemblyAI dashboard; their current availability depends on the provider plan.
+
+Run the VTT unit tests with `npx vitest run src/features/captions/vtt.test.ts`. Run the database permission and visibility tests with `npx supabase test db` after starting the local Supabase stack or applying the migration to a test database.
 
 ## Safe demo data
 

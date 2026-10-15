@@ -4,6 +4,7 @@ import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, TextInput, View 
 import { Icon } from '../../components/Icon';
 import { startLive } from '../../features/live/liveService';
 import { theme } from '../../theme/theme';
+import { KeyboardAwareScreen } from '../../hooks/useKeyboardInset';
 
 export default function CreateLiveScreen() {
   const [title, setTitle] = useState('');
@@ -27,7 +28,7 @@ export default function CreateLiveScreen() {
   };
 
   return (
-    <View style={styles.screen}>
+    <KeyboardAwareScreen style={styles.screen}>
       <View style={styles.header}>
         <Pressable onPress={() => router.back()} style={styles.backButton} accessibilityRole="button" accessibilityLabel="Go back">
           <Icon name="back" size={20} color={theme.colors.white} />
@@ -54,7 +55,7 @@ export default function CreateLiveScreen() {
         </Pressable>
         <Text style={styles.note}>Live streams are not recorded or available for replay.</Text>
       </View>
-    </View>
+    </KeyboardAwareScreen>
   );
 }
 

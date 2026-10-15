@@ -20,6 +20,10 @@ export type FeedPost = {
   video_path: string | null;
   thumb_path: string | null;
   captions_path: string | null;
+  captions_status: 'none' | 'queued' | 'processing' | 'ready' | 'failed' | 'no_speech' | 'disabled';
+  captions_language: string | null;
+  captions_updated_at: string | null;
+  captions_attempts: number;
   duration_ms: number | null;
   width: number | null;
   height: number | null;
@@ -439,7 +443,6 @@ export type Database = {
           hashtags?: string[];
           video_path?: string | null;
           thumb_path?: string | null;
-          captions_path?: string | null;
           duration_ms?: number | null;
           width?: number | null;
           height?: number | null;
@@ -464,7 +467,6 @@ export type Database = {
           hashtags?: string[];
           video_path?: string | null;
           thumb_path?: string | null;
-          captions_path?: string | null;
           duration_ms?: number | null;
           width?: number | null;
           height?: number | null;
@@ -1127,6 +1129,8 @@ export type Database = {
       apply_profile_age_defaults: { Args: Record<string, never>; Returns: unknown };
       can_view_post: { Args: { p_post_id: string; p_viewer_id: string }; Returns: boolean };
       finalize_post: { Args: { post_id: string }; Returns: undefined };
+      request_captions: { Args: { post_id: string }; Returns: undefined };
+      set_post_captions_enabled: { Args: { post_id: string; enabled: boolean }; Returns: undefined };
       get_follow_counts: {
         Args: { profile_id: string };
         Returns: { follower_count: number; following_count: number }[];
