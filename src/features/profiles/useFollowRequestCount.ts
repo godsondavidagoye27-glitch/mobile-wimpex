@@ -1,12 +1,15 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { getSupabaseClient } from '../../lib/supabase';
 
 export function useFollowRequestCount(enabled = true) {
   const [count, setCount] = useState(0);
+  const hookId = useId().replace(/[^a-zA-Z0-9_-]/g, '');
+  const channelSequence = useRef(0);
 
   useEffect(() => {
     let active = true;
     let channel: ReturnType<ReturnType<typeof getSupabaseClient>['channel']> | null = null;
+    let currentUserId: string | null | undefined;
     const client = getSupabaseClient();
 
     if (!enabled) {
@@ -16,8 +19,14 @@ export function useFollowRequestCount(enabled = true) {
     }
 
     const watchUser = (userId: string | null) => {
+      if (currentUserId === userId && (userId === null || channel !== null)) return;
+      currentUserId = userId;
       if (channel) {
-        void client.removeChannel(channel);
+        void client.removeChannel(channel).then((status) => {
+          if (status !== 'ok') console.error('Unable to remove the previous follow request subscription.', status);
+        }).catch((error: unknown) => {
+          console.error('Unable to remove the previous follow request subscription.', error);
+        });
         channel = null;
       }
       setCount(0);
@@ -37,23 +46,30 @@ export function useFollowRequestCount(enabled = true) {
         console.error('Unable to load follow request count.', error);
       });
 
-      channel = client
-        .channel(`follow-requests:${userId}`)
-        .on(
-          'postgres_changes',
-          { event: '*', schema: 'public', table: 'follows', filter: `following_id=eq.${userId}` },
-          () => {
-            void refresh().catch((error: unknown) => {
-              console.error('Unable to refresh follow request count.', error);
-            });
-          },
-        )
-        .subscribe((status, error) => {
+      channelSequence.current += 1;
+      try {
+        const requestChannel = client
+          .channel(`follow-requests:${userId}:${hookId}:${channelSequence.current}`)
+          .on(
+            'postgres_changes',
+            { event: '*', schema: 'public', table: 'follows', filter: `following_id=eq.${userId}` },
+            () => {
+              void refresh().catch((error: unknown) => {
+                console.error('Unable to refresh follow request count.', error);
+              });
+            },
+          );
+        channel = requestChannel;
+        requestChannel.subscribe((status, error) => {
           if (error) console.error('Unable to subscribe to follow requests.', error);
           else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
             console.error('Follow request subscription failed.', status);
           }
         });
+      } catch (error) {
+        channel = null;
+        console.error('Unable to subscribe to follow requests.', error);
+      }
     };
 
     const { data: authState } = client.auth.onAuthStateChange((_event, session) => {
@@ -68,10 +84,16 @@ export function useFollowRequestCount(enabled = true) {
 
     return () => {
       active = false;
-      if (channel) void client.removeChannel(channel);
+      if (channel) {
+        void client.removeChannel(channel).then((status) => {
+          if (status !== 'ok') console.error('Unable to remove the follow request subscription.', status);
+        }).catch((error: unknown) => {
+          console.error('Unable to remove the follow request subscription.', error);
+        });
+      }
       authState.subscription.unsubscribe();
     };
-  }, [enabled]);
+  }, [enabled, hookId]);
 
   return enabled ? count : 0;
 }

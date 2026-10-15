@@ -21,18 +21,50 @@ export function OnlinePresence() {
     const supabase = getSupabaseClient();
     let channel: ReturnType<typeof supabase.channel> | null = null;
     let currentUserId: string | null = null;
+    let channelUserId: string | null = null;
+    let startingUserId: string | null = null;
+    let generation = 0;
     let active = true;
 
-    const stop = () => {
+    const stop = (forgetUser = false) => {
+      generation += 1;
+      startingUserId = null;
+      if (forgetUser) currentUserId = null;
       const currentChannel = channel;
       channel = null;
-      if (currentChannel) void supabase.removeChannel(currentChannel);
+      channelUserId = null;
+      if (currentChannel) {
+        void supabase.removeChannel(currentChannel).then((status) => {
+          if (status !== 'ok') console.error('Unable to remove online presence subscription.', status);
+        }).catch((error: unknown) => {
+          console.error('Unable to remove online presence subscription.', error);
+        });
+      }
     };
 
     const start = async (userId: string | null) => {
-      stop();
+      if (
+        currentUserId === userId
+        && (userId === null || channelUserId === userId || startingUserId === userId)
+      ) return;
       currentUserId = userId;
-      if (!active || !userId || AppState.currentState !== 'active') return;
+      const requestGeneration = ++generation;
+      startingUserId = userId;
+      const previousChannel = channel;
+      channel = null;
+      channelUserId = null;
+      if (previousChannel) {
+        try {
+          const status = await supabase.removeChannel(previousChannel);
+          if (status !== 'ok') console.error('Unable to remove previous online presence subscription.', status);
+        } catch (error) {
+          console.error('Unable to remove previous online presence subscription.', error);
+        }
+      }
+      if (!active || !userId || AppState.currentState !== 'active') {
+        if (requestGeneration === generation) startingUserId = null;
+        return;
+      }
       try {
         const [settingsResult, profileResult] = await Promise.all([
           supabase.from('user_settings').select('show_online_status').eq('user_id', userId).maybeSingle(),
@@ -40,22 +72,32 @@ export function OnlinePresence() {
         ]);
         if (settingsResult.error) throw settingsResult.error;
         if (profileResult.error) throw profileResult.error;
-        if (!active || currentUserId !== userId) return;
+        if (!active || requestGeneration !== generation || currentUserId !== userId) return;
         if (settingsResult.data?.show_online_status === false || (
           profileResult.data && isUnder18(profileResult.data.date_of_birth)
-        )) return;
+        )) {
+          startingUserId = null;
+          return;
+        }
 
         const presenceChannel = supabase.channel(`presence:${userId}`, {
           config: { private: true, presence: { key: userId } },
         });
         channel = presenceChannel;
+        channelUserId = userId;
+        startingUserId = null;
         presenceChannel.subscribe((status, subscribeError) => {
           if (subscribeError) {
             console.error('Unable to subscribe to online presence.', subscribeError);
           } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
             console.error('Online presence subscription failed.', status);
           }
-          if (status === 'SUBSCRIBED' && active && currentUserId === userId) {
+          if (
+            status === 'SUBSCRIBED'
+            && active
+            && requestGeneration === generation
+            && currentUserId === userId
+          ) {
             void presenceChannel.track({ user_id: userId }).then((trackStatus) => {
               if (trackStatus !== 'ok') console.error('Unable to publish online presence.', trackStatus);
             }).catch((trackError: unknown) => {
@@ -64,7 +106,10 @@ export function OnlinePresence() {
           }
         });
       } catch (error) {
-        console.error('Unable to prepare online presence.', error);
+        if (requestGeneration === generation) {
+          startingUserId = null;
+          console.error('Unable to prepare online presence.', error);
+        }
       }
     };
 
@@ -84,7 +129,7 @@ export function OnlinePresence() {
 
     return () => {
       active = false;
-      stop();
+      stop(true);
       authState.data.subscription.unsubscribe();
       appStateSubscription.remove();
     };

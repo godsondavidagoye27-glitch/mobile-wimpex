@@ -2,7 +2,6 @@ import { createElement, useCallback, useContext, useMemo, type ReactNode } from 
 import { View, StyleSheet, type LayoutChangeEvent, type ScrollView, type StyleProp, type TextInput, type ViewStyle } from 'react-native';
 import Animated, { useAnimatedKeyboard, useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { calculateKeyboardLayout } from './keyboardLayout';
 import { KeyboardAwareContainerContext, KeyboardInsetContext, useKeyboardInsetValues } from './keyboardInsetContext';
 
 export { calculateKeyboardLayout } from './keyboardLayout';
@@ -27,13 +26,13 @@ export function useKeyboardInset() {
   }, [containerHeight]);
 
   const contentStyle = useAnimatedStyle(() => {
-    const layout = calculateKeyboardLayout(
-      containerHeight.value,
-      insets.bottom,
-      keyboard.keyboardHeight.value,
-    );
+    const keyboardHeight = keyboard.keyboardHeight.value;
+    const bottomInset = keyboardHeight > 0
+      ? Math.max(keyboardHeight, insets.bottom)
+      : 0;
+    const availableHeight = Math.max(0, containerHeight.value - bottomInset);
     return containerHeight.value > 0
-      ? { height: layout.availableHeight, flex: 0 }
+      ? { height: availableHeight, flex: 0 }
       : { flex: 1 };
   }, [insets.bottom]);
 

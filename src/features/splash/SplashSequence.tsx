@@ -42,7 +42,7 @@ import { useAuthFlow } from '../auth/useAuthFlow';
 import { LogoMark } from './LogoMark';
 import SplashSkiaBackdrop, { SplashLogoGlow } from './SplashSkiaBackdrop';
 import { Wordmark } from './Wordmark';
-import { calculateKeyboardLayout, scrollFocusedInputIntoView, useKeyboardInset } from '../../hooks/useKeyboardInset';
+import { scrollFocusedInputIntoView, useKeyboardInset } from '../../hooks/useKeyboardInset';
 
 const slides = [
   { title: 'Short videos made for you', art: 'video' },
@@ -511,12 +511,17 @@ export function SplashSequence() {
   }));
   const cardStyle = useAnimatedStyle(() => ({ transform: [{ translateY: cardTranslateY.value }] }));
   const authKeyboardStyle = useAnimatedStyle(() => {
-    const layout = calculateKeyboardLayout(containerHeight.value || height, safeAreaBottom, keyboardHeight.value);
-    const keyboardOpen = keyboardHeight.value > 0;
+    const rootHeight = containerHeight.value || height;
+    const currentKeyboardHeight = keyboardHeight.value;
+    const bottomInset = currentKeyboardHeight > 0
+      ? Math.max(currentKeyboardHeight, safeAreaBottom)
+      : 0;
+    const availableHeight = Math.max(0, rootHeight - bottomInset);
+    const keyboardOpen = currentKeyboardHeight > 0;
     return {
-      bottom: layout.bottomInset,
+      bottom: bottomInset,
       height: keyboardOpen
-        ? Math.max(0, layout.availableHeight - safeAreaTop)
+        ? Math.max(0, availableHeight - safeAreaTop)
         : authCardHeight,
     };
   }, [authCardHeight, containerHeight, height, safeAreaBottom, safeAreaTop]);
