@@ -939,11 +939,28 @@ export default function ChatThreadScreen() {
     if (!scrolledUp) setNewMessageCount(0);
   }, []);
 
-  if (loading) {
+  if (loading && !conversation) {
     return (
-      <View style={styles.loadingScreen}>
-        <ActivityIndicator color={theme.colors.primary} />
-      </View>
+      <ChatScreenLayout
+        style={styles.screen}
+        header={(
+          <View style={styles.header}>
+            <Pressable onPress={() => router.back()} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Go back">
+              <Icon name="back" size={20} color={theme.colors.white} />
+            </Pressable>
+            <Text style={styles.headerTitle}>Chat</Text>
+            <View style={styles.headerButton} />
+          </View>
+        )}
+        list={(
+          <View style={styles.loadingBubbles}>
+            <View style={[styles.loadingBubble, styles.loadingBubbleOther]} />
+            <View style={[styles.loadingBubble, styles.loadingBubbleMine]} />
+            <View style={[styles.loadingBubble, styles.loadingBubbleOther]} />
+          </View>
+        )}
+        composer={<View style={styles.loadingComposer} />}
+      />
     );
   }
 
@@ -1223,6 +1240,11 @@ export default function ChatThreadScreen() {
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: theme.colors.black },
   loadingScreen: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.black },
+  loadingBubbles: { flex: 1, minHeight: 120, justifyContent: 'flex-end', gap: 12, padding: 16 },
+  loadingBubble: { height: 42, width: '68%', borderRadius: 16, backgroundColor: theme.colors.surface },
+  loadingBubbleOther: { alignSelf: 'flex-start' },
+  loadingBubbleMine: { alignSelf: 'flex-end', width: '52%' },
+  loadingComposer: { height: 64, backgroundColor: theme.colors.surface, borderRadius: 16, margin: 12 },
   header: {
     minHeight: 62,
     paddingHorizontal: 10,

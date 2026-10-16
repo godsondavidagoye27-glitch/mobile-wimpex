@@ -850,7 +850,13 @@ export default function CommunityScreen() {
             ? <View style={styles.offlineBanner}><Text style={styles.offlineText}>You are offline</Text></View>
             : null}
           list={chatLoading
-            ? <ActivityIndicator color={theme.colors.primary} style={styles.inlineLoader} />
+            ? (
+              <View style={styles.chatSkeletonList}>
+                <View style={[styles.chatSkeletonBubble, styles.chatSkeletonOther]} />
+                <View style={[styles.chatSkeletonBubble, styles.chatSkeletonMine]} />
+                <View style={[styles.chatSkeletonBubble, styles.chatSkeletonOther]} />
+              </View>
+            )
             : (
               <View style={styles.chatListArea}>
               <FlatList
@@ -1316,6 +1322,10 @@ const styles = StyleSheet.create({
   reportDetails: { color: theme.colors.textMuted, fontSize: 12, lineHeight: 18 },
   resolveButton: { alignSelf: 'flex-start', paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10, backgroundColor: '#142A38', marginTop: 4 },
   chatMessages: { paddingVertical: 12, flexGrow: 1, justifyContent: 'flex-end' },
+  chatSkeletonList: { flex: 1, minHeight: 120, justifyContent: 'flex-end', gap: 12, padding: 12 },
+  chatSkeletonBubble: { height: 42, width: '68%', borderRadius: 14, backgroundColor: theme.colors.surface },
+  chatSkeletonOther: { alignSelf: 'flex-start' },
+  chatSkeletonMine: { alignSelf: 'flex-end', width: '52%' },
   chatListArea: { flex: 1, minHeight: 120 },
   chatScrollToBottom: { position: 'absolute', right: 8, bottom: 12, minHeight: 44, justifyContent: 'center', paddingHorizontal: 14, borderRadius: 22, backgroundColor: theme.colors.primary },
   chatScrollToBottomText: { color: theme.colors.black, fontSize: 12, fontWeight: '700' },

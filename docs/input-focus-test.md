@@ -10,10 +10,11 @@ after closing and reopening the screen; do not type during the edge-hit test.
 
 - [ ] Log in: email and password; tap the password eye separately.
 - [ ] Create account, step 1: email and password.
-- [ ] Create account, step 2: birthday picker does not autofocus a hidden field.
+- [ ] Create account, step 2: birthday pickers; no hidden text field autofocuses.
 - [ ] Create account, step 3: each one-time-code box; the first box receives the
       intended initial focus only after the card transition.
-- [ ] Create account, profile step: username and display name.
+- [ ] Create account, step 4: username and display name.
+- [ ] Create account, step 5: interests; confirm there is no accidental autofocus.
 - [ ] Complete profile: username and display name.
 - [ ] Password reset, step 1: email.
 - [ ] Password reset, step 2: each one-time-code box.
