@@ -9,6 +9,8 @@ select public.admin_grant_badge('username', 'verified');
 select public.admin_revoke_badge('username', 'verified', 'owner decision');
 ```
 
+To grant a permanent manual verified badge to every profile that exists now, first apply all profile badge migrations, including `20261018060000_allow_internal_verified_flag_updates_for_legacy_usernames.sql`, then run [`grant_existing_users_verified_badge.sql`](./grant_existing_users_verified_badge.sql) as a trusted database owner. This intentionally clears verified-badge suppressions and promotes existing automatic grants to manual grants; future profiles are not included.
+
 Grant a badge with an expiry:
 
 ```sql
