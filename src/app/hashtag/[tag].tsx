@@ -1,4 +1,5 @@
 import { router, useLocalSearchParams } from 'expo-router';
+import { getSingleRouteParam } from '../../lib/routeParams';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -40,8 +41,8 @@ async function loadHashtagVideos(tag: string, cursor: VideoCursor | null, signal
 }
 
 export default function HashtagScreen() {
-  const { tag: routeTag } = useLocalSearchParams<{ tag: string }>();
-  const tag = (routeTag ?? '').replace(/^#+/, '').toLowerCase();
+  const { tag: routeTag } = useLocalSearchParams<{ tag: string | string[] }>();
+  const tag = (getSingleRouteParam(routeTag) ?? '').replace(/^#+/, '').toLowerCase();
   const { width } = useWindowDimensions();
   const [videos, setVideos] = useState<HashtagVideo[]>([]);
   const [postCount, setPostCount] = useState<number | null>(null);

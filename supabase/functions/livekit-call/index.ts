@@ -1,7 +1,9 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { AccessToken } from 'npm:livekit-server-sdk@2';
+import { sendExpoPushMessages } from '../_shared/expoPush.ts';
+import { getStaleCallTerminalStatus } from '../_shared/callLifecycle.ts';
 
-type Action = 'start' | 'accept' | 'connected' | 'end' | 'decline' | 'expire';
+type Action = 'start' | 'accept' | 'connected' | 'heartbeat' | 'end' | 'decline' | 'expire';
 type CallSession = {
   id: string;
   conversation_id: string;
@@ -12,6 +14,7 @@ type CallSession = {
   status: 'ringing' | 'connecting' | 'active' | 'ended' | 'declined' | 'missed';
   caller_connected_at: string | null;
   callee_connected_at: string | null;
+  last_activity_at: string;
   expires_at: string;
 };
 type Profile = {
@@ -99,9 +102,11 @@ Deno.serve(async (request) => {
   let createdCallId: string | undefined;
   try {
     let pushWarning: string | undefined;
+    let pushWarningCode: 'push_unavailable' | 'push_partial' | undefined;
+    let ringReachability: 'push_sent' | 'push_partial' | 'push_unavailable' = 'push_sent';
     const payload = await request.json();
     const action = payload?.action as Action;
-    if (!['start', 'accept', 'connected', 'end', 'decline', 'expire'].includes(action)) {
+    if (!['start', 'accept', 'connected', 'heartbeat', 'end', 'decline', 'expire'].includes(action)) {
       return jsonResponse(400, { error: 'Unknown call action.' });
     }
 
@@ -116,15 +121,20 @@ Deno.serve(async (request) => {
 
       const { data: staleCalls, error: staleError } = await admin
         .from('call_sessions')
-        .select('id')
+        .select('id,status,created_at,expires_at,last_activity_at')
         .eq('conversation_id', payload.conversationId)
-        .eq('status', 'ringing')
-        .lt('expires_at', new Date().toISOString());
+        .in('status', ['ringing', 'connecting', 'active']);
       if (staleError) throw staleError;
-      if (staleCalls.length) {
+      const staleCall = staleCalls.find((candidate) =>
+        getStaleCallTerminalStatus(candidate, Date.now()) !== null,
+      );
+      if (staleCall) {
+        const terminalStatus = getStaleCallTerminalStatus(staleCall, Date.now());
+        if (!terminalStatus) throw new Error('Stale call status changed while checking the conversation.');
         const { error } = await admin.from('call_sessions')
-          .update({ status: 'missed', ended_at: new Date().toISOString() })
-          .in('id', staleCalls.map((row) => row.id));
+          .update({ status: terminalStatus, ended_at: new Date().toISOString() })
+          .eq('id', staleCall.id)
+          .eq('status', staleCall.status);
         if (error) throw error;
       }
 
@@ -146,18 +156,9 @@ Deno.serve(async (request) => {
 
       const caller = eligibility.profiles.find((profile) => profile.id === userId)!;
       const delivery = await sendIncomingCallPush(admin, session, peer.id, caller.display_name || caller.username);
-      if (!delivery.accepted) {
-        const { error: closeError } = await admin.from('call_sessions')
-          .update({ status: 'ended', ended_at: new Date().toISOString() })
-          .eq('id', session.id)
-          .in('status', ['ringing', 'connecting']);
-        if (closeError) {
-          console.error('Could not close a call with no available push destination.', closeError);
-          throw new Error('The callee could not be notified and the call could not be closed. Please retry.');
-        }
-        return jsonResponse(503, { error: delivery.error || 'The callee could not be notified, so the call was not placed.' });
-      }
-      if (delivery.warning) pushWarning = delivery.warning;
+      pushWarning = delivery.warning;
+      pushWarningCode = delivery.warningCode;
+      ringReachability = delivery.warningCode ?? 'push_sent';
     } else {
       if (!isUuid(payload?.callId)) return jsonResponse(400, { error: 'A valid call is required.' });
       const { data, error } = await admin.from('call_sessions')
@@ -186,7 +187,7 @@ Deno.serve(async (request) => {
         const eligibility = await checkEligibility(admin, session.conversation_id, userId);
         if (eligibility.error) return jsonResponse(eligibility.status, { error: eligibility.error });
         const { data: updated, error: updateError } = await admin.from('call_sessions')
-          .update({ status: 'connecting' })
+          .update({ status: 'connecting', last_activity_at: new Date().toISOString() })
           .eq('id', session.id)
           .eq('status', 'ringing')
           .select('*')
@@ -213,7 +214,8 @@ Deno.serve(async (request) => {
         const { data: updated, error: updateError } = await admin.from('call_sessions')
           .update({
             ...patch,
-            status: callerConnected && calleeConnected
+              last_activity_at: now,
+              status: callerConnected && calleeConnected
               ? 'active'
               : session.status === 'ringing'
                 ? 'ringing'
@@ -224,6 +226,19 @@ Deno.serve(async (request) => {
           .select('*')
           .maybeSingle();
         if (updateError) throw updateError;
+        if (!updated) return jsonResponse(409, { error: 'This call has already ended.' });
+        session = updated as CallSession;
+      } else if (action === 'heartbeat') {
+        if (session.status !== 'active') {
+          return jsonResponse(409, { error: 'This call is no longer active.' });
+        }
+        const { data: updated, error: heartbeatError } = await admin.from('call_sessions')
+          .update({ last_activity_at: new Date().toISOString() })
+          .eq('id', session.id)
+          .eq('status', 'active')
+          .select('*')
+          .maybeSingle();
+        if (heartbeatError) throw heartbeatError;
         if (!updated) return jsonResponse(409, { error: 'This call has already ended.' });
         session = updated as CallSession;
       } else if (action === 'end' || action === 'decline' || action === 'expire') {
@@ -259,7 +274,7 @@ Deno.serve(async (request) => {
 
     const peerId = userId === session.caller_id ? session.callee_id : session.caller_id;
     const { data: peer, error: peerError } = await admin.from('profiles')
-      .select('display_name,username')
+      .select('id,display_name,username')
       .eq('id', peerId)
       .single();
     if (peerError) throw peerError;
@@ -286,7 +301,9 @@ Deno.serve(async (request) => {
       call: session,
       token: await token.toJwt(),
       serverUrl: livekitUrl,
-      peer: { displayName: peer.display_name || peer.username },
+      peer: { id: peer.id, displayName: peer.display_name || peer.username },
+      ringReachability,
+      ...(pushWarningCode ? { warningCode: pushWarningCode } : {}),
       ...(pushWarning ? { warning: pushWarning } : {}),
     });
   } catch (error) {
@@ -298,9 +315,6 @@ Deno.serve(async (request) => {
         .in('status', ['ringing', 'connecting']);
       if (closeError) console.error('Could not close the call after a server failure.', closeError);
     }
-    if (error instanceof Error && error.message.startsWith('The callee could not be notified')) {
-      return jsonResponse(500, { error: error.message });
-    }
     return jsonResponse(500, { error: 'Could not process this call request.' });
   }
 });
@@ -310,28 +324,42 @@ async function sendIncomingCallPush(
   session: CallSession,
   recipientId: string,
   callerName: string,
-): Promise<{ accepted: boolean; warning?: string; error?: string }> {
-  const { data: settings, error: settingsError } = await admin.from('user_settings')
-    .select('push_enabled')
-    .eq('user_id', recipientId)
-    .maybeSingle();
-  if (settingsError) {
-    console.error('Could not read callee push preference.', settingsError);
-    return { accepted: false, error: 'Could not check the callee notification preference; the call was not placed.' };
+): Promise<{ warning?: string; warningCode?: 'push_unavailable' | 'push_partial' }> {
+  let pushEnabled: boolean | null | undefined;
+  try {
+    const { data: settings, error: settingsError } = await admin.from('user_settings')
+      .select('push_enabled')
+      .eq('user_id', recipientId)
+      .maybeSingle();
+    if (settingsError) {
+      console.error('Could not read callee push preference.', settingsError);
+      return { warningCode: 'push_unavailable', warning: 'They may not be notified unless Wimpex is open.' };
+    }
+    pushEnabled = settings?.push_enabled;
+  } catch (error) {
+    console.error('Could not read callee push preference.', error);
+    return { warningCode: 'push_unavailable', warning: 'They may not be notified unless Wimpex is open.' };
   }
-  if (settings?.push_enabled === false) {
-    return { accepted: false, error: 'The callee has disabled push notifications, so the call was not placed.' };
+  if (pushEnabled === false) {
+    return { warningCode: 'push_unavailable', warning: 'They may not be notified unless Wimpex is open.' };
   }
 
-  const { data: devices, error: devicesError } = await admin.from('device_push_tokens')
-    .select('expo_push_token')
-    .eq('user_id', recipientId);
-  if (devicesError) {
-    console.error('Could not read callee push destinations.', devicesError);
-    return { accepted: false, error: 'Could not find a notification destination; the call was not placed.' };
+  let devices: { expo_push_token: string }[];
+  try {
+    const { data, error } = await admin.from('device_push_tokens')
+      .select('expo_push_token')
+      .eq('user_id', recipientId);
+    if (error) {
+      console.error('Could not read callee push destinations.', error);
+      return { warningCode: 'push_unavailable', warning: 'They may not be notified unless Wimpex is open.' };
+    }
+    devices = data;
+  } catch (error) {
+    console.error('Could not read callee push destinations.', error);
+    return { warningCode: 'push_unavailable', warning: 'They may not be notified unless Wimpex is open.' };
   }
   if (!devices.length) {
-    return { accepted: false, error: 'The callee has no eligible push device, so the call was not placed.' };
+    return { warningCode: 'push_unavailable', warning: 'They may not be notified unless Wimpex is open.' };
   }
 
   const messages = devices.map((device) => ({
@@ -339,7 +367,10 @@ async function sendIncomingCallPush(
     title: session.media_type === 'video' ? 'Incoming video call' : 'Incoming audio call',
     body: `${callerName} is calling you.`,
     sound: 'default',
+    channelId: 'calls',
     priority: 'high',
+    ttl: 45,
+    interruptionLevel: 'timeSensitive',
     data: {
       type: 'incoming_call',
       call_id: session.id,
@@ -349,52 +380,31 @@ async function sendIncomingCallPush(
     },
   }));
 
-  let acceptedCount = 0;
-  let failedCount = 0;
   try {
-    for (let index = 0; index < messages.length; index += 100) {
-      const batch = messages.slice(index, index + 100);
-      const response = await fetch('https://exp.host/--/api/v2/push/send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify(batch),
-      });
-      if (!response.ok) {
-        const details = await response.text();
-        console.error('Expo push endpoint rejected the incoming call notification.', response.status, details);
-        failedCount += batch.length;
-        continue;
-      }
-      const result = await response.json();
-      const tickets = Array.isArray(result?.data) ? result.data : [];
-      for (const ticket of tickets) {
-        if (ticket?.status === 'ok') acceptedCount += 1;
-        else failedCount += 1;
-      }
-      failedCount += Math.max(0, batch.length - tickets.length);
+    const tickets = await sendExpoPushMessages(messages);
+    const staleTokens = tickets.flatMap((ticket, index) =>
+      ticket.details?.error === 'DeviceNotRegistered'
+        ? [devices[index]?.expo_push_token].filter((token): token is string => typeof token === 'string')
+        : [],
+    );
+    if (staleTokens.length) {
+      const { error: pruneError } = await admin.from('device_push_tokens')
+        .delete()
+        .eq('user_id', recipientId)
+        .in('expo_push_token', staleTokens);
+      if (pruneError) console.error('Could not remove stale call notification tokens.', pruneError);
     }
-    if (acceptedCount === 0) {
-      return {
-        accepted: false,
-        error: 'Expo did not accept the incoming-call notification, so the call was not placed.',
-      };
+    const acceptedCount = tickets.filter((ticket) => ticket.status === 'ok').length;
+    if (acceptedCount === messages.length) return {};
+    if (acceptedCount > 0) {
+      console.warn('Some devices did not accept the incoming-call notification.');
+      return { warningCode: 'push_partial', warning: 'They may not be notified on every device.' };
     }
-    return {
-      accepted: true,
-      ...(failedCount ? { warning: 'Some devices could not be notified; the call is still ringing on available devices.' } : {}),
-    };
+    console.warn('No device accepted the incoming-call notification.');
+    return { warningCode: 'push_unavailable', warning: 'They may not be notified unless Wimpex is open.' };
   } catch (error) {
     console.error('Could not send the incoming call notification.', error);
-    if (acceptedCount > 0) {
-      return {
-        accepted: true,
-        warning: 'Some devices could not be notified; the call is still ringing on available devices.',
-      };
-    }
-    return {
-      accepted: false,
-      error: 'Could not send the incoming-call notification, so the call was not placed.',
-    };
+    return { warningCode: 'push_unavailable', warning: 'They may not be notified unless Wimpex is open.' };
   }
 }
 

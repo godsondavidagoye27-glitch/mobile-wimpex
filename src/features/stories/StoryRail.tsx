@@ -5,6 +5,7 @@ import { useCallback } from 'react';
 import { AppState, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { getStoryRail } from './storyService';
 import { theme } from '../../theme/theme';
+import { NameWithBadge } from '../../components/NameWithBadge';
 
 const railQueryKey = ['story-rail'];
 
@@ -122,7 +123,17 @@ export function StoryRail() {
                 <Text style={styles.addText}>+</Text>
               </Pressable>
             ) : null}
-            <Text numberOfLines={1} style={styles.name}>{label.length > 12 ? `${label.slice(0, 11)}...` : label}</Text>
+            {story.is_owner ? (
+              <Text numberOfLines={1} style={styles.name}>{label}</Text>
+            ) : (
+              <NameWithBadge
+                name={label.length > 12 ? `${label.slice(0, 11)}...` : label}
+                userId={story.author_id}
+                size="xs"
+                style={styles.badgedName}
+                textStyle={styles.name}
+              />
+            )}
           </View>
         );
       })}
@@ -133,6 +144,7 @@ export function StoryRail() {
 const styles = StyleSheet.create({
   row: { gap: 16, paddingHorizontal: 18, paddingTop: 14, paddingBottom: 10 },
   item: { alignItems: 'center', width: 72, position: 'relative' },
+  badgedName: { maxWidth: 72, justifyContent: 'center' },
   avatarPressable: { minWidth: 60, minHeight: 60, alignItems: 'center', justifyContent: 'center' },
   ring: { width: 60, height: 60, borderRadius: 30, padding: 3, alignItems: 'center', justifyContent: 'center' },
   unseenRing: { borderColor: 'transparent', borderWidth: 2 },

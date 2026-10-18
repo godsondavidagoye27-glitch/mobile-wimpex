@@ -7,6 +7,96 @@ const jsonHeaders = {
   'Content-Type': 'application/json',
 };
 
+const pageSize = 100;
+
+async function listFolderPaths(
+  adminClient: ReturnType<typeof createClient>,
+  bucket: string,
+  folder: string,
+): Promise<string[]> {
+  const paths: string[] = [];
+  let offset = 0;
+  while (true) {
+    const { data, error } = await adminClient.storage.from(bucket).list(folder, {
+      limit: pageSize,
+      offset,
+      sortBy: { column: 'name', order: 'asc' },
+    });
+    if (error) throw error;
+    const entries = data ?? [];
+    for (const entry of entries) {
+      const path = `${folder}/${entry.name}`;
+      if (entry.id) paths.push(path);
+      else paths.push(...await listFolderPaths(adminClient, bucket, path));
+    }
+    if (entries.length < pageSize) break;
+    offset += entries.length;
+  }
+  return paths;
+}
+
+async function removeStoragePaths(
+  adminClient: ReturnType<typeof createClient>,
+  bucket: string,
+  paths: string[],
+) {
+  for (let offset = 0; offset < paths.length; offset += pageSize) {
+    const { error } = await adminClient.storage.from(bucket).remove(paths.slice(offset, offset + pageSize));
+    if (error) throw error;
+  }
+}
+
+async function listOwnedCommunityMedia(
+  adminClient: ReturnType<typeof createClient>,
+  userId: string,
+): Promise<{ communityPosts: string[]; communityIcons: string[] }> {
+  const communityPosts: string[] = [];
+  for (let offset = 0; ; offset += pageSize) {
+    const { data, error } = await adminClient
+      .from('community_posts')
+      .select('media_path')
+      .eq('author_id', userId)
+      .not('media_path', 'is', null)
+      .order('id')
+      .range(offset, offset + pageSize - 1);
+    if (error) throw error;
+    const rows = data ?? [];
+    communityPosts.push(...rows.flatMap((row) => row.media_path ? [row.media_path] : []));
+    if (rows.length < pageSize) break;
+  }
+
+  const communityIcons: string[] = [];
+  for (let offset = 0; ; offset += pageSize) {
+    const { data, error } = await adminClient
+      .from('communities')
+      .select('icon_path')
+      .eq('owner_id', userId)
+      .not('icon_path', 'is', null)
+      .order('id')
+      .range(offset, offset + pageSize - 1);
+    if (error) throw error;
+    const rows = data ?? [];
+    communityIcons.push(...rows.flatMap((row) => row.icon_path ? [row.icon_path] : []));
+    if (rows.length < pageSize) break;
+  }
+
+  return { communityPosts, communityIcons };
+}
+
+async function removeOwnedMedia(
+  adminClient: ReturnType<typeof createClient>,
+  userId: string,
+) {
+  for (const bucket of ['avatars', 'videos', 'thumbnails', 'captions', 'stories', 'chat-media']) {
+    const paths = await listFolderPaths(adminClient, bucket, userId);
+    await removeStoragePaths(adminClient, bucket, paths);
+  }
+
+  const { communityPosts, communityIcons } = await listOwnedCommunityMedia(adminClient, userId);
+  await removeStoragePaths(adminClient, 'community-posts', communityPosts);
+  await removeStoragePaths(adminClient, 'community-icons', communityIcons);
+}
+
 Deno.serve(async (request: Request) => {
   if (request.method === 'OPTIONS') {
     return new Response('ok', { headers: jsonHeaders });
@@ -52,37 +142,14 @@ Deno.serve(async (request: Request) => {
     auth: { autoRefreshToken: false, persistSession: false },
   });
 
-  let offset = 0;
-  const pageSize = 500;
-  while (true) {
-    const { data: posts, error: postsError } = await adminClient
-      .from('posts')
-      .select('captions_path')
-      .eq('author_id', userData.user.id)
-      .not('captions_path', 'is', null)
-      .order('id')
-      .range(offset, offset + pageSize - 1);
-    if (postsError) {
-      console.error('Unable to list account captions before deletion.', { code: postsError.code });
-      return new Response(JSON.stringify({ error: 'Unable to remove account captions.' }), {
-        status: 500,
-        headers: jsonHeaders,
-      });
-    }
-    const accountPosts = posts ?? [];
-    const paths = accountPosts.flatMap((post) => post.captions_path ? [post.captions_path] : []);
-    if (paths.length) {
-      const { error: removeError } = await adminClient.storage.from('captions').remove(paths);
-      if (removeError) {
-        console.error('Unable to remove account captions.', { code: removeError.name });
-        return new Response(JSON.stringify({ error: 'Unable to remove account captions.' }), {
-          status: 500,
-          headers: jsonHeaders,
-        });
-      }
-    }
-    if (accountPosts.length < pageSize) break;
-    offset += pageSize;
+  try {
+    await removeOwnedMedia(adminClient, userData.user.id);
+  } catch (cleanupError) {
+    console.error('Unable to remove account media before deletion.', cleanupError);
+    return new Response(JSON.stringify({ error: 'Unable to remove account media.' }), {
+      status: 500,
+      headers: jsonHeaders,
+    });
   }
 
   const { error: deleteError } = await adminClient.auth.admin.deleteUser(userData.user.id);

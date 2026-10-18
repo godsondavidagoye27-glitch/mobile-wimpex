@@ -1,4 +1,5 @@
 import { router } from 'expo-router';
+import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -16,6 +17,7 @@ import { Icon, type AppIconName } from '../components/Icon';
 import { FocusableTextInput } from '../components/AuthField';
 import { useFollowRequestCount } from '../features/profiles/useFollowRequestCount';
 import { signOutProviders } from '../features/auth/socialAuth';
+import { assertNoActiveVideoUploads, clearLocalUploadData } from '../features/feed/uploadManager';
 import { useAuthFlow } from '../features/auth/useAuthFlow';
 import {
   getPushPermissionGranted,
@@ -74,6 +76,7 @@ function errorMessage(error: unknown) {
 }
 
 export default function SettingsScreen() {
+  const queryClient = useQueryClient();
   const [profile, setProfile] = useState<ProfileRpcRow | null>(null);
   const [email, setEmail] = useState('');
   const [settings, setSettings] = useState<SettingsValues>(defaultSettings);
@@ -93,16 +96,17 @@ export default function SettingsScreen() {
     void (async () => {
       try {
         const client = getSupabaseClient();
-        const { data: authResult, error: authError } = await client.auth.getUser();
+        const { data: authResult, error: authError } = await client.auth.getSession();
         if (authError) throw authError;
-        if (!authResult.user) throw new Error('Sign in to open settings.');
+        const user = authResult.session?.user;
+        if (!user) throw new Error('Sign in to open settings.');
         const [profileResult, settingsResult, birthResult] = await Promise.all([
           client.rpc('get_profile', { p_username: null }),
           client.from('user_settings')
             .select('push_enabled,notify_likes,notify_comments,notify_followers,notify_messages,notify_live,show_online_status,show_liked_videos,personalized_recommendations,story_replies')
-            .eq('user_id', authResult.user.id)
+            .eq('user_id', user.id)
             .maybeSingle(),
-          client.from('profiles').select('date_of_birth').eq('id', authResult.user.id).maybeSingle(),
+          client.from('profiles').select('date_of_birth').eq('id', user.id).maybeSingle(),
         ]);
         if (profileResult.error) throw profileResult.error;
         if (settingsResult.error) throw settingsResult.error;
@@ -111,7 +115,7 @@ export default function SettingsScreen() {
         if (!currentProfile) throw new Error('Your profile could not be found.');
         if (!active) return;
         setProfile(currentProfile);
-        setEmail(authResult.user.email ?? '');
+        setEmail(user.email ?? '');
         if (settingsResult.data) setSettings({ ...defaultSettings, ...settingsResult.data });
         if (birthResult.data) {
           const today = new Date();
@@ -284,9 +288,17 @@ export default function SettingsScreen() {
     setSaving(true);
     setError('');
     try {
+      assertNoActiveVideoUploads(profile.id);
       const { error: deleteError } = await getSupabaseClient().functions.invoke('delete-own-account');
       if (deleteError) throw deleteError;
-      await signOutProviders();
+      try {
+        await clearLocalUploadData(profile.id);
+      } catch (cleanupError) {
+        console.error('The account was deleted, but local upload data could not be fully cleared.', cleanupError);
+        Alert.alert('Account deleted', 'Some temporary upload files could not be removed from this device.');
+      }
+      queryClient.clear();
+      await signOutProviders({ localOnly: true });
       useAuthFlow.getState().resetSignup();
       router.replace('/(auth)/welcome');
     } catch (caught) {

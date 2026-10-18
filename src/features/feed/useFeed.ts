@@ -18,7 +18,7 @@ export type FeedItem = FeedRpcRow & {
   thumbnailUrl: string | null;
 };
 
-type FeedPage = {
+export type FeedPage = {
   items: FeedItem[];
   nextCursor: FeedCursor | null;
 };

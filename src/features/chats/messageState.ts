@@ -24,6 +24,28 @@ export type ChatMessage = MessageRow & {
   replyPreview?: string | null;
 };
 
+export function isMessageRow(value: unknown): value is MessageRow {
+  if (!value || typeof value !== 'object') return false;
+  const row = value as Partial<Record<keyof MessageRow, unknown>>;
+  return (
+    typeof row.id === 'string'
+    && typeof row.conversation_id === 'string'
+    && typeof row.sender_id === 'string'
+    && typeof row.client_id === 'string'
+    && typeof row.kind === 'string'
+    && (typeof row.body === 'string' || row.body === null)
+    && (typeof row.media_path === 'string' || row.media_path === null)
+    && (typeof row.media_duration_ms === 'number' || row.media_duration_ms === null)
+    && (typeof row.width === 'number' || row.width === null)
+    && (typeof row.height === 'number' || row.height === null)
+    && (typeof row.reply_to_id === 'string' || row.reply_to_id === null)
+    && (typeof row.story_reply_preview_path === 'string' || row.story_reply_preview_path === null)
+    && (typeof row.story_reply_caption === 'string' || row.story_reply_caption === null)
+    && typeof row.created_at === 'string'
+    && (typeof row.deleted_at === 'string' || row.deleted_at === null)
+  );
+}
+
 export function mergeChatMessages(current: ChatMessage[], incoming: ChatMessage[]): ChatMessage[] {
   const messages = new Map<string, ChatMessage>();
   for (const message of [...current, ...incoming]) {
@@ -39,6 +61,15 @@ export function mergeChatMessages(current: ChatMessage[], incoming: ChatMessage[
   return Array.from(messages.values()).sort((first, second) =>
     second.created_at.localeCompare(first.created_at) || second.id.localeCompare(first.id),
   );
+}
+
+export function applyRealtimeChatMessage(
+  current: ChatMessage[],
+  row: MessageRow,
+  event: 'INSERT' | 'UPDATE' | 'DELETE',
+): ChatMessage[] {
+  if (event === 'DELETE') return current.filter((message) => message.id !== row.id);
+  return mergeChatMessages(current, [{ ...row, deliveryState: 'sent' }]);
 }
 
 export function setMessageDeliveryState(

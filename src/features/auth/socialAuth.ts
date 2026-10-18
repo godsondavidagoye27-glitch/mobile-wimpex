@@ -175,9 +175,11 @@ export async function signInWithApple(): Promise<SocialSignInResult | null> {
   }
 }
 
-export async function signOutProviders() {
-  await unregisterPushTokenBeforeSignOut();
-  const { error } = await getSupabaseClient().auth.signOut();
+export async function signOutProviders(options: { localOnly?: boolean } = {}) {
+  if (!options.localOnly) await unregisterPushTokenBeforeSignOut();
+  const { error } = await getSupabaseClient().auth.signOut({
+    scope: options.localOnly ? 'local' : 'global',
+  });
   if (error) throw error;
 
   if (Constants.appOwnership === 'expo') return;

@@ -11,6 +11,7 @@ import {
   View,
 } from 'react-native';
 import { Icon } from '../components/Icon';
+import { NameWithBadge } from '../components/NameWithBadge';
 import { getSupabaseClient } from '../lib/supabase';
 import { theme } from '../theme/theme';
 import type { FollowRequestRpcRow } from '../types/database';
@@ -96,7 +97,7 @@ export default function FollowRequestsScreen() {
                   ? <Image source={{ uri: item.avatar_url }} style={styles.avatar} />
                   : <View style={[styles.avatar, styles.avatarFallback]}><Text style={styles.initials}>{initials(item.display_name)}</Text></View>}
                 <View style={styles.identityText}>
-                  <Text style={styles.name}>{item.display_name}</Text>
+                  <NameWithBadge name={item.display_name} userId={item.id} size="xs" textStyle={styles.name} />
                   <Text style={styles.username}>@{item.username}</Text>
                 </View>
               </Pressable>

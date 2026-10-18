@@ -19,6 +19,7 @@ import {
 } from 'react-native';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { Icon } from '../../components/Icon';
+import { NameWithBadge } from '../../components/NameWithBadge';
 import { FocusableTextInput } from '../../components/AuthField';
 import { ChatScreenLayout } from '../../components/ChatScreenLayout';
 import {
@@ -49,6 +50,8 @@ import type {
 } from '../../types/database';
 import { KeyboardAwareScreen } from '../../hooks/useKeyboardInset';
 import { calculateChatComposerHeight } from '../../features/chats/chatLayout';
+import { getSingleRouteParam } from '../../lib/routeParams';
+export { RouteErrorFallback as ErrorBoundary } from '../../components/RouteErrorFallback';
 
 type CommunityTab = 'Posts' | 'About' | 'Members' | 'Chat';
 type MemberCursor = { joinedAt: string; id: string; status: CommunityMemberRpcRow['status'] };
@@ -74,8 +77,8 @@ function readableError(error: unknown) {
 export default function CommunityScreen() {
   const networkState = useNetworkState();
   const params = useLocalSearchParams<{ slug?: string; tab?: string }>();
-  const slug = Array.isArray(params.slug) ? params.slug[0] : params.slug ?? '';
-  const requestedTab = Array.isArray(params.tab) ? params.tab[0] : params.tab;
+  const slug = getSingleRouteParam(params.slug) ?? '';
+  const requestedTab = getSingleRouteParam(params.tab) ?? undefined;
   const [community, setCommunity] = useState<CommunityDetailRpcRow | null>(null);
   const [activeTab, setActiveTab] = useState<CommunityTab>(
     communityTabs.includes(requestedTab as CommunityTab) ? requestedTab as CommunityTab : 'Posts',
@@ -158,7 +161,7 @@ export default function CommunityScreen() {
         setRefreshing(false);
       }
     }
-  }, [slug]);
+  }, [setCommunity, slug]);
 
   const loadPosts = useCallback(async () => {
     if (!communityId) return;
@@ -533,7 +536,7 @@ export default function CommunityScreen() {
               : <Text style={styles.memberInitials}>{initials(item.display_name)}</Text>}
           </View>
           <View style={styles.memberMeta}>
-            <Text numberOfLines={1} style={styles.memberName}>{item.display_name}</Text>
+            <NameWithBadge name={item.display_name} userId={item.id} size="xs" textStyle={styles.memberName} />
             <Text style={styles.memberSub}>@{item.username} · {item.role}</Text>
           </View>
         </Pressable>
@@ -627,7 +630,7 @@ export default function CommunityScreen() {
             : <Text style={styles.memberInitials}>{initials(person.display_name)}</Text>}
         </View>
         <View style={styles.memberMeta}>
-          <Text numberOfLines={1} style={styles.memberName}>{person.display_name}</Text>
+          <NameWithBadge name={person.display_name} userId={person.id} size="xs" textStyle={styles.memberName} />
           <Text style={styles.memberSub}>@{person.username}</Text>
         </View>
       </View>
@@ -730,7 +733,7 @@ export default function CommunityScreen() {
             : <Text style={styles.memberInitials}>{initials(item.display_name)}</Text>}
         </View>
         <View style={styles.postMetaWrap}>
-          <Text style={styles.memberName}>{item.display_name}</Text>
+          <NameWithBadge name={item.display_name} userId={item.author_id} size="xs" textStyle={styles.memberName} />
           <Text style={styles.memberSub}>@{item.username} · {new Date(item.created_at).toLocaleString()}</Text>
         </View>
         {item.pinned_at ? <Icon name="pin" size={20} color={theme.colors.primary} /> : null}
@@ -749,7 +752,9 @@ export default function CommunityScreen() {
 
   const renderCommunityChatMessage = useCallback(({ item }: { item: CommunityMessageRpcRow }) => (
     <View style={[styles.chatBubble, item.is_mine ? styles.chatBubbleMine : styles.chatBubbleOther]}>
-      <Text style={styles.chatAuthor}>{item.is_mine ? 'You' : item.display_name}</Text>
+      {item.is_mine
+        ? <Text style={styles.chatAuthor}>You</Text>
+        : <NameWithBadge name={item.display_name} userId={item.author_id} size="xs" textStyle={styles.chatAuthor} />}
       <Text style={styles.chatBody}>{item.body}</Text>
       <Text style={styles.chatTime}>{new Date(item.created_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</Text>
     </View>
@@ -821,7 +826,12 @@ export default function CommunityScreen() {
                 onPress={() => router.push({ pathname: '/user/[username]', params: { username: community.owner_username ?? '' } })}
                 accessibilityRole="button"
               >
-                <Text style={styles.ownerLink}>{community.owner_display_name} · @{community.owner_username}</Text>
+                <NameWithBadge
+                  name={`${community.owner_display_name} · @${community.owner_username}`}
+                  userId={community.owner_id}
+                  size="xs"
+                  textStyle={styles.ownerLink}
+                />
               </Pressable>
             </>
           ) : null}
@@ -1174,7 +1184,12 @@ export default function CommunityScreen() {
               renderItem={({ item }) => (
                 <View style={styles.reportCard}>
                   <Text style={styles.reportReason}>{item.reason.replace('_', ' ')}</Text>
-                  <Text style={styles.memberSub}>Reported by @{item.reporter_username}</Text>
+                  <NameWithBadge
+                    name={`Reported by @${item.reporter_username}`}
+                    userId={item.reporter_id}
+                    size="xs"
+                    textStyle={styles.memberSub}
+                  />
                   <Text style={styles.reportPostBody}>{item.post_body || 'Media post'}</Text>
                   {item.details ? <Text style={styles.reportDetails}>{item.details}</Text> : null}
                   <Pressable onPress={() => void resolveReport(item)} style={styles.resolveButton} accessibilityRole="button">

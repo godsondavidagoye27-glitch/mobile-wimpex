@@ -4,6 +4,7 @@ import { useCallback } from 'react';
 import { ActivityIndicator, AppState, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { getLiveStreams } from './liveService';
 import { theme } from '../../theme/theme';
+import { NameWithBadge } from '../../components/NameWithBadge';
 
 const liveStreamsKey = ['live-streams'];
 
@@ -78,7 +79,12 @@ export function LiveNowRail() {
           >
             <View style={styles.badge}><Text style={styles.badgeText}>LIVE</Text></View>
             <Text numberOfLines={1} style={styles.streamTitle}>{item.title || 'Live stream'}</Text>
-            <Text numberOfLines={1} style={styles.hostName}>{item.host_display_name}</Text>
+            <NameWithBadge
+              name={item.host_display_name}
+              userId={item.host_id}
+              size="xs"
+              textStyle={styles.hostName}
+            />
           </Pressable>
         )}
       />

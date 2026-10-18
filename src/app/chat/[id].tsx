@@ -22,6 +22,7 @@ import * as Clipboard from 'expo-clipboard';
 import * as Crypto from 'expo-crypto';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { Icon } from '../../components/Icon';
+import { NameWithBadge } from '../../components/NameWithBadge';
 import { FocusableTextInput } from '../../components/AuthField';
 import { ChatScreenLayout } from '../../components/ChatScreenLayout';
 import { KeyboardAwareScreen } from '../../hooks/useKeyboardInset';
@@ -39,6 +40,8 @@ import {
   uploadChatMedia,
 } from '../../features/chats/chatMediaService';
 import {
+  applyRealtimeChatMessage,
+  isMessageRow,
   mergeChatMessages,
   setMessageDeliveryState,
   type ChatMessage,
@@ -47,8 +50,10 @@ import {
 import { beginProfileCompletion } from '../../features/auth/useAuthFlow';
 import type { ChatMediaAttachment } from '../../features/chats/chatMediaValidation';
 import { getSupabaseClient } from '../../lib/supabase';
+import { getSingleRouteParam, isUuidRouteParam } from '../../lib/routeParams';
 import type { Database } from '../../types/database';
 import { theme } from '../../theme/theme';
+export { RouteErrorFallback as ErrorBoundary } from '../../components/RouteErrorFallback';
 
 type Conversation = Pick<
   Database['public']['Tables']['conversations']['Row'],
@@ -138,7 +143,8 @@ function TypingDots() {
 
 export default function ChatThreadScreen() {
   const params = useLocalSearchParams<{ id: string }>();
-  const conversationId = Array.isArray(params.id) ? params.id[0] : params.id;
+  const routeId = getSingleRouteParam(params.id);
+  const conversationId = isUuidRouteParam(routeId) ? routeId : '';
   const networkState = useNetworkState();
   const supabase = useMemo(() => getSupabaseClient(), []);
   const listRef = useRef<FlatList<ChatMessage>>(null);
@@ -146,11 +152,15 @@ export default function ChatThreadScreen() {
   const lastTypingSentAt = useRef(0);
   const newestMarkedReadId = useRef<string | null>(null);
   const messagesRef = useRef<ChatMessage[]>([]);
+  const membersRef = useRef<Member[]>([]);
+  const profilesRef = useRef<Profile[]>([]);
+  const showOnlineStatusRef = useRef(true);
   const screenFocusedRef = useRef(false);
   const userIdRef = useRef<string | null>(null);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const pendingMediaRef = useRef(new Map<string, { attachment: ChatMediaAttachment; mediaId: string }>());
   const mediaRequestsRef = useRef(new Set<string>());
+  const mountedRef = useRef(true);
   const [focused, setFocused] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
   const [conversation, setConversation] = useState<Conversation | null>(null);
@@ -186,10 +196,22 @@ export default function ChatThreadScreen() {
     messagesRef.current = messages;
   }, [messages]);
 
-  const loadReactions = useCallback(async (rows: MessageRow[]) => {
+  useEffect(() => {
+    membersRef.current = members;
+    profilesRef.current = profiles;
+  }, [members, profiles]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  const loadReactions = useCallback(async (rows: MessageRow[], isActive: () => boolean = () => true) => {
     const ids = rows.map((message) => message.id).filter((messageId) => !messageId.startsWith('local:'));
     if (!ids.length) {
-      setReactions({});
+      if (mountedRef.current && isActive()) setReactions({});
       return;
     }
     const { data, error: reactionError } = await supabase
@@ -197,6 +219,7 @@ export default function ChatThreadScreen() {
       .select('message_id,user_id,emoji')
       .in('message_id', ids);
     if (reactionError) throw reactionError;
+    if (!mountedRef.current || !isActive()) return;
     const grouped: Record<string, ReactionGroup[]> = {};
     for (const reaction of data) {
       const group = grouped[reaction.message_id] ?? [];
@@ -230,11 +253,12 @@ export default function ChatThreadScreen() {
       const signedUrl = isStoryReplyPreview
         ? await getStoryReplyPreviewUrl(path, supabase)
         : await createChatMediaSignedUrl(supabase, path);
+      if (!mountedRef.current) return;
       setSignedMediaUrls((current) => ({ ...current, [path]: signedUrl }));
       setMediaLoadStatus((current) => ({ ...current, [path]: 'ready' }));
     } catch (mediaError) {
       console.error('Unable to open private chat media.', mediaError);
-      setMediaLoadStatus((current) => ({ ...current, [path]: 'error' }));
+      if (mountedRef.current) setMediaLoadStatus((current) => ({ ...current, [path]: 'error' }));
     } finally {
       mediaRequestsRef.current.delete(path);
     }
@@ -248,33 +272,13 @@ export default function ChatThreadScreen() {
     });
   }, [mediaLoadStatus, messages, refreshSignedMedia]);
 
-  const reloadLatest = useCallback(async () => {
-    if (!conversationId) return;
-    const rows = await fetchConversationMessages(supabase, conversationId, undefined, 30);
-    const newestMessage = rows[0];
-    if (newestMessage && latestMessageIdRef.current && newestMessage.id !== latestMessageIdRef.current) {
-      if (showScrollButtonRef.current && newestMessage.sender_id !== userIdRef.current) {
-        const previousMessageIndex = rows.findIndex((message) => message.id === latestMessageIdRef.current);
-        setNewMessageCount((count) => count + Math.max(1, previousMessageIndex));
-      } else if (!showScrollButtonRef.current) {
-        listRef.current?.scrollToOffset({ offset: 0, animated: false });
-      }
-    }
-    if (newestMessage) latestMessageIdRef.current = newestMessage.id;
-    setMessages((current) => mergeChatMessages(
-      current.filter((message) => message.id.startsWith('local:') && message.deliveryState !== 'sent'),
-      rows.map((message) => ({ ...message, deliveryState: 'sent' })),
-    ));
-    await loadReactions(rows);
-    setHasMore(rows.length === 30);
-  }, [conversationId, loadReactions, supabase]);
-
-  const loadConversation = useCallback(async () => {
-    if (!conversationId) throw new Error('A conversation id is required.');
-    const { data: authData, error: authError } = await supabase.auth.getUser();
+  const loadConversation = useCallback(async (isActive: () => boolean = () => true) => {
+    if (!isUuidRouteParam(conversationId)) throw new Error('This conversation link is invalid.');
+    const { data: authData, error: authError } = await supabase.auth.getSession();
     if (authError) throw authError;
-    if (!authData.user) throw new Error('Sign in to open this conversation.');
-    const currentUserId = authData.user.id;
+    if (!isActive()) return;
+    if (!authData.session?.user) throw new Error('Sign in to open this conversation.');
+    const currentUserId = authData.session.user.id;
 
     const { data: nextConversation, error: conversationError } = await supabase
       .from('conversations')
@@ -282,6 +286,7 @@ export default function ChatThreadScreen() {
       .eq('id', conversationId)
       .maybeSingle();
     if (conversationError) throw conversationError;
+    if (!isActive()) return;
     if (!nextConversation) throw new Error('This conversation is unavailable.');
 
     const { data: nextMembers, error: membersError } = await supabase
@@ -290,117 +295,47 @@ export default function ChatThreadScreen() {
       .eq('conversation_id', conversationId)
       .is('left_at', null);
     if (membersError) throw membersError;
+    if (!isActive()) return;
     const { data: nextProfiles, error: profilesError } = await supabase
       .from('profiles')
       .select('id,username,display_name,avatar_url,is_official,date_of_birth')
       .in('id', nextMembers.map((member) => member.user_id));
     if (profilesError) throw profilesError;
+    if (!isActive()) return;
 
     const rows = await fetchConversationMessages(supabase, conversationId, undefined, 30);
+    if (!isActive()) return;
     const nextSettings = await supabase
       .from('user_settings')
       .select('show_online_status')
       .eq('user_id', currentUserId)
       .maybeSingle();
     if (nextSettings.error) throw nextSettings.error;
+    if (!isActive()) return;
+    showOnlineStatusRef.current = nextSettings.data?.show_online_status !== false;
 
     userIdRef.current = currentUserId;
     setUserId(currentUserId);
     setConversation(nextConversation);
     setMembers(nextMembers);
     setProfiles(nextProfiles);
-    setMessages(rows.map((message) => ({ ...message, deliveryState: 'sent' })));
+    setMessages((current) => mergeChatMessages(
+      current,
+      rows.map((message) => ({ ...message, deliveryState: 'sent' as const })),
+    ));
     latestMessageIdRef.current = rows[0]?.id ?? null;
     setHasMore(rows.length === 30);
     newestMarkedReadId.current = null;
-    await loadReactions(rows);
-
-    const channel = supabase.channel(`chat:${conversationId}`, {
-      config: { private: true, presence: { key: currentUserId } },
-    });
-    channel
-      .on('postgres_changes', {
-        event: '*',
-        schema: 'public',
-        table: 'messages',
-        filter: `conversation_id=eq.${conversationId}`,
-      }, () => {
-        void reloadLatest().catch((reloadError: unknown) => {
-          console.error('Unable to refresh chat messages.', reloadError);
-        });
-      })
-      .on('postgres_changes', {
-        event: '*',
-        schema: 'public',
-        table: 'message_reactions',
-      }, () => {
-        void reloadLatest().catch((reloadError: unknown) => {
-          console.error('Unable to refresh chat reactions.', reloadError);
-        });
-      })
-      .on('postgres_changes', {
-        event: '*',
-        schema: 'public',
-        table: 'conversation_members',
-        filter: `conversation_id=eq.${conversationId}`,
-      }, async () => {
-        const { data, error: memberRefreshError } = await supabase
-          .from('conversation_members')
-          .select('user_id,last_read_message_id')
-          .eq('conversation_id', conversationId)
-          .is('left_at', null);
-        if (memberRefreshError) {
-          console.error('Unable to refresh conversation membership.', memberRefreshError);
-          return;
-        }
-        setMembers(data);
-      })
-      .on('broadcast', { event: 'typing' }, ({ payload }) => {
-        if (typeof payload?.user_id !== 'string' || payload.user_id === currentUserId) return;
-        setRemoteTyping(true);
-        if (typingTimer.current) clearTimeout(typingTimer.current);
-        typingTimer.current = setTimeout(() => setRemoteTyping(false), 4000);
-      })
-      .on('presence', { event: 'sync' }, () => {
-        const state = channel.presenceState();
-        setOnlineUserIds(new Set(
-          Object.keys(state).filter((presenceUserId) =>
-            presenceUserId !== currentUserId
-            && nextMembers.some((member) => member.user_id === presenceUserId),
-          ),
-        ));
-      });
-
-    channel.subscribe((status, subscribeError) => {
-      if (subscribeError) {
-        console.error('Unable to subscribe to this conversation.', subscribeError);
-      } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-        console.error('Conversation realtime subscription failed.', status);
-      }
-      const currentProfile = nextProfiles.find((profile) => profile.id === currentUserId);
-      if (
-        status === 'SUBSCRIBED'
-        && nextSettings.data?.show_online_status !== false
-        && currentProfile
-        && !isUnder18(currentProfile.date_of_birth)
-      ) {
-        void channel.track({ user_id: currentUserId }).then((trackStatus) => {
-          if (trackStatus !== 'ok') console.error('Unable to publish online presence.', trackStatus);
-        }).catch((trackError: unknown) => {
-          console.error('Unable to publish online presence.', trackError);
-        });
-      }
-    });
-    channelRef.current = channel;
-  }, [conversationId, loadReactions, reloadLatest, supabase]);
+    await loadReactions(rows, isActive);
+  }, [conversationId, loadReactions, supabase]);
 
   useFocusEffect(useCallback(() => {
     let active = true;
     setFocused(true);
     screenFocusedRef.current = true;
-    setLoading(true);
+    if (messagesRef.current.length === 0) setLoading(true);
     setError('');
-    void loadConversation()
+    void loadConversation(() => active)
       .catch((loadError: unknown) => {
         if (active) setError(loadError instanceof Error ? loadError.message : 'Could not load this conversation.');
       })
@@ -413,12 +348,140 @@ export default function ChatThreadScreen() {
       screenFocusedRef.current = false;
       setRemoteTyping(false);
       if (typingTimer.current) clearTimeout(typingTimer.current);
-      if (channelRef.current) {
-        void supabase.removeChannel(channelRef.current);
-        channelRef.current = null;
-      }
     };
-  }, [loadConversation, supabase]));
+  }, [loadConversation]));
+
+  useEffect(() => {
+    if (!conversationId || !userId) return undefined;
+    let active = true;
+    const channel = supabase.channel(`chat:${conversationId}`, {
+      config: { private: true, presence: { key: userId } },
+    });
+    channelRef.current = channel;
+    channel
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'messages',
+        filter: `conversation_id=eq.${conversationId}`,
+      }, (payload) => {
+        if (!active) return;
+        if (payload.eventType === 'DELETE') {
+          const deletedId = (payload.old as { id?: unknown }).id;
+          if (typeof deletedId === 'string') {
+            setMessages((current) => current.filter((message) => message.id !== deletedId));
+            setReactions((current) => {
+              const next = { ...current };
+              delete next[deletedId];
+              return next;
+            });
+          }
+          return;
+        }
+        const realtimeMessage = payload.new;
+        if (!isMessageRow(realtimeMessage)) return;
+        const realtimeEvent = payload.eventType === 'INSERT' ? 'INSERT' : 'UPDATE';
+        setMessages((current) => applyRealtimeChatMessage(current, realtimeMessage, realtimeEvent));
+        const previousNewest = messagesRef.current[0];
+        if (
+          realtimeEvent === 'INSERT'
+          && (!previousNewest || compareMessagePosition(realtimeMessage, previousNewest) > 0)
+        ) {
+          if (showScrollButtonRef.current && realtimeMessage.sender_id !== userIdRef.current) {
+            setNewMessageCount((count) => count + 1);
+          } else if (!showScrollButtonRef.current) {
+            listRef.current?.scrollToOffset({ offset: 0, animated: false });
+          }
+          latestMessageIdRef.current = realtimeMessage.id;
+        }
+      })
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'message_reactions',
+      }, (payload) => {
+        if (!active) return;
+        const reaction = payload.eventType === 'DELETE' ? payload.old : payload.new;
+        const messageId = reaction && typeof reaction === 'object' && 'message_id' in reaction
+          ? reaction.message_id
+          : null;
+        if (typeof messageId !== 'string') return;
+        const message = messagesRef.current.find((item) => item.id === messageId);
+        if (message) {
+          void loadReactions([message]).catch((reactionError: unknown) => {
+            console.error('Unable to refresh reactions for a chat message.', reactionError);
+          });
+        }
+      })
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'conversation_members',
+        filter: `conversation_id=eq.${conversationId}`,
+      }, () => {
+        void (async () => {
+          try {
+            const { data, error: memberRefreshError } = await supabase
+              .from('conversation_members')
+              .select('user_id,last_read_message_id')
+              .eq('conversation_id', conversationId)
+              .is('left_at', null);
+            if (!active) return;
+            if (memberRefreshError) {
+              console.error('Unable to refresh conversation membership.', memberRefreshError);
+              return;
+            }
+            setMembers(data);
+          } catch (memberRefreshError) {
+            if (active) console.error('Unable to refresh conversation membership.', memberRefreshError);
+          }
+        })();
+      })
+      .on('broadcast', { event: 'typing' }, ({ payload }) => {
+        if (!active || typeof payload?.user_id !== 'string' || payload.user_id === userId) return;
+        setRemoteTyping(true);
+        if (typingTimer.current) clearTimeout(typingTimer.current);
+        typingTimer.current = setTimeout(() => setRemoteTyping(false), 4000);
+      })
+      .on('presence', { event: 'sync' }, () => {
+        if (!active) return;
+        const state = channel.presenceState();
+        setOnlineUserIds(new Set(
+          Object.keys(state).filter((presenceUserId) =>
+            presenceUserId !== userId
+            && membersRef.current.some((member) => member.user_id === presenceUserId),
+          ),
+        ));
+      });
+
+    channel.subscribe((status, subscribeError) => {
+      if (!active) return;
+      if (subscribeError) {
+        console.error('Unable to subscribe to this conversation.', subscribeError);
+      } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+        console.error('Conversation realtime subscription failed.', status);
+      }
+      const currentProfile = profilesRef.current.find((profile) => profile.id === userId);
+      if (
+        status === 'SUBSCRIBED'
+        && showOnlineStatusRef.current
+        && currentProfile
+        && !isUnder18(currentProfile.date_of_birth)
+      ) {
+        void channel.track({ user_id: userId }).then((trackStatus) => {
+          if (active && trackStatus !== 'ok') console.error('Unable to publish online presence.', trackStatus);
+        }).catch((trackError: unknown) => {
+          if (active) console.error('Unable to publish online presence.', trackError);
+        });
+      }
+    });
+    return () => {
+      active = false;
+      if (typingTimer.current) clearTimeout(typingTimer.current);
+      if (channelRef.current === channel) channelRef.current = null;
+      void supabase.removeChannel(channel);
+    };
+  }, [conversationId, loadReactions, supabase, userId]);
 
   useEffect(() => {
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
@@ -469,7 +532,7 @@ export default function ChatThreadScreen() {
     });
     if (readError) {
       newestMarkedReadId.current = null;
-      Alert.alert('Could not mark chat as read', readError.message);
+      console.warn('Unable to mark the latest chat message as read.', readError);
     }
   }, [conversationId, focused, supabase, userId]);
 
@@ -811,7 +874,7 @@ export default function ChatThreadScreen() {
       <View>
         {showDate ? <View style={styles.dateDivider}><Text style={styles.dateText}>{dateLabel(item.created_at)}</Text></View> : null}
         {conversation?.type === 'group' && !groupedWithOlder && !mine && sender ? (
-          <Text style={styles.senderName}>{sender.display_name}</Text>
+          <NameWithBadge name={sender.display_name} userId={sender.id} size="xs" textStyle={styles.senderName} />
         ) : null}
         <View style={[styles.messageLine, mine && styles.messageLineMine]}>
           <Pressable
@@ -1009,7 +1072,11 @@ export default function ChatThreadScreen() {
               )}
             </View>
             <View style={styles.headerIdentity}>
-              <Text style={styles.headerTitle} numberOfLines={1}>{title}</Text>
+              {conversation.type === 'group' ? (
+                <Text style={styles.headerTitle} numberOfLines={1}>{title}</Text>
+              ) : (
+                <NameWithBadge name={title} userId={peer?.id} size="sm" textStyle={styles.headerTitle} />
+              )}
               {statusLine ? <Text style={styles.statusText}>{statusLine}</Text> : null}
             </View>
             <View style={styles.callButtons}>

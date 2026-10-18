@@ -1,4 +1,6 @@
 import { useEvent } from 'expo';
+import * as Crypto from 'expo-crypto';
+import * as Linking from 'expo-linking';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -16,6 +18,7 @@ import {
 } from 'react-native';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { Icon } from '../../components/Icon';
+import { NameWithBadge } from '../../components/NameWithBadge';
 import { FocusableTextInput } from '../../components/AuthField';
 import { ChatScreenLayout } from '../../components/ChatScreenLayout';
 import { KeyboardAwareScreen } from '../../hooks/useKeyboardInset';
@@ -25,9 +28,11 @@ import { parseWebVtt, writeWebVtt, type VttCue } from '../../features/captions/v
 import { incrementPostShare, setPostLiked, setPostSaved } from '../../features/feed/postActions';
 import { getSignedUrls } from '../../features/feed/useFeed';
 import { getSupabaseClient } from '../../lib/supabase';
+import { getSingleRouteParam, isUuidRouteParam } from '../../lib/routeParams';
 import type { Post } from '../../types/database';
 import { theme } from '../../theme/theme';
 import { calculateChatComposerHeight } from '../../features/chats/chatLayout';
+export { RouteErrorFallback as ErrorBoundary } from '../../components/RouteErrorFallback';
 
 type PostDetail = {
   post: Pick<
@@ -86,6 +91,7 @@ type CommentCursor = { createdAt: string; id: string };
 type CommentPage = { items: CommentItem[]; nextCursor: CommentCursor | null };
 
 async function loadPost(postId: string): Promise<PostDetail> {
+  if (!isUuidRouteParam(postId)) throw new Error('This video link is invalid.');
   const client = getSupabaseClient();
   const { data: post, error: postError } = await client
     .from('posts')
@@ -97,16 +103,16 @@ async function loadPost(postId: string): Promise<PostDetail> {
 
   const [{ data: author, error: authorError }, { data: userResult, error: userError }] = await Promise.all([
     client.from('profiles').select('id,username,display_name,avatar_url').eq('id', post.author_id).maybeSingle(),
-    client.auth.getUser(),
+    client.auth.getSession(),
   ]);
   if (authorError) throw authorError;
   if (userError) throw userError;
   if (!author) throw new Error('Could not load the video creator.');
-  if (!userResult.user) throw new Error('Sign in to view this video.');
+  if (!userResult.session?.user) throw new Error('Sign in to view this video.');
 
   const [likesResult, savesResult, videoUrls] = await Promise.all([
-    client.from('post_likes').select('post_id').eq('post_id', postId).eq('user_id', userResult.user.id).maybeSingle(),
-    client.from('post_saves').select('post_id').eq('post_id', postId).eq('user_id', userResult.user.id).maybeSingle(),
+    client.from('post_likes').select('post_id').eq('post_id', postId).eq('user_id', userResult.session.user.id).maybeSingle(),
+    client.from('post_saves').select('post_id').eq('post_id', postId).eq('user_id', userResult.session.user.id).maybeSingle(),
     post.video_path ? getSignedUrls('videos', [post.video_path]) : Promise.resolve(new Map<string, string | null>()),
   ]);
   if (likesResult.error) throw likesResult.error;
@@ -118,7 +124,7 @@ async function loadPost(postId: string): Promise<PostDetail> {
     videoUrl: post.video_path ? videoUrls.get(post.video_path) ?? null : null,
     liked: Boolean(likesResult.data),
     saved: Boolean(savesResult.data),
-    currentUserId: userResult.user.id,
+    currentUserId: userResult.session.user.id,
   };
 }
 
@@ -235,7 +241,7 @@ function formatCommentDate(value: string) {
 
 export default function PostDetailScreen() {
   const { id: routeId } = useLocalSearchParams<{ id: string }>();
-  const postId = Array.isArray(routeId) ? routeId[0] : routeId;
+  const postId = getSingleRouteParam(routeId) ?? '';
   const queryClient = useQueryClient();
   const [commentText, setCommentText] = useState('');
   const [commentInputHeight, setCommentInputHeight] = useState(44);
@@ -250,7 +256,7 @@ export default function PostDetailScreen() {
   const postQuery = useQuery({
     queryKey: ['post-detail', postId],
     queryFn: () => loadPost(postId),
-    enabled: Boolean(postId),
+    enabled: true,
     refetchInterval: (query) => {
       const status = query.state.data?.post.captions_status;
       return status === 'queued' || status === 'processing' ? 5000 : false;
@@ -397,10 +403,15 @@ export default function PostDetailScreen() {
 
   const sharePost = async () => {
     if (!detail) return;
+    const postUrl = Linking.createURL(`/post/${detail.post.id}`);
+    const shareId = Crypto.randomUUID();
     try {
-      const result = await Share.share({ message: `Watch @${detail.author.username}'s video on Wimpex.` });
+      const result = await Share.share({
+        message: `Watch @${detail.author.username}'s video on Wimpex. ${postUrl}`,
+        url: postUrl,
+      });
       if (result.action === Share.sharedAction) {
-        await incrementPostShare(detail.post.id);
+        await incrementPostShare(detail.post.id, shareId);
         await refreshPost();
       }
     } catch (error) {
@@ -496,7 +507,12 @@ export default function PostDetailScreen() {
             <View style={styles.authorMeta}>
               <Link href={{ pathname: '/user/[username]', params: { username: detail.author.username } }} asChild>
                 <Pressable accessibilityRole="button">
-                  <Text style={styles.authorName}>{detail.author.display_name}</Text>
+                  <NameWithBadge
+                    name={detail.author.display_name}
+                    userId={detail.post.author_id}
+                    size="sm"
+                    textStyle={styles.authorName}
+                  />
                   <Text style={styles.handle}>@{detail.author.username}</Text>
                 </Pressable>
               </Link>
@@ -696,7 +712,12 @@ function CommentRowView({
         <View style={styles.commentMeta}>
           <Link href={{ pathname: '/user/[username]', params: { username: comment.author.username } }} asChild>
             <Pressable accessibilityRole="button">
-              <Text style={styles.commentName}>{comment.author.display_name}</Text>
+              <NameWithBadge
+                name={comment.author.display_name}
+                userId={comment.author_id}
+                size="xs"
+                textStyle={styles.commentName}
+              />
             </Pressable>
           </Link>
           <Text style={styles.commentDate}>{formatCommentDate(comment.created_at)}</Text>

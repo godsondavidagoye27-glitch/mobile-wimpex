@@ -12,6 +12,10 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  BackHandler,
+  Linking,
+  PermissionsAndroid,
+  Platform,
   Pressable,
   SafeAreaView,
   StatusBar,
@@ -20,14 +24,18 @@ import {
   View,
 } from 'react-native';
 import { Icon } from '../../components/Icon';
+import { NameWithBadge } from '../../components/NameWithBadge';
 import {
+  fetchCallSession,
   requestCallAction,
   subscribeToCall,
   type CallResponse,
   type CallSession,
 } from '../../features/calls/callService';
 import { isTerminalCallStatus } from '../../features/calls/callPolicy';
+import { getSingleRouteParam, isUuidRouteParam } from '../../lib/routeParams';
 import { theme } from '../../theme/theme';
+export { RouteErrorFallback as ErrorBoundary } from '../../components/RouteErrorFallback';
 
 registerGlobals();
 
@@ -38,32 +46,83 @@ type RouteParams = {
   mode?: string;
 };
 
+async function requestCallMediaPermissions(mediaType: 'audio' | 'video') {
+  if (Platform.OS !== 'android') return true;
+  const requiredPermissions = [
+    PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
+    ...(mediaType === 'video' ? [PermissionsAndroid.PERMISSIONS.CAMERA] : []),
+  ];
+  const results = await PermissionsAndroid.requestMultiple(requiredPermissions);
+  return requiredPermissions.every((permission) =>
+    results[permission] === PermissionsAndroid.RESULTS.GRANTED,
+  );
+}
+
 export default function CallScreen() {
   const params = useLocalSearchParams<RouteParams>();
-  const conversationId = Array.isArray(params.conversationId)
-    ? params.conversationId[0]
-    : params.conversationId;
-  const callId = Array.isArray(params.callId) ? params.callId[0] : params.callId;
-  const direction = Array.isArray(params.direction) ? params.direction[0] : params.direction;
-  const requestedMode = Array.isArray(params.mode) ? params.mode[0] : params.mode;
+  const conversationRouteId = getSingleRouteParam(params.conversationId);
+  const callRouteId = getSingleRouteParam(params.callId);
+  const conversationId = isUuidRouteParam(conversationRouteId) ? conversationRouteId : undefined;
+  const callId = isUuidRouteParam(callRouteId) ? callRouteId : undefined;
+  const direction = getSingleRouteParam(params.direction);
+  const requestedMode = getSingleRouteParam(params.mode);
   const incoming = direction === 'incoming';
   const mediaType = requestedMode === 'audio' ? 'audio' : 'video';
+  const routeKey = `${conversationId ?? ''}:${callId ?? ''}:${incoming}:${mediaType}`;
+  return (
+    <CallSessionScreen
+      key={routeKey}
+      conversationId={conversationId}
+      callId={callId}
+      incoming={incoming}
+      mediaType={mediaType}
+    />
+  );
+}
+
+function CallSessionScreen({
+  conversationId,
+  callId,
+  incoming,
+  mediaType,
+}: {
+  conversationId: string | undefined;
+  callId: string | undefined;
+  incoming: boolean;
+  mediaType: 'audio' | 'video';
+}) {
   const [connection, setConnection] = useState<CallResponse | null>(null);
   const [call, setCall] = useState<CallSession | null>(null);
-  const [loading, setLoading] = useState(!incoming);
+  const incompleteCall = incoming ? !callId : !conversationId;
+  const [loading, setLoading] = useState(!incompleteCall);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState(
+    incompleteCall ? `This ${incoming ? 'incoming ' : ''}call link is incomplete.` : '',
+  );
   const [callWarning, setCallWarning] = useState('');
   const [notice, setNotice] = useState('');
+  const [permissionDenied, setPermissionDenied] = useState(false);
   const [audioReady, setAudioReady] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const startedRef = useRef(false);
   const startedAtRef = useRef<number | null>(null);
   const endingRef = useRef(false);
+  const callRef = useRef<CallSession | null>(null);
 
   const setCallState = useCallback((next: CallSession) => {
-    setCall(next);
-    setConnection((current) => current ? { ...current, call: next } : current);
+    const current = callRef.current;
+    callRef.current = next;
+    const changed = !current
+      || current.status !== next.status
+      || current.caller_connected_at !== next.caller_connected_at
+      || current.callee_connected_at !== next.callee_connected_at
+      || current.ended_at !== next.ended_at;
+    if (changed) {
+      setCall(next);
+      setConnection((activeConnection) =>
+        activeConnection ? { ...activeConnection, call: next } : activeConnection,
+      );
+    }
     if (isTerminalCallStatus(next.status)) {
       setConnection(null);
       setNotice(
@@ -76,15 +135,51 @@ export default function CallScreen() {
     }
   }, []);
 
+  useEffect(() => {
+    if (!incoming || !callId) return undefined;
+    let active = true;
+    void fetchCallSession(callId)
+      .then((latest) => {
+        if (!active) return;
+        if (!latest) {
+          setError('This call is no longer available.');
+          return;
+        }
+        setCallState(latest);
+      })
+      .catch((loadError: unknown) => {
+        if (active) setError(loadError instanceof Error ? loadError.message : 'Could not load this call.');
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [callId, incoming, setCallState]);
+
   const startCall = useCallback(async () => {
     if (!conversationId || startedRef.current) return;
     startedRef.current = true;
     try {
+      if (!(await requestCallMediaPermissions(mediaType))) {
+        startedRef.current = false;
+        setPermissionDenied(true);
+        setError('Allow microphone access to place this call.');
+        setLoading(false);
+        return;
+      }
       const result = await requestCallAction('start', { conversationId, mediaType });
       if (!('token' in result)) throw new Error('The call service did not return a connection token.');
+      callRef.current = result.call;
       setCall(result.call);
       setConnection(result);
-      setCallWarning(result.warning ?? '');
+      setCallWarning(
+        result.warning
+        ?? (result.ringReachability === 'push_unavailable'
+          ? 'They may not be notified unless Wimpex is open.'
+          : ''),
+      );
     } catch (callError) {
       setError(callError instanceof Error ? callError.message : 'Could not start the call.');
     } finally {
@@ -99,10 +194,30 @@ export default function CallScreen() {
   }, [incoming, startCall]);
 
   useEffect(() => {
-    const activeCallId = call?.id;
+    const activeCallId = call?.id ?? (incoming ? callId : undefined);
     if (!activeCallId) return;
     return subscribeToCall(activeCallId, setCallState);
-  }, [call?.id, setCallState]);
+  }, [call?.id, callId, incoming, setCallState]);
+
+  useEffect(() => {
+    const activeCallId = call?.id ?? (incoming ? callId : undefined);
+    const activeCallStatus = call?.status;
+    if (!activeCallId || (activeCallStatus && isTerminalCallStatus(activeCallStatus))) return undefined;
+    let active = true;
+    const poll = async () => {
+      try {
+        const latest = await fetchCallSession(activeCallId);
+        if (active && latest) setCallState(latest);
+      } catch (pollError) {
+        if (active) console.warn('Could not refresh call status; realtime updates remain active.', pollError);
+      }
+    };
+    const timer = setInterval(() => void poll(), 4000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, [call?.id, call?.status, callId, incoming, setCallState]);
 
   useEffect(() => {
     if (!call || call.status !== 'ringing') return;
@@ -121,6 +236,21 @@ export default function CallScreen() {
     }, 1000);
     return () => clearInterval(timer);
   }, [call, setCallState]);
+
+  useEffect(() => {
+    const activeCallId = call?.id;
+    if (!activeCallId || call?.status !== 'active') return undefined;
+    const timer = setInterval(() => {
+      void requestCallAction('heartbeat', { callId: activeCallId })
+        .then((result) => {
+          if ('call' in result) setCallState(result.call);
+        })
+        .catch((heartbeatError: unknown) => {
+          console.warn('Could not refresh call activity.', heartbeatError);
+        });
+    }, 20_000);
+    return () => clearInterval(timer);
+  }, [call?.id, call?.status, setCallState]);
 
   useEffect(() => {
     if (call?.status !== 'active') return;
@@ -159,8 +289,14 @@ export default function CallScreen() {
     setBusy(true);
     setError('');
     try {
+      if (!(await requestCallMediaPermissions(mediaType))) {
+        setPermissionDenied(true);
+        setError('Allow microphone access to answer this call.');
+        return;
+      }
       const result = await requestCallAction('accept', { callId });
       if (!('token' in result)) throw new Error('The call service did not return a connection token.');
+      callRef.current = result.call;
       setCall(result.call);
       setConnection(result);
     } catch (callError) {
@@ -168,11 +304,12 @@ export default function CallScreen() {
     } finally {
       setBusy(false);
     }
-  }, [busy, callId]);
+  }, [busy, callId, mediaType]);
 
   const finishCall = useCallback(async (action: 'end' | 'decline') => {
     const currentCallId = call?.id ?? callId;
-    if (!currentCallId || endingRef.current) {
+    if (endingRef.current) return;
+    if (!currentCallId) {
       router.back();
       return;
     }
@@ -190,6 +327,31 @@ export default function CallScreen() {
     }
   }, [call?.id, callId, setCallState]);
 
+  useEffect(() => {
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (incoming && callId && (!callRef.current || callRef.current.status === 'ringing')) {
+        void finishCall('decline');
+      } else if (callRef.current && !isTerminalCallStatus(callRef.current.status)) {
+        void finishCall(callRef.current.status === 'ringing' && incoming ? 'decline' : 'end');
+      } else {
+        router.back();
+      }
+      return true;
+    });
+    return () => subscription.remove();
+  }, [callId, finishCall, incoming]);
+
+  useEffect(() => () => {
+    const currentCall = callRef.current;
+    const currentCallId = currentCall?.id ?? (incoming ? callId : undefined);
+    if (!currentCallId || (currentCall && isTerminalCallStatus(currentCall.status)) || endingRef.current) return;
+    endingRef.current = true;
+    const action = (!currentCall || currentCall.status === 'ringing') && incoming ? 'decline' : 'end';
+    void requestCallAction(action, { callId: currentCallId }).catch((cleanupError: unknown) => {
+      console.error('Could not end the call while leaving the call screen.', cleanupError);
+    });
+  }, [callId, incoming]);
+
   const handleConnected = useCallback(() => {
     const currentCallId = call?.id;
     if (!currentCallId) return;
@@ -202,6 +364,13 @@ export default function CallScreen() {
       });
   }, [call?.id, setCallState]);
 
+  const handleDisconnected = useCallback(() => {
+    const currentCall = callRef.current;
+    if (!currentCall || isTerminalCallStatus(currentCall.status) || endingRef.current) return;
+    setError('The call connection was lost.');
+    void finishCall('end');
+  }, [finishCall]);
+
   const roomConnection = useMemo(() => {
     if (!connection || !audioReady) return null;
     return (
@@ -213,12 +382,16 @@ export default function CallScreen() {
         video={connection.call.media_type === 'video'}
         options={{ adaptiveStream: { pixelDensity: 'screen' }, dynacast: true }}
         onConnected={handleConnected}
-        onDisconnected={() => undefined}
+        onDisconnected={handleDisconnected}
         onError={(roomError) => setError(roomError.message || 'The call connection failed.')}
-        onMediaDeviceFailure={() => setError('Camera or microphone permission is unavailable.')}
+        onMediaDeviceFailure={() => {
+          setPermissionDenied(true);
+          setError('Camera or microphone permission is unavailable.');
+        }}
       >
         <CallRoom
           peerName={connection.peer.displayName}
+          peerId={connection.peer.id}
           mediaType={connection.call.media_type}
           error={error}
           warning={callWarning}
@@ -228,7 +401,7 @@ export default function CallScreen() {
         />
       </LiveKitRoom>
     );
-  }, [audioReady, busy, callWarning, connection, elapsedSeconds, error, finishCall, handleConnected]);
+  }, [audioReady, busy, callWarning, connection, elapsedSeconds, error, finishCall, handleConnected, handleDisconnected]);
 
   const statusLabel = call?.status === 'active'
     ? formatDuration(elapsedSeconds)
@@ -252,9 +425,16 @@ export default function CallScreen() {
           </Pressable>
           {loading || busy ? (
             <ActivityIndicator color={theme.colors.primary} size="large" />
-          ) : incoming && !connection ? (
+          ) : incoming && call?.status === 'ringing' && !connection ? (
             <IncomingCall
               mode={mediaType}
+              error={error}
+              permissionDenied={permissionDenied}
+              onOpenSettings={() => {
+                void Linking.openSettings().catch((settingsError: unknown) => {
+                  console.error('Could not open device permission settings.', settingsError);
+                });
+              }}
               onAccept={() => void answerCall()}
               onDecline={() => void finishCall('decline')}
             />
@@ -265,6 +445,24 @@ export default function CallScreen() {
               </View>
               <Text style={styles.statusText}>{notice || (call ? statusLabel : 'Call not connected')}</Text>
               {error ? <Text style={styles.errorText}>{error}</Text> : null}
+              {permissionDenied ? (
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => {
+                    void Linking.openSettings().catch((settingsError: unknown) => {
+                      console.error('Could not open device permission settings.', settingsError);
+                    });
+                  }}
+                  style={styles.backButton}
+                >
+                  <Text style={styles.backButtonText}>Open settings</Text>
+                </Pressable>
+              ) : null}
+              {permissionDenied && !incoming ? (
+                <Pressable accessibilityRole="button" onPress={() => void startCall()} style={styles.backButton}>
+                  <Text style={styles.backButtonText}>Try again</Text>
+                </Pressable>
+              ) : null}
               {call && !notice ? (
                 <Pressable
                   accessibilityRole="button"
@@ -289,10 +487,16 @@ export default function CallScreen() {
 
 function IncomingCall({
   mode,
+  error,
+  permissionDenied,
+  onOpenSettings,
   onAccept,
   onDecline,
 }: {
   mode: 'audio' | 'video';
+  error: string;
+  permissionDenied: boolean;
+  onOpenSettings: () => void;
   onAccept: () => void;
   onDecline: () => void;
 }) {
@@ -303,6 +507,12 @@ function IncomingCall({
       </View>
       <Text style={styles.title}>Incoming {mode} call</Text>
       <Text style={styles.statusText}>Someone is calling you</Text>
+      {error ? <Text style={styles.errorText}>{error}</Text> : null}
+      {permissionDenied ? (
+        <Pressable accessibilityRole="button" onPress={onOpenSettings} style={styles.backButton}>
+          <Text style={styles.backButtonText}>Open settings</Text>
+        </Pressable>
+      ) : null}
       <View style={styles.incomingActions}>
         <CallActionButton
           icon="close"
@@ -323,6 +533,7 @@ function IncomingCall({
 
 function CallRoom({
   peerName,
+  peerId,
   mediaType,
   error,
   warning,
@@ -331,6 +542,7 @@ function CallRoom({
   onHangup,
 }: {
   peerName: string;
+  peerId: string;
   mediaType: 'audio' | 'video';
   error: string;
   warning: string;
@@ -382,14 +594,14 @@ function CallRoom({
           <View style={styles.avatar}>
             <Icon name="user" size={24} color={theme.colors.white} />
           </View>
-          <Text style={styles.title}>{peerName}</Text>
+          <NameWithBadge name={peerName} userId={peerId} size="lg" textStyle={styles.title} />
           <Text style={styles.statusText}>
             {mediaType === 'video' ? 'Waiting for their camera…' : formatDuration(elapsedSeconds)}
           </Text>
         </View>
       )}
       <View style={styles.topBar}>
-        <Text style={styles.peerName} numberOfLines={1}>{peerName}</Text>
+        <NameWithBadge name={peerName} userId={peerId} size="md" textStyle={styles.peerName} />
         <Text style={styles.callDuration}>{formatDuration(elapsedSeconds)}</Text>
         {warning ? <Text style={styles.pushWarning}>{warning}</Text> : null}
         {error || controlError ? (

@@ -297,7 +297,7 @@ npx eas-cli@latest build --profile development --platform android
 
 ## Push notifications
 
-The mobile client uses Expo Notifications SDK 57. The root app must mount `NotificationLifecycle` inside the Expo Router tree (for example beside `OnlinePresence` in `src/app/_layout.tsx`). The component follows Supabase auth session changes, synchronizes already-granted notification permissions, handles notification taps, and verifies active conversation membership before routing. Push permission is requested only when a user enables **Push notifications** in Settings.
+The mobile client uses Expo Notifications SDK 57. The root app mounts `NotificationLifecycle` inside the Expo Router tree beside `OnlinePresence`. It creates Android notification channels before requesting permission, asks after sign-in, follows push-token and app-state changes, handles foreground call alerts and notification taps, and verifies recipient/conversation access before routing. The Settings toggle remains available.
 
 ### Supabase setup
 
@@ -316,7 +316,7 @@ The mobile client uses Expo Notifications SDK 57. The root app must mount `Notif
 
    `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are supplied to hosted Edge Functions. Never put the service-role key or webhook secret in app configuration or an `EXPO_PUBLIC_` variable.
 4. In the Supabase Dashboard, create a Database Webhook for `public.messages` on **INSERT**, targeting the `chat-push` function. Send `x-webhook-secret: <same-random-secret>`. Do not expose this secret to the mobile app.
-5. Configure the EAS project's iOS Push Notifications capability/APNs credentials and Android FCM v1 credentials. Build and test a development client or production build; remote push notifications are not available in Expo Go.
+5. Configure the EAS project's iOS Push Notifications capability/APNs credentials and Android FCM v1 credentials. Upload `google-services.json` as an EAS file variable named `GOOGLE_SERVICES_JSON`. Follow [calling and push deployment](./docs/calling-push-setup.md). Build and test a development client or production build; remote push notifications are not available in Expo Go.
 
 The function re-reads the inserted message and current conversation membership from Supabase rather than trusting message text from the webhook payload. It skips deleted, demo, call, system, read-only, muted, blocked, and already-read messages, and sends only when both `push_enabled` and `notify_messages` allow delivery. Push content omits message text. Expo `DeviceNotRegistered` responses remove the stale token; successful deliveries are deduplicated per message, recipient, and installation.
 
@@ -345,7 +345,7 @@ The `/call/[conversationId]` route provides an outgoing audio/video call screen 
    ```
 
    `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY` are supplied to deployed Supabase Edge Functions. Never add the LiveKit secret or service-role key to an `EXPO_PUBLIC_*` variable or the app bundle.
-3. Apply the migration `supabase/migrations/20261013070000_livekit_calls.sql` after the existing chat migration, then deploy the function:
+3. Apply `supabase/migrations/20261013070000_livekit_calls.sql` and `supabase/migrations/20261018020000_call_lifecycle_reliability.sql` after the chat migration, then deploy the function:
 
    ```powershell
    npx supabase db push
@@ -379,15 +379,15 @@ For an incoming-call notification action, the existing `NotificationLifecycle` h
 
 The notification tap opens `/call/<conversationId>?callId=<call-session-uuid>&direction=incoming&mode=video`, where the recipient can answer or decline. Calls ring for 45 seconds. A caller screen can receive state changes while open through Supabase Realtime.
 
-The Edge Function sends an Expo push after creating the call, only if the recipient has `user_settings.push_enabled` enabled and has at least one registered `device_push_tokens` destination. Expo ticket acceptance is the delivery boundary: if push is disabled, there is no registered destination, or Expo cannot accept any ticket, the function marks the newly created call ended and returns a non-2xx error with a caller-visible explanation; it does not issue a room token. If only some device tickets are accepted, the call proceeds and the caller sees a warning. An accepted Expo ticket is not proof that the OS displayed the notification, so push credentials and physical-device delivery still need operational verification.
+The Edge Function places the call even when notifications are disabled, no device is registered, or Expo rejects a ticket. The caller sees a friendly reachability warning, and a signed-in callee in the foreground can receive the call through the call-session Realtime listener without push. Push tickets are not proof that the OS displayed a notification, so provider credentials and device delivery still need operational verification.
 
 ### Eligibility and lifecycle
 
 - Only non-demo, non-official, adult users in a regular one-to-one conversation can call. Calls to groups and the read-only welcome conversation are rejected server-side.
 - Existing blocks are enforced in both directions. The recipient's `dm_policy` is enforced; `friends` requires mutual accepted follows.
-- Call session inserts/updates are server-only; authenticated participants can only read sessions covered by the chat membership RLS policy. The Realtime publication is enabled for the new table.
+- Call session inserts/updates are server-only; authenticated participants can read sessions covered by chat membership RLS. A private call-status channel is restricted to its two participants. A polling fallback refreshes status if Realtime fails.
 - Start creates a unique room name and a one-hour room-scoped token. Accept mints a token only for the callee. Tokens can publish camera/microphone media for video calls and microphone audio only for audio calls; data publishing is disabled.
-- The client reports accepted/connected/ended/declined/missed lifecycle events. Stale ringing sessions expire after 45 seconds. LiveKit rooms close when empty according to the LiveKit project's room timeout.
+- The client reports accepted/connected/ended/declined/missed lifecycle events and sends activity heartbeats. The new `20261018020000_call_lifecycle_reliability.sql` migration closes expired or stale call rows; setup instructions are in [calling and push deployment](./docs/calling-push-setup.md).
 
 ### Native build
 
@@ -396,6 +396,8 @@ LiveKit requires a development/production native build and does not run in Expo 
 ```powershell
 npx eas-cli@latest build --profile development --platform android
 ```
+
+Calls and live streams do not currently use an OS foreground service or iOS audio background mode; keep Wimpex foregrounded for calls. Android permission and notification plugin changes also require a new native build. EAS update channels and rollback notes are documented in [calling and push deployment](./docs/calling-push-setup.md).
 
 ## Stories manual test
 

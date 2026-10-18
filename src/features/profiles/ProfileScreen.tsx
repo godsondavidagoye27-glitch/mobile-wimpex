@@ -18,6 +18,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { Icon, type AppIconName } from '../../components/Icon';
+import { NameWithBadge } from '../../components/NameWithBadge';
 import { getSupabaseClient } from '../../lib/supabase';
 import { getSignedUrls } from '../feed/useFeed';
 import { theme } from '../../theme/theme';
@@ -373,11 +374,11 @@ export function ProfileScreen({ username }: { username: string | null }) {
     setReportOpen(false);
     setScreenError('');
     try {
-      const { data, error: authError } = await getSupabaseClient().auth.getUser();
+      const { data, error: authError } = await getSupabaseClient().auth.getSession();
       if (authError) throw authError;
-      if (!data.user) throw new Error('Sign in again to report this account.');
+      if (!data.session?.user) throw new Error('Sign in again to report this account.');
       const { error } = await getSupabaseClient().from('reports').insert({
-        reporter_id: data.user.id,
+        reporter_id: data.session.user.id,
         target_type: 'profile',
         target_id: shownProfile.id,
         reason,
@@ -472,7 +473,12 @@ export function ProfileScreen({ username }: { username: string | null }) {
               : <View style={styles.avatarFallback}><Text style={styles.avatarText}>{avatarInitials}</Text></View>}
           </LinearGradient>
         </View>
-        <Text style={styles.displayName}>{shownProfile.display_name}</Text>
+        <NameWithBadge
+          name={shownProfile.display_name}
+          userId={shownProfile.id}
+          size="md"
+          textStyle={styles.displayName}
+        />
         <Text style={styles.username}>@{shownProfile.username}</Text>
         {shownProfile.bio ? <Text style={styles.bio}>{shownProfile.bio}</Text> : null}
         {shownProfile.link ? (

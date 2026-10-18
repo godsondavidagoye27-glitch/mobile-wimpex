@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import Svg, { Circle, Path } from 'react-native-svg';
 import { Icon } from '../../components/Icon';
+import { NameWithBadge } from '../../components/NameWithBadge';
 import { getSupabaseClient } from '../../lib/supabase';
 import { theme } from '../../theme/theme';
 import type { NotificationType } from '../../types/database';
@@ -27,7 +28,7 @@ type NotificationRow = {
   live_stream_id: string | null;
   read_at: string | null;
   created_at: string;
-  actor: { username: string; display_name: string; avatar_url: string | null } | null;
+  actor: { id: string; username: string; display_name: string; avatar_url: string | null } | null;
 };
 
 type NotificationSection = {
@@ -317,10 +318,17 @@ export function NotificationCenter() {
                 <NotificationTypeIcon type={item.type} />
               </View>
               <View style={styles.rowContent}>
-                <Text style={styles.message}>
-                  <Text style={styles.actorName}>{item.actor?.display_name ?? 'Someone'}</Text>
-                  {` ${notificationAction(item.type)}`}
-                </Text>
+                <View style={styles.message}>
+                  {item.actor ? (
+                    <NameWithBadge
+                      name={item.actor.display_name}
+                      userId={item.actor.id}
+                      size="xs"
+                      textStyle={styles.actorName}
+                    />
+                  ) : <Text style={styles.actorName}>Someone</Text>}
+                  <Text style={styles.actionText}>{` ${notificationAction(item.type)}`}</Text>
+                </View>
                 <Text style={styles.time}>{formatNotificationTime(item.created_at)}</Text>
               </View>
               {!item.read_at ? <View style={styles.unreadDot} /> : null}
@@ -408,7 +416,8 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.black,
   },
   rowContent: { flex: 1, gap: 5 },
-  message: { color: theme.colors.textMuted, fontSize: 14, lineHeight: 20 },
+  message: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center' },
+  actionText: { color: theme.colors.textMuted, fontSize: 14, lineHeight: 20 },
   actorName: { color: theme.colors.white, fontWeight: '700' },
   time: { color: theme.colors.textMuted, fontSize: 12 },
   unreadDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: theme.colors.primary },

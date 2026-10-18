@@ -1,6 +1,7 @@
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { router, useLocalSearchParams } from 'expo-router';
+import { getSingleRouteParam } from '../../lib/routeParams';
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -36,7 +37,7 @@ function LocalCommunityVideo({ uri }: { uri: string }) {
 
 export default function CommunityPostComposerScreen() {
   const params = useLocalSearchParams<{ slug?: string }>();
-  const requestedSlug = Array.isArray(params.slug) ? params.slug[0] : params.slug;
+  const requestedSlug = getSingleRouteParam(params.slug);
   const [communities, setCommunities] = useState<CommunityListRpcRow[]>([]);
   const [selectedCommunity, setSelectedCommunity] = useState<CommunityListRpcRow | null>(null);
   const [body, setBody] = useState('');

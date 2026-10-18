@@ -6,7 +6,10 @@ import { secureStorage } from '../../lib/storage';
 import { getSupabaseClient } from '../../lib/supabase';
 
 const installationKey = 'wimpex-push-installation-id';
+const permissionPromptKey = 'wimpex-push-permission-prompted';
 let installationIdPromise: Promise<string> | undefined;
+let channelsPromise: Promise<void> | undefined;
+const permissionRequestPromises = new Map<string, Promise<boolean>>();
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -35,10 +38,10 @@ async function getInstallationId() {
 
 async function getCurrentUserId() {
   const client = getSupabaseClient();
-  const { data, error } = await client.auth.getUser();
+  const { data, error } = await client.auth.getSession();
   if (error) throw error;
-  if (!data.user) return null;
-  return data.user.id;
+  if (!data.session?.user) return null;
+  return data.session.user.id;
 }
 
 async function removeCurrentInstallationToken(userId: string) {
@@ -52,18 +55,36 @@ async function removeCurrentInstallationToken(userId: string) {
   if (error) throw error;
 }
 
+export function initializeNotificationChannels() {
+  if (Platform.OS !== 'android') return Promise.resolve();
+  if (!channelsPromise) {
+    channelsPromise = Promise.all([
+      Notifications.setNotificationChannelAsync('default', {
+        name: 'Messages',
+        importance: Notifications.AndroidImportance.DEFAULT,
+        sound: 'default',
+      }),
+      Notifications.setNotificationChannelAsync('calls', {
+        name: 'Calls',
+        importance: Notifications.AndroidImportance.MAX,
+        sound: 'default',
+        vibrationPattern: [0, 300, 200, 300],
+        lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+      }),
+    ]).then(() => undefined).catch((error: unknown) => {
+      channelsPromise = undefined;
+      throw error;
+    });
+  }
+  return channelsPromise;
+}
+
 async function registerCurrentInstallationToken(userId: string) {
   if (Platform.OS !== 'ios' && Platform.OS !== 'android') {
     throw new Error('Push notifications are available in iOS and Android builds only.');
   }
 
-  if (Platform.OS === 'android') {
-    await Notifications.setNotificationChannelAsync('default', {
-      name: 'Messages',
-      importance: Notifications.AndroidImportance.DEFAULT,
-      sound: 'default',
-    });
-  }
+  await initializeNotificationChannels();
 
   let permission = await Notifications.getPermissionsAsync();
   if (!permission.granted) permission = await Notifications.requestPermissionsAsync();
@@ -91,6 +112,37 @@ async function registerCurrentInstallationToken(userId: string) {
     updated_at: new Date().toISOString(),
   }, { onConflict: 'user_id,installation_id' });
   if (error) throw error;
+}
+
+export async function requestPushPermissionOnceAfterSignIn(userId: string) {
+  const existing = permissionRequestPromises.get(userId);
+  if (existing) return existing;
+  const operation = (async () => {
+    const promptKey = `${permissionPromptKey}:${userId}`;
+    const prompted = await secureStorage.getItem(promptKey);
+    if (prompted === 'true') {
+      await syncPushTokenForCurrentSession();
+      return getPushPermissionGranted();
+    }
+    await secureStorage.setItem(promptKey, 'true');
+    await initializeNotificationChannels();
+    try {
+      await syncPushTokenForCurrentSession(true);
+    } catch (error) {
+      if (!(await getPushPermissionGranted())) return false;
+      throw error;
+    }
+    return getPushPermissionGranted();
+  })();
+  permissionRequestPromises.set(userId, operation);
+  try {
+    return await operation;
+  } catch (error) {
+    console.error(`Could not register push notifications for signed-in user ${userId}.`, error);
+    throw error;
+  } finally {
+    permissionRequestPromises.delete(userId);
+  }
 }
 
 export async function syncPushTokenForCurrentSession(requestPermission = false) {

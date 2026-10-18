@@ -33,6 +33,7 @@ import {
   type VideoUploadJob,
 } from '../features/feed/uploadManager';
 import { extractHashtags, validateVideo } from '../features/feed/uploadValidation';
+import { getVideoExtension } from '../features/media/videoExtension';
 
 const emptyDraft: VideoDraft = {
   uri: '',
@@ -78,14 +79,15 @@ export default function CreatePostScreen() {
   useEffect(() => {
     let mounted = true;
     const client = getSupabaseClient();
-    void Promise.all([client.auth.getUser(), loadVideoDraft()]).then(async ([userResult, savedDraft]) => {
+    void Promise.all([client.auth.getSession(), loadVideoDraft()]).then(async ([userResult, savedDraft]) => {
       if (userResult.error) throw userResult.error;
       if (!mounted) return;
-      setOwnerId(userResult.data.user?.id ?? null);
+      const user = userResult.data.session?.user;
+      setOwnerId(user?.id ?? null);
       if (savedDraft) setDraft(savedDraft);
       setDraftReady(true);
-      if (userResult.data.user) {
-        const pendingJobs = await loadUploadJobs(userResult.data.user.id);
+      if (user) {
+        const pendingJobs = await loadUploadJobs(user.id);
         if (!mounted) return;
         setJobs(pendingJobs);
         pendingJobs.filter((job) => job.state !== 'failed').forEach((job) => {
@@ -165,7 +167,7 @@ export default function CreatePostScreen() {
         setError(videoError);
         return;
       }
-      const extension = fileName.toLowerCase().endsWith('.mov') ? 'mov' : 'mp4';
+      const extension = getVideoExtension(fileName, asset.mimeType);
       const uploadDirectory = new Directory(Paths.document, 'wimpex-uploads');
       uploadDirectory.create({ intermediates: true, idempotent: true });
       const durableFile = new File(uploadDirectory, `${Crypto.randomUUID()}.${extension}`);
@@ -178,9 +180,7 @@ export default function CreatePostScreen() {
         ...current,
         uri: durableFile.uri,
         fileName,
-        contentType: asset.mimeType === 'video/quicktime' || fileName.toLowerCase().endsWith('.mov')
-          ? 'video/quicktime'
-          : 'video/mp4',
+        contentType: extension === 'mov' ? 'video/quicktime' : 'video/mp4',
         fileSize,
         durationMs,
         width: asset.width,
@@ -208,7 +208,7 @@ export default function CreatePostScreen() {
 
     setBusy(true);
     const postId = Crypto.randomUUID();
-    const extension = draft.fileName.toLowerCase().endsWith('.mov') ? 'mov' : 'mp4';
+    const extension = getVideoExtension(draft.fileName, draft.contentType);
     const job: VideoUploadJob = {
       ...draft,
       id: postId,

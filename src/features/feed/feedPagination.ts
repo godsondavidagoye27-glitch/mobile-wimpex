@@ -26,3 +26,11 @@ export function mergeFeedPages<T extends KeysetRow>(pages: readonly (readonly T[
     }),
   );
 }
+
+export function updateFeedItem<T extends KeysetRow>(
+  items: readonly T[],
+  postId: string,
+  update: (item: T) => T,
+): T[] {
+  return items.map((item) => item.post.id === postId ? update(item) : item);
+}

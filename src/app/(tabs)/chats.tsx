@@ -12,6 +12,7 @@ import {
   View,
 } from 'react-native';
 import { Icon } from '../../components/Icon';
+import { NameWithBadge } from '../../components/NameWithBadge';
 import { FocusableTextInput } from '../../components/AuthField';
 import {
   fetchChatList,
@@ -23,6 +24,7 @@ import { unreadBadgeCount } from '../../features/chats/messageState';
 import { getSupabaseClient } from '../../lib/supabase';
 import { theme } from '../../theme/theme';
 import { KeyboardAwareScreen } from '../../hooks/useKeyboardInset';
+export { RouteErrorFallback as ErrorBoundary } from '../../components/RouteErrorFallback';
 
 const formatMessageTime = (date: string | null) => {
   if (!date) return '';
@@ -60,16 +62,17 @@ export default function ChatsScreen() {
   const refresh = useCallback(async (showSpinner: boolean) => {
     if (showSpinner) setRefreshing(true);
     try {
-      const { data, error: userError } = await supabase.auth.getUser();
+      const { data, error: userError } = await supabase.auth.getSession();
       if (userError) throw userError;
-      if (!data.user) {
+      const user = data.session?.user;
+      if (!user) {
         setUserId(null);
         setEntries([]);
         setError('');
         return;
       }
-      setUserId(data.user.id);
-      setEntries(await fetchChatList(supabase, data.user.id));
+      setUserId(user.id);
+      setEntries(await fetchChatList(supabase, user.id));
       setError('');
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : 'Could not load your chats.');
@@ -85,9 +88,10 @@ export default function ChatsScreen() {
     setLoading(true);
     void (async () => {
       try {
-        const { data, error: userError } = await supabase.auth.getUser();
+        const { data, error: userError } = await supabase.auth.getSession();
         if (userError) throw userError;
-        if (!data.user) {
+        const user = data.session?.user;
+        if (!user) {
           if (mounted) {
             setUserId(null);
             setEntries([]);
@@ -95,7 +99,7 @@ export default function ChatsScreen() {
           }
           return;
         }
-        const activeUserId = data.user.id;
+        const activeUserId = user.id;
         const nextEntries = await fetchChatList(supabase, activeUserId);
         if (!mounted) return;
         setUserId(activeUserId);
@@ -266,7 +270,16 @@ export default function ChatsScreen() {
         <View style={styles.chatBody}>
           <View style={styles.chatTopRow}>
             <View style={styles.nameLine}>
-              <Text style={styles.name} numberOfLines={1}>{title}</Text>
+              {item.conversation.type === 'group' ? (
+                <Text style={styles.name} numberOfLines={1}>{title}</Text>
+              ) : (
+                <NameWithBadge
+                  name={title}
+                  userId={item.peer?.id}
+                  size="xs"
+                  textStyle={styles.name}
+                />
+              )}
               {item.peer?.is_official ? <Text style={styles.officialLabel}>Official</Text> : null}
             </View>
             <Text style={styles.time}>{formatMessageTime(item.conversation.last_message_at)}</Text>
@@ -395,7 +408,7 @@ export default function ChatsScreen() {
                   >
                     <View style={styles.personAvatar}><Text style={styles.avatarText}>{getInitials(item.display_name)}</Text></View>
                     <View style={styles.personIdentity}>
-                      <Text style={styles.personName}>{item.display_name}</Text>
+                      <NameWithBadge name={item.display_name} userId={item.id} size="xs" textStyle={styles.personName} />
                       <Text style={styles.personUsername}>@{item.username}</Text>
                     </View>
                     {groupMode ? <Icon name={selected ? 'check' : 'dot'} size={20} color={selected ? theme.colors.primary : theme.colors.textMuted} /> : null}

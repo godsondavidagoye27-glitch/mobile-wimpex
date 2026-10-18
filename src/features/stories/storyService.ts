@@ -2,12 +2,14 @@ import { File } from 'expo-file-system';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getSupabaseClient } from '../../lib/supabase';
 import type { AuthorStoryRpcRow, Database, StoryRailRow } from '../../types/database';
+import { mapSignedUrlResults } from '../feed/signedUrls';
+import { getVideoExtension } from '../media/videoExtension';
 import { orderStoryRail } from './storyTimeline';
 
 type Client = SupabaseClient<Database>;
 
 export type StoryWithUrl = AuthorStoryRpcRow & {
-  media_url: string;
+  media_url: string | null;
   thumb_url: string | null;
 };
 
@@ -43,12 +45,13 @@ function getClient(): Client {
 
 export async function getStoryRail(client = getClient()): Promise<StoryRailRow[]> {
   const [{ data: userResult, error: userError }, { data, error }] = await Promise.all([
-    client.auth.getUser(),
+    client.auth.getSession(),
     client.rpc('get_story_rail'),
   ]);
   if (userError) throw userError;
   if (error) throw error;
-  if (!userResult.user) throw new Error('Sign in to view stories.');
+  const user = userResult.session?.user;
+  if (!user) throw new Error('Sign in to view stories.');
 
   const rows = data ?? [];
   if (rows.some((row) => row.is_owner)) return orderStoryRail(rows);
@@ -56,7 +59,7 @@ export async function getStoryRail(client = getClient()): Promise<StoryRailRow[]
   const { data: profile, error: profileError } = await client
     .from('profiles')
     .select('id,display_name,username,avatar_url')
-    .eq('id', userResult.user.id)
+    .eq('id', user.id)
     .maybeSingle();
   if (profileError) throw profileError;
   if (!profile) throw new Error('Your profile could not be found.');
@@ -84,20 +87,34 @@ export async function getAuthorStories(
   const { data, error } = await client.rpc('get_author_stories', { p_author_id: authorId });
   if (error) throw error;
 
-  return Promise.all((data ?? []).map(async (story) => {
-    const [{ data: mediaUrl, error: mediaError }, thumbResult] = await Promise.all([
-      client.storage.from('stories').createSignedUrl(story.media_path, 60 * 60),
-      story.thumb_path
-        ? client.storage.from('stories').createSignedUrl(story.thumb_path, 60 * 60)
-        : Promise.resolve({ data: null, error: null }),
-    ]);
-    if (mediaError) throw mediaError;
-    if (thumbResult.error) throw thumbResult.error;
-    return {
-      ...story,
-      media_url: mediaUrl.signedUrl,
-      thumb_url: thumbResult.data?.signedUrl ?? null,
-    };
+  const stories = data ?? [];
+  const paths = [...new Set(stories.flatMap((story) => [story.media_path, story.thumb_path].filter(
+    (path): path is string => Boolean(path),
+  )))];
+  const signedUrls = new Map<string, string | null>(paths.map((path) => [path, null]));
+  if (paths.length > 0) {
+    const { data: results, error: signingError } = await client.storage
+      .from('stories')
+      .createSignedUrls(paths, 60 * 60);
+    if (signingError) throw signingError;
+    const mapped = mapSignedUrlResults(
+      paths,
+      results?.map((result, index) => ({
+        path: result.path ?? paths[index],
+        signedUrl: result.signedUrl,
+        error: result.error,
+      })) ?? null,
+    );
+    mapped.forEach((signedUrl, path) => {
+      signedUrls.set(path, signedUrl);
+      if (!signedUrl) console.warn('Unable to sign a story media URL.', { path });
+    });
+  }
+
+  return stories.map((story) => ({
+    ...story,
+    media_url: signedUrls.get(story.media_path) ?? null,
+    thumb_url: story.thumb_path ? signedUrls.get(story.thumb_path) ?? null : null,
   }));
 }
 
@@ -175,14 +192,12 @@ export async function getStoryViewers(
 }
 
 export async function createStory(input: CreateStoryInput, client = getClient()) {
-  const { data: authResult, error: authError } = await client.auth.getUser();
+  const { data: authResult, error: authError } = await client.auth.getSession();
   if (authError) throw authError;
-  const authorId = authResult.user?.id;
+  const authorId = authResult.session?.user.id;
   if (!authorId) throw new Error('Sign in before sharing a story.');
 
-  const extension = input.kind === 'image'
-    ? 'jpg'
-    : input.mimeType === 'video/quicktime' ? 'mov' : 'mp4';
+  const extension = input.kind === 'image' ? 'jpg' : getVideoExtension(input.uri, input.mimeType);
   const mediaPath = `${authorId}/${input.id}.${extension}`;
   const file = new File(input.uri);
   if (!file.exists || !Number.isFinite(file.size) || file.size <= 0) {
@@ -244,12 +259,12 @@ export async function blockStoryAuthor(authorId: string, client = getClient()) {
 }
 
 export async function reportStory(storyId: string, reason: string, client = getClient()) {
-  const { data: authResult, error: authError } = await client.auth.getUser();
+  const { data: authResult, error: authError } = await client.auth.getSession();
   if (authError) throw authError;
-  if (!authResult.user) throw new Error('Sign in to report a story.');
+  if (!authResult.session?.user) throw new Error('Sign in to report a story.');
 
   const { error } = await client.from('reports').insert({
-    reporter_id: authResult.user.id,
+    reporter_id: authResult.session.user.id,
     target_type: 'story',
     target_id: storyId,
     reason,
@@ -257,6 +272,11 @@ export async function reportStory(storyId: string, reason: string, client = getC
   if (error) throw error;
 }
 
-export function getStoryStoragePath(authorId: string, storyId: string, kind: 'image' | 'video') {
-  return `${authorId}/${storyId}.${kind === 'image' ? 'jpg' : 'mp4'}`;
+export function getStoryStoragePath(
+  authorId: string,
+  storyId: string,
+  kind: 'image' | 'video',
+  mimeType?: 'video/mp4' | 'video/quicktime',
+) {
+  return `${authorId}/${storyId}.${kind === 'image' ? 'jpg' : getVideoExtension('', mimeType)}`;
 }

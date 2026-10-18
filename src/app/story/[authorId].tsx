@@ -25,6 +25,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { Icon } from '../../components/Icon';
+import { NameWithBadge } from '../../components/NameWithBadge';
 import { FocusableTextInput } from '../../components/AuthField';
 import {
   blockStoryAuthor,
@@ -41,8 +42,10 @@ import {
 } from '../../features/stories/storyService';
 import { formatStoryExpiry } from '../../features/stories/storyTimeline';
 import type { StoryRailRow } from '../../types/database';
+import { getSingleRouteParam, isUuidRouteParam } from '../../lib/routeParams';
 import { theme } from '../../theme/theme';
 import { KeyboardAwareScreen } from '../../hooks/useKeyboardInset';
+export { RouteErrorFallback as ErrorBoundary } from '../../components/RouteErrorFallback';
 
 const railQueryKey = ['story-rail'];
 const authorStoriesQueryKey = (authorId: string) => ['author-stories', authorId];
@@ -137,7 +140,7 @@ function StoryUnavailable({ onClose }: { onClose: () => void }) {
 
 export default function StoryViewerScreen() {
   const params = useLocalSearchParams<{ authorId?: string | string[] }>();
-  const routeAuthorId = Array.isArray(params.authorId) ? params.authorId[0] : params.authorId;
+  const routeAuthorId = getSingleRouteParam(params.authorId);
   const [authorId, setAuthorId] = useState(routeAuthorId ?? '');
   const [storyIndex, setStoryIndex] = useState(0);
   const [holding, setHolding] = useState(false);
@@ -175,7 +178,7 @@ export default function StoryViewerScreen() {
   const storiesQuery = useQuery({
     queryKey: authorStoriesQueryKey(authorId),
     queryFn: () => getAuthorStories(authorId),
-    enabled: Boolean(authorId && author?.story_count),
+    enabled: isUuidRouteParam(authorId) && Boolean(author?.story_count),
   });
   const stories = useMemo(() => storiesQuery.data ?? [], [storiesQuery.data]);
   const activeStory = stories[storyIndex] ?? null;
@@ -381,7 +384,18 @@ export default function StoryViewerScreen() {
     ]);
   };
 
-  if (!authorId || railQuery.isPending) {
+  if (!isUuidRouteParam(authorId)) {
+    return (
+      <View style={styles.loading}>
+        <Text style={styles.unavailableTitle}>This story link is invalid.</Text>
+        <Pressable onPress={() => router.back()} style={styles.closeButton} accessibilityRole="button">
+          <Text style={styles.closeText}>Close</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
+  if (railQuery.isPending) {
     return <View style={styles.loading}><View style={styles.loadingFrame}><ActivityIndicator color={theme.colors.primary} /></View></View>;
   }
 
@@ -418,7 +432,7 @@ export default function StoryViewerScreen() {
     return <View style={styles.loading}><View style={styles.loadingFrame}><ActivityIndicator color={theme.colors.primary} /></View></View>;
   }
 
-  const failed = failedMediaIds.has(activeStory.id);
+  const failed = failedMediaIds.has(activeStory.id) || !activeStory.media_url;
   return (
     <KeyboardAwareScreen style={styles.screen}>
       <View style={styles.viewer} {...panResponder.panHandlers}>
@@ -448,7 +462,7 @@ export default function StoryViewerScreen() {
               )}
             </View>
             <View>
-              <Text style={styles.authorName}>{author.display_name}</Text>
+              <NameWithBadge name={author.display_name} userId={authorId} size="sm" textStyle={styles.authorName} />
               <Text style={styles.age}>{getAge(activeStory.created_at)}</Text>
             </View>
             {author.is_owner ? (
@@ -482,11 +496,11 @@ export default function StoryViewerScreen() {
                 <Text style={styles.skipText}>Skip</Text>
               </Pressable>
             </View>
-          ) : activeStory.kind === 'video' ? (
-            <StoryVideo story={activeStory} paused={paused} onError={onMediaError} />
+          ) : activeStory.kind === 'video' && activeStory.media_url ? (
+            <StoryVideo story={{ ...activeStory, media_url: activeStory.media_url }} paused={paused} onError={onMediaError} />
           ) : (
             <Image
-              source={{ uri: activeStory.media_url }}
+              source={{ uri: activeStory.media_url ?? '' }}
               style={styles.media}
               resizeMode="cover"
               onError={onMediaError}
@@ -586,7 +600,7 @@ export default function StoryViewerScreen() {
                       )}
                     </View>
                     <View style={styles.viewerIdentity}>
-                      <Text numberOfLines={1} style={styles.viewerName}>{item.display_name}</Text>
+                      <NameWithBadge name={item.display_name} userId={item.viewer_id} size="xs" textStyle={styles.viewerName} />
                       <Text numberOfLines={1} style={styles.viewerUsername}>@{item.username}</Text>
                     </View>
                     <Text style={styles.viewerTime}>{getAge(item.viewed_at)}</Text>

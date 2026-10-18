@@ -1,8 +1,9 @@
-import { Storage } from 'expo-sqlite/kv-store';
 import { Platform } from 'react-native';
 import { Upload } from 'tus-js-client';
 import { getSupabaseClient } from '../../lib/supabase';
 import type { Post } from '../../types/database';
+import { getVideoExtension } from '../media/videoExtension';
+import { isVideoDraft, isVideoUploadJob } from './uploadValidation';
 
 export type VideoUploadJob = {
   id: string;
@@ -60,13 +61,13 @@ function getAllKeys(): Promise<string[]> {
         .filter((key): key is string => key !== null),
     );
   }
-  return Storage.getAllKeys();
+  return import('expo-sqlite/kv-store').then(({ Storage }) => Storage.getAllKeys());
 }
 
 function getItem(key: string): Promise<string | null> {
   return Platform.OS === 'web'
     ? Promise.resolve(globalThis.localStorage.getItem(key))
-    : Storage.getItem(key);
+    : import('expo-sqlite/kv-store').then(({ Storage }) => Storage.getItem(key));
 }
 
 function setItem(key: string, value: string): Promise<void> {
@@ -74,7 +75,7 @@ function setItem(key: string, value: string): Promise<void> {
     globalThis.localStorage.setItem(key, value);
     return Promise.resolve();
   }
-  return Storage.setItem(key, value);
+  return import('expo-sqlite/kv-store').then(({ Storage }) => Storage.setItem(key, value));
 }
 
 function removeItem(key: string): Promise<void> {
@@ -82,7 +83,7 @@ function removeItem(key: string): Promise<void> {
     globalThis.localStorage.removeItem(key);
     return Promise.resolve();
   }
-  return Storage.removeItem(key);
+  return import('expo-sqlite/kv-store').then(({ Storage }) => Storage.removeItem(key));
 }
 
 function publishJobs() {
@@ -96,15 +97,26 @@ async function hydrateJobs() {
     hydration = (async () => {
       try {
         const keys = await getAllKeys();
-        const storedJobs = await Promise.all(
-          keys.filter((key) => key.startsWith(jobsKey)).map(async (key) => {
-            const value = await getItem(key);
-            return value ? JSON.parse(value) as VideoUploadJob : null;
-          }),
-        );
-        storedJobs.forEach((job) => {
-          if (job) jobs.set(job.id, job);
-        });
+        for (const key of keys.filter((candidate) => candidate.startsWith(jobsKey))) {
+          const value = await getItem(key);
+          if (!value) continue;
+          let parsed: unknown;
+          try {
+            parsed = JSON.parse(value);
+          } catch (error) {
+            console.error('Removing a malformed saved video upload.', { key, error });
+            await removeItem(key);
+            continue;
+          }
+          if (!isVideoUploadJob(parsed)) {
+            console.error('Removing an invalid saved video upload.', { key });
+            await removeItem(key);
+            continue;
+          }
+          const recoveredJob = parsed.state === 'uploading' ? { ...parsed, state: 'queued' as const } : parsed;
+          if (recoveredJob !== parsed) await setItem(key, JSON.stringify(recoveredJob));
+          jobs.set(recoveredJob.id, recoveredJob);
+        }
         hydrated = true;
       } finally {
         hydration = null;
@@ -145,19 +157,31 @@ function createTusUrlStorage() {
   return {
     async findAllUploads(): Promise<StoredTusUpload[]> {
       const keys = await getAllKeys();
-      const stored = await Promise.all(
-        keys.filter((key) => key.startsWith(tusKey)).map(async (key) => {
-          const value = await getItem(key);
-          if (!value) return null;
-          const upload = JSON.parse(value) as StoredTusUpload;
-          return { ...upload, urlStorageKey: key };
-        }),
-      );
-      return stored.filter((upload): upload is StoredTusUpload => upload !== null);
+      const stored: StoredTusUpload[] = [];
+      for (const key of keys.filter((candidate) => candidate.startsWith(tusKey))) {
+        const value = await getItem(key);
+        if (!value) continue;
+        try {
+          const upload = parseStoredTusUpload(value, key);
+          stored.push(upload);
+        } catch (error) {
+          console.error('Removing a malformed resumable upload record.', { key, error });
+          await removeItem(key);
+        }
+      }
+      return stored;
     },
     async findUploadsByFingerprint(fingerprint: string): Promise<StoredTusUpload[]> {
-      const upload = await getItem(`${tusKey}${fingerprint}`);
-      return upload ? [{ ...JSON.parse(upload) as StoredTusUpload, urlStorageKey: `${tusKey}${fingerprint}` }] : [];
+      const key = `${tusKey}${fingerprint}`;
+      const value = await getItem(key);
+      if (!value) return [];
+      try {
+        return [parseStoredTusUpload(value, key)];
+      } catch (error) {
+        console.error('Removing a malformed resumable upload record.', { key, error });
+        await removeItem(key);
+        return [];
+      }
     },
     async addUpload(fingerprint: string, upload: StoredTusUpload): Promise<string> {
       const key = `${tusKey}${fingerprint}`;
@@ -168,6 +192,28 @@ function createTusUrlStorage() {
       await removeItem(urlStorageKey);
     },
   };
+}
+
+function parseStoredTusUpload(value: string, urlStorageKey: string): StoredTusUpload {
+  const parsed: unknown = JSON.parse(value);
+  if (!isStoredTusUploadData(parsed)) {
+    throw new Error('The resumable upload record has an invalid shape.');
+  }
+  return { ...parsed, urlStorageKey };
+}
+
+function isStoredTusUploadData(value: unknown): value is Omit<StoredTusUpload, 'urlStorageKey'> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const upload = value as Record<string, unknown>;
+  const metadata = upload.metadata;
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return false;
+  return (upload.size === null || (typeof upload.size === 'number' && Number.isFinite(upload.size)))
+    && Object.values(metadata).every((entry) => typeof entry === 'string')
+    && typeof upload.creationTime === 'string'
+    && (upload.uploadUrl === null || typeof upload.uploadUrl === 'string')
+    && (upload.parallelUploadUrls === null
+      || (Array.isArray(upload.parallelUploadUrls)
+        && upload.parallelUploadUrls.every((entry) => typeof entry === 'string')));
 }
 
 async function upsertPostRecord(job: VideoUploadJob): Promise<Post['status']> {
@@ -188,7 +234,7 @@ async function upsertPostRecord(job: VideoUploadJob): Promise<Post['status']> {
     author_id: job.ownerId,
     caption: job.caption,
     hashtags: job.hashtags,
-    video_path: `${job.ownerId}/${job.postId}.${job.fileName.split('.').at(-1)?.toLowerCase() === 'mov' ? 'mov' : 'mp4'}`,
+    video_path: `${job.ownerId}/${job.postId}.${getVideoExtension(job.fileName, job.contentType)}`,
     thumb_path: null,
     duration_ms: job.durationMs,
     width: job.width,
@@ -226,7 +272,7 @@ function startTusUpload(
   const client = getSupabaseClient();
   const anonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
   if (!anonKey) return Promise.reject(new Error('Set EXPO_PUBLIC_SUPABASE_ANON_KEY before uploading videos.'));
-  const extension = job.fileName.split('.').at(-1)?.toLowerCase() === 'mov' ? 'mov' : 'mp4';
+  const extension = getVideoExtension(job.fileName, job.contentType);
   const objectName = `${job.ownerId}/${job.postId}.${extension}`;
   const fingerprint = `wimpex-post:${job.ownerId}:${job.postId}`;
   const tusUrlKey = `${tusKey}${fingerprint}`;
@@ -353,7 +399,16 @@ export async function loadUploadJobs(ownerId: string): Promise<VideoUploadJob[]>
 
 export async function loadVideoDraft(): Promise<VideoDraft | null> {
   const saved = await getItem(draftKey);
-  return saved ? JSON.parse(saved) as VideoDraft : null;
+  if (!saved) return null;
+  try {
+    const draft: unknown = JSON.parse(saved);
+    if (!isVideoDraft(draft)) throw new Error('The saved video draft has an invalid shape.');
+    return draft;
+  } catch (error) {
+    console.error('Removing an unreadable saved video draft.', error);
+    await removeItem(draftKey);
+    throw new Error('The saved video draft could not be read. Create a new draft and try again.');
+  }
 }
 
 export function saveVideoDraft(draft: VideoDraft): Promise<void> {
@@ -406,7 +461,7 @@ export async function removeUploadJob(jobId: string): Promise<void> {
     .maybeSingle();
   if (postReadError) throw postReadError;
   if (post?.status !== 'published') {
-    const extension = job.fileName.split('.').at(-1)?.toLowerCase() === 'mov' ? 'mov' : 'mp4';
+    const extension = getVideoExtension(job.fileName, job.contentType);
     const objectPath = `${job.ownerId}/${job.postId}.${extension}`;
     const { error: storageError } = await client.storage.from('videos').remove([objectPath]);
     if (storageError) throw storageError;
@@ -424,4 +479,28 @@ export async function removeUploadJob(jobId: string): Promise<void> {
   await removeItem(`${tusKey}wimpex-post:${job.ownerId}:${job.postId}`);
   jobs.delete(jobId);
   publishJobs();
+}
+
+export async function clearLocalUploadData(ownerId: string): Promise<void> {
+  await hydrateJobs();
+  const ownedJobs = [...jobs.values()].filter((job) => job.ownerId === ownerId);
+  assertNoActiveVideoUploads(ownerId);
+
+  const { File: LocalFile } = await import('expo-file-system');
+  for (const job of ownedJobs) {
+    const localFile = new LocalFile(job.uri);
+    if (localFile.exists) localFile.delete();
+    await removeItem(`${jobsKey}${job.id}`);
+    await removeItem(`${tusKey}wimpex-post:${job.ownerId}:${job.postId}`);
+    jobs.delete(job.id);
+    progressWriteAt.delete(job.id);
+  }
+  await removeItem(draftKey);
+  publishJobs();
+}
+
+export function assertNoActiveVideoUploads(ownerId: string): void {
+  if ([...jobs.values()].some((job) => job.ownerId === ownerId && activeUploads.has(job.id))) {
+    throw new Error('Wait for active video uploads to finish before deleting this account.');
+  }
 }

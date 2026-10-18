@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  applyRealtimeChatMessage,
   isTypingActive,
   mergeChatMessages,
   setMessageDeliveryState,
@@ -44,6 +45,22 @@ describe('chat message state', () => {
     const newer = message('server-newer', 'newer', '2026-01-02T00:00:00.000Z');
 
     expect(mergeChatMessages([older, newer], [older])).toEqual([newer, older]);
+  });
+
+  it('applies realtime message updates without discarding older loaded messages', () => {
+    const older = message('older', 'older', '2026-01-01T00:00:00.000Z');
+    const newest = message('newest', 'newest', '2026-01-02T00:00:00.000Z');
+    const updated = { ...older, body: 'Updated' };
+
+    expect(applyRealtimeChatMessage([newest, older], updated, 'UPDATE')).toEqual([
+      newest,
+      { ...updated, deliveryState: 'sent' },
+    ]);
+  });
+
+  it('removes a deleted realtime message by server id', () => {
+    const existing = message('server-1', 'client-1', '2026-01-01T00:00:00.000Z');
+    expect(applyRealtimeChatMessage([existing], existing, 'DELETE')).toEqual([]);
   });
 
   it('moves a failed optimistic message back to sending when retried', () => {

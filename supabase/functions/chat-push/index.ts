@@ -1,5 +1,6 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { constantTimeEquals } from '../_shared/constantTime.ts';
+import { sendExpoPushMessages, type ExpoPushTicket } from '../_shared/expoPush.ts';
 
 type Message = {
   id: string;
@@ -92,24 +93,9 @@ async function deliverToRecipient(
     },
   }));
 
-  let tickets: Array<{ status: string; id?: string; message?: string; details?: { error?: string } }>;
+  let tickets: ExpoPushTicket[];
   try {
-    const response = await fetch('https://exp.host/--/api/v2/push/send', {
-      method: 'POST',
-      headers: {
-        Accept: 'application/json',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(messages),
-    });
-    if (!response.ok) {
-      throw new Error(`Expo Push Service returned HTTP ${response.status}.`);
-    }
-    const result = await response.json();
-    if (!Array.isArray(result?.data) || result.data.length !== claimedTokens.length) {
-      throw new Error('Expo Push Service returned an invalid ticket response.');
-    }
-    tickets = result.data;
+    tickets = await sendExpoPushMessages(messages);
   } catch (error) {
     await releaseClaims(serviceClient, message.id, recipientId, claimedIds);
     throw error;

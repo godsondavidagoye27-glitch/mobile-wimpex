@@ -17,6 +17,7 @@ import { getSupabaseClient } from '../../lib/supabase';
 import { theme } from '../../theme/theme';
 import type { CommunityCategory, CommunityListRpcRow, CommunityRow } from '../../types/database';
 import { KeyboardAwareScreen } from '../../hooks/useKeyboardInset';
+export { RouteErrorFallback as ErrorBoundary } from '../../components/RouteErrorFallback';
 
 const categories: (CommunityCategory | 'All')[] = [
   'All', 'Music', 'Food', 'Sport', 'Travel', 'Gaming', 'Art',

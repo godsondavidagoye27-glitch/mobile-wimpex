@@ -12,6 +12,7 @@
       "supportsTablet": true,
       "usesAppleSignIn": true,
       "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
         "NSCameraUsageDescription": "Allow Wimpex to access your camera for photos, videos, and calls.",
         "NSMicrophoneUsageDescription": "Allow Wimpex to access your microphone for voice messages and calls."
       },
@@ -30,11 +31,11 @@
         "android.permission.FOREGROUND_SERVICE_MICROPHONE",
         "android.permission.MODIFY_AUDIO_SETTINGS",
         "android.permission.POST_NOTIFICATIONS",
-        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
         "android.permission.ACCESS_NETWORK_STATE",
         "android.permission.INTERNET",
         "android.permission.WAKE_LOCK",
-        "android.permission.BLUETOOTH"
+        "android.permission.BLUETOOTH",
+        "android.permission.BLUETOOTH_CONNECT"
       ],
       "adaptiveIcon": {
         "backgroundColor": "#000000",
@@ -70,11 +71,18 @@
         {
           "microphonePermission": "Allow Wimpex to access your microphone for voice messages and calls.",
           "recordAudioAndroid": true,
-          "enableBackgroundPlayback": true,
-          "enableBackgroundRecording": true
+          "enableBackgroundPlayback": false,
+          "enableBackgroundRecording": false
         }
       ],
-      "expo-notifications",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/android-icon-monochrome.png",
+          "color": "#D6B25E",
+          "defaultChannel": "default"
+        }
+      ],
       "expo-secure-store",
       "expo-apple-authentication"
     ],

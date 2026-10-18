@@ -2,7 +2,9 @@ import { useEvent } from 'expo';
 import { Link, router, useFocusEffect } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useNetworkState } from 'expo-network';
-import { useQueryClient } from '@tanstack/react-query';
+import * as Linking from 'expo-linking';
+import * as Crypto from 'expo-crypto';
+import { useQueryClient, type InfiniteData } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -19,9 +21,10 @@ import {
 } from 'react-native';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { Icon } from '../../components/Icon';
+import { NameWithBadge } from '../../components/NameWithBadge';
 import { HashtagText } from '../../components/HashtagText';
 import { NotificationBell } from '../../features/notifications/NotificationBell';
-import { mergeFeedPages } from '../../features/feed/feedPagination';
+import { mergeFeedPages, updateFeedItem } from '../../features/feed/feedPagination';
 import { StoryRail } from '../../features/stories/StoryRail';
 import { LiveNowRail } from '../../features/live/LiveNowRail';
 import { incrementPostShare, recordPostView, setPostLiked, setPostSaved } from '../../features/feed/postActions';
@@ -32,12 +35,13 @@ import {
   subscribeToUploadJobs,
   type VideoUploadJob,
 } from '../../features/feed/uploadManager';
-import type { FeedItem } from '../../features/feed/useFeed';
+import type { FeedCursor, FeedItem, FeedPage } from '../../features/feed/useFeed';
 import { useFeed } from '../../features/feed/useFeed';
 import { queryKeys } from '../../features/feed/queryKeys';
 import { getSupabaseClient } from '../../lib/supabase';
 import { CaptionOverlay } from '../../features/captions/CaptionOverlay';
 import { theme } from '../../theme/theme';
+export { RouteErrorFallback as ErrorBoundary } from '../../components/RouteErrorFallback';
 
 const viewabilityConfig = { itemVisiblePercentThreshold: 65 };
 
@@ -153,7 +157,13 @@ function FeedPostCard({
         <View style={[styles.metaStack, { pointerEvents: 'box-none' }]}>
           <Link href={{ pathname: '/user/[username]', params: { username: item.author.username } }} asChild>
             <Pressable style={styles.profileLink} accessibilityRole="button">
-              <Text style={styles.displayName}>{item.author.display_name}</Text>
+              <NameWithBadge
+                name={item.author.display_name}
+                userId={item.post.author_id}
+                verified={item.author.is_verified}
+                size="sm"
+                textStyle={styles.displayName}
+              />
               <Text style={styles.username}>@{item.author.username}</Text>
             </Pressable>
           </Link>
@@ -245,9 +255,9 @@ export default function HomeScreen() {
       }
     });
 
-    void getSupabaseClient().auth.getUser().then(async ({ data, error }) => {
+    void getSupabaseClient().auth.getSession().then(async ({ data, error }) => {
       if (error) throw error;
-      currentOwnerId = data.user?.id ?? null;
+      currentOwnerId = data.session?.user.id ?? null;
       setCurrentUserId(currentOwnerId);
       if (!currentOwnerId) return;
       const savedJobs = await loadUploadJobs(currentOwnerId);
@@ -292,12 +302,36 @@ export default function HomeScreen() {
     ]);
   };
 
-  const runPostAction = async (postId: string, action: () => Promise<void>) => {
+  const updateCachedPost = (postId: string, update: (item: FeedItem) => FeedItem) => {
+    queryClient.setQueriesData<InfiniteData<FeedPage, FeedCursor | null>>(
+      { queryKey: ['feed'] },
+      (current) => current
+        ? {
+          ...current,
+          pages: current.pages.map((page) => ({
+            ...page,
+            items: updateFeedItem(page.items, postId, update),
+          })),
+        }
+        : current,
+    );
+  };
+
+  const runPostAction = async (
+    postId: string,
+    action: () => Promise<void>,
+    optimisticUpdate: (item: FeedItem) => FeedItem,
+  ) => {
+    const previousForYou = queryClient.getQueryData<InfiniteData<FeedPage, FeedCursor | null>>(queryKeys.feed('for_you'));
+    const previousFollowing = queryClient.getQueryData<InfiniteData<FeedPage, FeedCursor | null>>(queryKeys.feed('following'));
     setBusyPostIds((current) => new Set(current).add(postId));
+    updateCachedPost(postId, optimisticUpdate);
     try {
       await action();
       await refreshFeeds();
     } catch (error) {
+      queryClient.setQueryData(queryKeys.feed('for_you'), previousForYou);
+      queryClient.setQueryData(queryKeys.feed('following'), previousFollowing);
       Alert.alert('Could not update this video', error instanceof Error ? error.message : 'Check your connection and try again.');
     } finally {
       setBusyPostIds((current) => {
@@ -309,10 +343,15 @@ export default function HomeScreen() {
   };
 
   const sharePost = async (item: FeedItem) => {
+    const postUrl = Linking.createURL(`/post/${item.post.id}`);
+    const shareId = Crypto.randomUUID();
     try {
-      const result = await Share.share({ message: `Watch @${item.author.username}'s video on Wimpex.` });
+      const result = await Share.share({
+        message: `Watch @${item.author.username}'s video on Wimpex. ${postUrl}`,
+        url: postUrl,
+      });
       if (result.action === Share.sharedAction) {
-        await incrementPostShare(item.post.id);
+        await incrementPostShare(item.post.id, shareId);
         await refreshFeeds();
       }
     } catch (error) {
@@ -344,8 +383,24 @@ export default function HomeScreen() {
       busy={busyPostIds.has(item.post.id)}
       itemHeight={listHeight || 480}
       isAuthor={item.post.author_id === currentUserId}
-      onToggleLike={() => void runPostAction(item.post.id, () => setPostLiked(item.post.id, item.is_liked))}
-      onToggleSave={() => void runPostAction(item.post.id, () => setPostSaved(item.post.id, item.is_saved))}
+      onToggleLike={() => void runPostAction(
+        item.post.id,
+        () => setPostLiked(item.post.id, item.is_liked),
+        (current) => ({
+          ...current,
+          is_liked: !current.is_liked,
+          post: { ...current.post, like_count: Math.max(0, current.post.like_count + (current.is_liked ? -1 : 1)) },
+        }),
+      )}
+      onToggleSave={() => void runPostAction(
+        item.post.id,
+        () => setPostSaved(item.post.id, item.is_saved),
+        (current) => ({
+          ...current,
+          is_saved: !current.is_saved,
+          post: { ...current.post, save_count: Math.max(0, current.post.save_count + (current.is_saved ? -1 : 1)) },
+        }),
+      )}
       onShare={() => void sharePost(item)}
     />
   );

@@ -1,19 +1,25 @@
 import { router } from 'expo-router';
 import * as Notifications from 'expo-notifications';
 import { useEffect, useRef } from 'react';
-import { AppState } from 'react-native';
+import { Alert, AppState, Linking } from 'react-native';
+import { subscribeToIncomingCalls } from '../calls/callService';
 import { getSupabaseClient } from '../../lib/supabase';
 import {
   parseChatNotificationRoute,
   parseIncomingCallNotificationRoute,
   type NotificationRoute,
 } from './chatNotificationRoute';
-import { syncPushTokenForCurrentSession } from './pushNotifications';
+import {
+  initializeNotificationChannels,
+  requestPushPermissionOnceAfterSignIn,
+  syncPushTokenForCurrentSession,
+} from './pushNotifications';
 
 export function NotificationLifecycle() {
   const userIdRef = useRef<string | null>(null);
   const pendingRouteRef = useRef<NotificationRoute | null>(null);
   const handledResponsesRef = useRef(new Set<string>());
+  const openedCallIdsRef = useRef(new Set<string>());
 
   useEffect(() => {
     let mounted = true;
@@ -44,6 +50,8 @@ export function NotificationLifecycle() {
           console.warn('Ignoring a terminal, expired, or mismatched incoming call notification.');
           return;
         }
+        if (openedCallIdsRef.current.has(data.id)) return;
+        openedCallIdsRef.current.add(data.id);
         router.push({
           pathname: '/call/[conversationId]',
           params: {
@@ -92,6 +100,25 @@ export function NotificationLifecycle() {
     };
 
     const responseSubscription = Notifications.addNotificationResponseReceivedListener(handleResponse);
+    const pushTokenSubscription = Notifications.addPushTokenListener(() => {
+      if (!userIdRef.current) return;
+      void syncPushTokenForCurrentSession().catch((error: unknown) => {
+        console.error('Could not refresh the changed device push token.', error);
+      });
+    });
+    const receivedSubscription = Notifications.addNotificationReceivedListener((notification) => {
+      const intent = parseIncomingCallNotificationRoute(notification.request.content.data);
+      if (!intent) return;
+      const userId = userIdRef.current;
+      if (!userId) {
+        pendingRouteRef.current = intent;
+        return;
+      }
+      void routeIfAuthorized(intent, userId);
+    });
+    void initializeNotificationChannels().catch((error: unknown) => {
+      console.error('Could not initialize Android notification channels.', error);
+    });
     void Notifications.getLastNotificationResponseAsync()
       .then((response) => {
         if (mounted && response) handleResponse(response);
@@ -100,12 +127,47 @@ export function NotificationLifecycle() {
         console.error('Could not read the notification that opened the app.', error);
       });
 
+    let incomingCallCleanup: (() => void) | null = null;
     const scheduleSessionWork = (userId: string | null) => {
       setTimeout(() => {
         if (!mounted) return;
+        if (userIdRef.current !== userId) {
+          incomingCallCleanup?.();
+          incomingCallCleanup = null;
+          openedCallIdsRef.current.clear();
+        }
         userIdRef.current = userId;
         if (userId) {
-          void syncPushTokenForCurrentSession().catch((error: unknown) => {
+          if (!incomingCallCleanup) {
+            incomingCallCleanup = subscribeToIncomingCalls(userId, (call) => {
+              void routeIfAuthorized({
+                kind: 'incoming_call',
+                conversationId: call.conversation_id,
+                callId: call.id,
+                recipientId: call.callee_id,
+                mode: call.media_type,
+              }, userId);
+            });
+          }
+          void requestPushPermissionOnceAfterSignIn(userId).then((granted) => {
+            if (mounted && !granted) {
+              Alert.alert(
+                'Notifications are turned off',
+                'You may not hear about messages or calls unless Wimpex is open.',
+                [
+                  { text: 'Not now', style: 'cancel' },
+                  {
+                    text: 'Open settings',
+                    onPress: () => {
+                      void Linking.openSettings().catch((error: unknown) => {
+                        console.error('Could not open notification settings.', error);
+                      });
+                    },
+                  },
+                ],
+              );
+            }
+          }).catch((error: unknown) => {
             console.error('Could not synchronize the current device push token.', error);
           });
           const pendingRoute = pendingRouteRef.current;
@@ -141,8 +203,11 @@ export function NotificationLifecycle() {
     return () => {
       mounted = false;
       responseSubscription.remove();
+      pushTokenSubscription.remove();
+      receivedSubscription.remove();
       appStateSubscription.remove();
       authSubscription.subscription.unsubscribe();
+      incomingCallCleanup?.();
     };
   }, []);
 

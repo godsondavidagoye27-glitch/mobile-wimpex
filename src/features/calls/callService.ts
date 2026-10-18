@@ -20,11 +20,13 @@ export type CallResponse = {
   call: CallSession;
   token: string;
   serverUrl: string;
-  peer: { displayName: string };
+  peer: { id: string; displayName: string };
+  ringReachability?: 'push_sent' | 'push_partial' | 'push_unavailable';
+  warningCode?: 'push_unavailable' | 'push_partial';
   warning?: string;
 };
 
-export type CallAction = 'start' | 'accept' | 'connected' | 'end' | 'decline' | 'expire';
+export type CallAction = 'start' | 'accept' | 'connected' | 'heartbeat' | 'end' | 'decline' | 'expire';
 
 export async function requestCallAction(
   action: CallAction,
@@ -62,7 +64,65 @@ export function subscribeToCall(callId: string, onUpdate: (call: CallSession) =>
       { event: 'UPDATE', schema: 'public', table: 'call_sessions', filter: `id=eq.${callId}` },
       (payload) => onUpdate(payload.new as CallSession),
     )
-    .subscribe();
+    .subscribe((status, error) => {
+      if (error) console.error('Could not subscribe to call status updates.', error);
+      if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+        console.warn('Call status realtime channel is unavailable; the polling fallback remains active.', status);
+      }
+    });
+  return () => {
+    void client.removeChannel(channel);
+  };
+}
+
+export async function fetchCallSession(callId: string): Promise<CallSession | null> {
+  const { data, error } = await getSupabaseClient()
+    .from('call_sessions')
+    .select('id,conversation_id,caller_id,callee_id,room_name,media_type,status,caller_connected_at,callee_connected_at,expires_at,ended_at,created_at')
+    .eq('id', callId)
+    .maybeSingle();
+  if (error) throw error;
+  return data as CallSession | null;
+}
+
+export type IncomingCall = Pick<
+  CallSession,
+  'id' | 'conversation_id' | 'callee_id' | 'media_type' | 'status' | 'expires_at'
+>;
+
+export function subscribeToIncomingCalls(
+  userId: string,
+  onIncoming: (call: IncomingCall) => void,
+): () => void {
+  const client = getSupabaseClient();
+  const channel: RealtimeChannel = client
+    .channel(`incoming-calls:${userId}`)
+    .on('postgres_changes', {
+      event: '*',
+      schema: 'public',
+      table: 'call_sessions',
+      filter: `callee_id=eq.${userId}`,
+    }, (payload) => {
+      if (payload.eventType === 'DELETE') return;
+      const row = payload.new as Partial<IncomingCall>;
+      if (
+        typeof row.id === 'string'
+        && typeof row.conversation_id === 'string'
+        && row.callee_id === userId
+        && (row.media_type === 'audio' || row.media_type === 'video')
+        && row.status === 'ringing'
+        && typeof row.expires_at === 'string'
+        && Date.parse(row.expires_at) > Date.now()
+      ) {
+        onIncoming(row as IncomingCall);
+      }
+    })
+    .subscribe((status, error) => {
+      if (error) console.error('Could not subscribe to incoming calls.', error);
+      if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+        console.warn('Incoming-call realtime subscription failed.', status);
+      }
+    });
   return () => {
     void client.removeChannel(channel);
   };

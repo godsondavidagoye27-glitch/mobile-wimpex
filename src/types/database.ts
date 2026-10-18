@@ -10,6 +10,7 @@ export type PostAuthor = {
   username: string;
   display_name: string;
   avatar_url: string | null;
+  is_verified: boolean;
 };
 
 export type FeedPost = {
@@ -272,6 +273,7 @@ export type Database = {
           likes_received_count: number;
           username_changed_at: string | null;
           created_at: string | null;
+          is_verified: boolean;
         };
         Insert: {
           id: string;
@@ -308,6 +310,36 @@ export type Database = {
           likes_received_count?: number;
           username_changed_at?: string | null;
           created_at?: string | null;
+        };
+        Relationships: Relationships;
+      };
+      profile_badges: {
+        Row: {
+          profile_id: string;
+          badge_key: string;
+          source: 'manual' | 'auto';
+          granted_at: string;
+          granted_by: string | null;
+          expires_at: string | null;
+          note: string | null;
+        };
+        Insert: {
+          profile_id: string;
+          badge_key: string;
+          source: 'manual' | 'auto';
+          granted_at?: string;
+          granted_by?: string | null;
+          expires_at?: string | null;
+          note?: string | null;
+        };
+        Update: {
+          profile_id?: string;
+          badge_key?: string;
+          source?: 'manual' | 'auto';
+          granted_at?: string;
+          granted_by?: string | null;
+          expires_at?: string | null;
+          note?: string | null;
         };
         Relationships: Relationships;
       };

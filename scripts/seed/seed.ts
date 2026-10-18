@@ -436,6 +436,19 @@ async function run() {
     demoUsers.set(account.username, profile);
   }
 
+  for (const username of ['ada', 'tobi']) {
+    const profile = demoUsers.get(username);
+    if (!profile) throw new Error(`Demo profile @${username} was not created.`);
+    const { error } = await client.from('profile_badges').upsert({
+      profile_id: profile.id,
+      badge_key: 'verified',
+      source: 'manual',
+      granted_by: 'demo-seed',
+      note: 'Demo account badge',
+    }, { onConflict: 'profile_id,badge_key' });
+    if (error) throw error;
+  }
+
   let myProfile: { id: string; username: string } | null = null;
   if (userEmail) {
     const { data: users, error: usersError } = await client.auth.admin.listUsers({ page: 1, perPage: 1000 });

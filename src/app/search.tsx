@@ -13,6 +13,7 @@ import {
   View,
 } from 'react-native';
 import { Icon } from '../components/Icon';
+import { NameWithBadge } from '../components/NameWithBadge';
 import { FocusableTextInput } from '../components/AuthField';
 import { getSignedUrls } from '../features/feed/useFeed';
 import { addRecentSearch, removeRecentSearch } from '../features/search/recentSearches';
@@ -473,7 +474,12 @@ export default function SearchScreen() {
               : <Text style={styles.avatarInitials}>{initials(person.display_name)}</Text>}
           </View>
           <View style={styles.personMeta}>
-            <Text numberOfLines={1} style={styles.personName}>{person.display_name}</Text>
+            <NameWithBadge
+              name={person.display_name}
+              userId={person.id}
+              size="xs"
+              textStyle={styles.personName}
+            />
             <Text numberOfLines={1} style={styles.personHandle}>@{person.username}</Text>
           </View>
         </Pressable>

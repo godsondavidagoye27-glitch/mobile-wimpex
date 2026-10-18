@@ -9,6 +9,7 @@ import {
   View,
 } from 'react-native';
 import { Icon } from '../components/Icon';
+import { NameWithBadge } from '../components/NameWithBadge';
 import { FocusableTextInput } from '../components/AuthField';
 import { getSupabaseClient } from '../lib/supabase';
 import { theme } from '../theme/theme';
@@ -114,7 +115,7 @@ export default function CloseFriendsScreen() {
         <Text style={styles.initials}>{item.display_name.split(/\s+/).slice(0, 2).map((part) => part[0]?.toUpperCase()).join('')}</Text>
       </View>
       <View style={styles.person}>
-        <Text numberOfLines={1} style={styles.name}>{item.display_name}</Text>
+        <NameWithBadge name={item.display_name} userId={item.id} size="xs" textStyle={styles.name} />
         <Text numberOfLines={1} style={styles.username}>@{item.username}</Text>
       </View>
       <Pressable

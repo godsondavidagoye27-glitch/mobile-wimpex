@@ -15,12 +15,15 @@ import {
   Alert,
   AppState,
   FlatList,
+  PermissionsAndroid,
   Pressable,
+  Platform,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
 import { Icon } from '../../components/Icon';
+import { NameWithBadge } from '../../components/NameWithBadge';
 import { FocusableTextInput } from '../../components/AuthField';
 import { KeyboardAwareScreen } from '../../hooks/useKeyboardInset';
 import {
@@ -36,12 +39,23 @@ import {
   type LiveConnection,
 } from './liveService';
 import { getSupabaseClient } from '../../lib/supabase';
+import { getSingleRouteParam, isUuidRouteParam } from '../../lib/routeParams';
 import type { LiveMessageRow, LiveStreamRpcRow } from '../../types/database';
 import { theme } from '../../theme/theme';
 
 registerGlobals();
 
 const supabase = getSupabaseClient();
+
+async function requestHostMediaPermissions() {
+  if (Platform.OS !== 'android') return true;
+  const required = [
+    PermissionsAndroid.PERMISSIONS.CAMERA,
+    PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
+  ];
+  const results = await PermissionsAndroid.requestMultiple(required);
+  return required.every((permission) => results[permission] === PermissionsAndroid.RESULTS.GRANTED);
+}
 
 function LiveRoomContent({
   host,
@@ -119,7 +133,10 @@ function LiveRoomContent({
         <View style={styles.streamHeading}>
           <View style={styles.livePill}><Text style={styles.livePillText}>{ended ? 'ENDED' : 'LIVE'}</Text></View>
           <Text numberOfLines={1} style={styles.streamTitle}>{stream.title || 'Live stream'}</Text>
-          <Text numberOfLines={1} style={styles.hostName}>{stream.host_display_name} · @{stream.host_username}</Text>
+          <View style={styles.hostIdentity}>
+            <NameWithBadge name={stream.host_display_name} userId={stream.host_id} size="sm" textStyle={styles.hostName} />
+            <Text numberOfLines={1} style={styles.hostHandle}>@{stream.host_username}</Text>
+          </View>
         </View>
         <Pressable onPress={onClose} style={styles.closeButton} accessibilityRole="button" accessibilityLabel="Close live stream">
           <Icon name="close" size={24} color={theme.colors.white} />
@@ -142,7 +159,12 @@ function LiveRoomContent({
               accessibilityRole={host ? 'button' : 'text'}
               accessibilityLabel={host ? `Moderate live message from ${item.author_id}` : undefined}
             >
-              <Text style={styles.messageAuthor}>{item.author_id.slice(0, 8)}</Text>
+              <NameWithBadge
+                name={item.author_id.slice(0, 8)}
+                userId={item.author_id}
+                size="xs"
+                textStyle={styles.messageAuthor}
+              />
               <Text style={[styles.messageBody, item.deleted_at && styles.deletedMessage]}>{item.body}</Text>
             </Pressable>
           )}
@@ -187,16 +209,17 @@ function LiveRoomContent({
 
 export default function LiveStreamScreen() {
   const params = useLocalSearchParams<{ streamId?: string | string[] }>();
-  const streamId = Array.isArray(params.streamId) ? params.streamId[0] : params.streamId;
+  const routeStreamId = getSingleRouteParam(params.streamId);
+  const streamId = isUuidRouteParam(routeStreamId) ? routeStreamId : null;
   const [stream, setStream] = useState<LiveStreamRpcRow | null>(null);
   const [connection, setConnection] = useState<LiveConnection | null>(null);
   const [connectionIssuedAt, setConnectionIssuedAt] = useState<number | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const [messages, setMessages] = useState<LiveMessageRow[]>([]);
   const [draft, setDraft] = useState('');
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(streamId !== null);
   const [sending, setSending] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState(streamId ? '' : 'This live stream link is invalid.');
   const [messageError, setMessageError] = useState('');
   const [ended, setEnded] = useState(false);
   const [focused, setFocused] = useState(false);
@@ -204,6 +227,7 @@ export default function LiveStreamScreen() {
   const [audioReady, setAudioReady] = useState(false);
   const startConfirmed = useRef(false);
   const ending = useRef(false);
+  const reconnecting = useRef(false);
   const streamIsHost = Boolean(userId && stream?.host_id === userId);
   const hasConnectionToken = Boolean(connection?.token);
 
@@ -220,18 +244,23 @@ export default function LiveStreamScreen() {
   }, []);
 
   useEffect(() => {
-    if (!streamId) return undefined;
+    if (!isUuidRouteParam(streamId)) return undefined;
     let mounted = true;
     void (async () => {
       try {
         const [{ data: auth, error: authError }, liveStream] = await Promise.all([
-          supabase.auth.getUser(),
+          supabase.auth.getSession(),
           getLiveStream(streamId),
         ]);
         if (authError) throw authError;
-        if (!auth.user) throw new Error('Sign in to watch live streams.');
+        const user = auth.session?.user;
+        if (!user) throw new Error('Sign in to watch live streams.');
         if (!mounted) return;
-        setUserId(auth.user.id);
+        if (liveStream.host_id === user.id && !(await requestHostMediaPermissions())) {
+          throw new Error('Allow camera and microphone access in device settings before hosting a live stream.');
+        }
+        if (!mounted) return;
+        setUserId(user.id);
         setStream(liveStream);
         const liveConnection = await requestLiveConnection(streamId);
         if (mounted) {
@@ -353,6 +382,28 @@ export default function LiveStreamScreen() {
       });
   }, [connection?.role, streamId]);
 
+  const handleDisconnected = useCallback(() => {
+    if (!streamId || !focused || !appIsActive || ended || reconnecting.current) return;
+    reconnecting.current = true;
+    setError('The live connection was interrupted. Reconnecting…');
+    void requestLiveConnection(streamId)
+      .then((refreshed) => {
+        setConnection(refreshed);
+        setConnectionIssuedAt(Date.now());
+        setError('');
+      })
+      .catch((caught: unknown) => {
+        setError(
+          caught instanceof Error
+            ? `Could not reconnect to the live stream. ${caught.message}`
+            : 'Could not reconnect to the live stream.',
+        );
+      })
+      .finally(() => {
+        reconnecting.current = false;
+      });
+  }, [appIsActive, ended, focused, streamId]);
+
   const finishStream = async () => {
     if (!streamId || ending.current) return;
     ending.current = true;
@@ -423,7 +474,7 @@ export default function LiveStreamScreen() {
         video={streamIsHost}
         options={{ adaptiveStream: { pixelDensity: 'screen' }, dynacast: true }}
         onConnected={handleConnected}
-        onDisconnected={() => undefined}
+        onDisconnected={handleDisconnected}
         onError={(roomError) => setError(roomError.message || 'The live stream connection failed.')}
         onMediaDeviceFailure={() => setError('Camera or microphone permission is unavailable.')}
       >
@@ -497,7 +548,9 @@ const styles = StyleSheet.create({
   livePill: { alignSelf: 'flex-start', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 7, backgroundColor: theme.colors.danger },
   livePillText: { color: theme.colors.white, fontSize: 10, fontWeight: '900' },
   streamTitle: { marginTop: 8, color: theme.colors.white, fontSize: 18, fontWeight: '900' },
-  hostName: { marginTop: 3, color: '#E2E8F0', fontSize: 12 },
+  hostIdentity: { marginTop: 3, gap: 2 },
+  hostName: { color: '#E2E8F0', fontSize: 12 },
+  hostHandle: { color: '#E2E8F0', fontSize: 11 },
   closeButton: { width: 42, height: 42, alignItems: 'center', justifyContent: 'center', borderRadius: 21, backgroundColor: 'rgba(0,0,0,0.45)' },
   bottomPanel: { position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: 12, paddingBottom: 18, backgroundColor: 'rgba(0,0,0,0.48)' },
   messageList: { maxHeight: 200 },

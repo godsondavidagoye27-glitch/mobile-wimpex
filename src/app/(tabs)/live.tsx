@@ -3,8 +3,10 @@ import { router, useFocusEffect } from 'expo-router';
 import { useCallback } from 'react';
 import { ActivityIndicator, AppState, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { Icon } from '../../components/Icon';
+import { NameWithBadge } from '../../components/NameWithBadge';
 import { getLiveStreams } from '../../features/live/liveService';
 import { theme } from '../../theme/theme';
+export { RouteErrorFallback as ErrorBoundary } from '../../components/RouteErrorFallback';
 
 const liveStreamsKey = ['live-streams'];
 
@@ -79,7 +81,10 @@ export default function LiveScreen() {
             >
               <View style={styles.liveBadge}><Text style={styles.liveBadgeText}>LIVE</Text></View>
               <Text style={styles.cardTitle}>{item.title || 'Live stream'}</Text>
-              <Text style={styles.hostName}>{item.host_display_name} · @{item.host_username}</Text>
+              <View>
+                <NameWithBadge name={item.host_display_name} userId={item.host_id} size="sm" textStyle={styles.hostName} />
+                <Text style={styles.hostHandle}>@{item.host_username}</Text>
+              </View>
             </Pressable>
           )}
           ListEmptyComponent={<Text style={styles.message}>No one is live right now. Start a stream and invite your community.</Text>}
@@ -101,6 +106,7 @@ const styles = StyleSheet.create({
   liveBadgeText: { color: theme.colors.white, fontSize: 10, fontWeight: '900' },
   cardTitle: { marginTop: 28, color: theme.colors.white, fontSize: 21, fontWeight: '800' },
   hostName: { color: theme.colors.textMuted, fontSize: 13 },
+  hostHandle: { color: theme.colors.textMuted, fontSize: 12 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24, gap: 12 },
   message: { paddingHorizontal: 22, paddingVertical: 32, color: theme.colors.textMuted, fontSize: 14, lineHeight: 20, textAlign: 'center' },
   retryButton: { minHeight: 44, paddingHorizontal: 16, justifyContent: 'center' },

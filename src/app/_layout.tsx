@@ -1,15 +1,17 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { focusManager, onlineManager, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { router, Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { Component, useCallback, useEffect, useRef, useState, type ErrorInfo, type ReactNode } from 'react';
 import { AppState, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useNetworkState } from 'expo-network';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { OnlinePresence } from '../features/chats/OnlinePresence';
 import { NotificationLifecycle } from '../features/notifications/NotificationLifecycle';
 import { KeyboardInsetProvider } from '../hooks/useKeyboardInset';
 import { getSupabaseClient } from '../lib/supabase';
+import { secureStorage } from '../lib/storage';
 import { theme } from '../theme/theme';
 
 void SplashScreen.preventAutoHideAsync().catch((error: unknown) => {
@@ -18,28 +20,36 @@ void SplashScreen.preventAutoHideAsync().catch((error: unknown) => {
 
 class AppErrorBoundary extends Component<
   { children: ReactNode },
-  { hasError: boolean }
+  { hasError: boolean; error: Error | null; componentStack: string }
 > {
-  state = { hasError: false };
+  state = { hasError: false, error: null as Error | null, componentStack: '' };
 
-  static getDerivedStateFromError() {
-    return { hasError: true };
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
     console.error('The app encountered an unexpected error.', error, info.componentStack);
+    this.setState({ componentStack: info.componentStack ?? '' });
+    persistAppError(error, info.componentStack ?? '');
   }
 
   render() {
     if (this.state.hasError) {
+      const details = this.state.error
+        ? `${this.state.error.message}${this.state.componentStack ? `\n\n${this.state.componentStack}` : ''}`
+        : '';
       return (
         <View style={styles.errorScreen}>
           <Text style={styles.errorTitle}>Something went wrong</Text>
-          <Text style={styles.errorMessage}>The app ran into a problem. Reload to continue.</Text>
+          <Text style={styles.errorMessage}>
+            {__DEV__ && details ? details : 'The app ran into a problem. Reload to continue.'}
+          </Text>
           <Pressable
             onPress={() => {
-              this.setState({ hasError: false });
-              router.replace('/');
+              this.setState({ hasError: false, error: null, componentStack: '' }, () => {
+                setTimeout(() => router.replace('/'), 0);
+              });
             }}
             style={styles.reloadButton}
             accessibilityRole="button"
@@ -53,8 +63,33 @@ class AppErrorBoundary extends Component<
   }
 }
 
+function persistAppError(error: Error, componentStack: string) {
+  if (__DEV__) return;
+  const payload = JSON.stringify({
+    message: error.message,
+    stack: error.stack ?? '',
+    componentStack,
+    occurredAt: new Date().toISOString(),
+  });
+  void secureStorage.setItem('wimpex-last-app-error', payload).catch((storageError: unknown) => {
+    console.error('Unable to persist the last uncaught app error.', storageError);
+  });
+}
+
 export default function RootLayout() {
-  const [queryClient] = useState(() => new QueryClient());
+  const [queryClient] = useState(() => new QueryClient({
+    defaultOptions: {
+      queries: {
+        staleTime: 30_000,
+        gcTime: 5 * 60_000,
+        retry: 1,
+        refetchOnReconnect: true,
+      },
+      mutations: { retry: 0 },
+    },
+  }));
+  const networkState = useNetworkState();
+  const isOnline = networkState.isConnected !== false && networkState.isInternetReachable !== false;
   const splashHidden = useRef(false);
 
   const hideSplash = useCallback(() => {
@@ -72,6 +107,21 @@ export default function RootLayout() {
   }, [hideSplash]);
 
   useEffect(() => {
+    focusManager.setFocused(AppState.currentState === 'active');
+    const subscription = AppState.addEventListener('change', (state) => {
+      focusManager.setFocused(state === 'active');
+    });
+    return () => {
+      subscription.remove();
+      focusManager.setFocused(undefined);
+    };
+  }, []);
+
+  useEffect(() => {
+    onlineManager.setOnline(isOnline);
+  }, [isOnline]);
+
+  useEffect(() => {
     if (!process.env.EXPO_PUBLIC_SUPABASE_URL || !process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY) return;
     const auth = getSupabaseClient().auth;
     const updateAutoRefresh = (state: string) => {
@@ -83,6 +133,27 @@ export default function RootLayout() {
     return () => {
       subscription.remove();
       auth.stopAutoRefresh();
+    };
+  }, []);
+
+  useEffect(() => {
+    const runtime = globalThis as typeof globalThis & {
+      ErrorUtils?: {
+        getGlobalHandler?: () => (error: Error, isFatal?: boolean) => void;
+        setGlobalHandler: (handler: (error: Error, isFatal?: boolean) => void) => void;
+      };
+    };
+    const errorUtils = runtime.ErrorUtils;
+    if (!errorUtils) return undefined;
+    const previousHandler = errorUtils.getGlobalHandler?.();
+    const handler = (error: Error, isFatal?: boolean) => {
+      console.error('An uncaught JavaScript error occurred.', { error, isFatal });
+      persistAppError(error, '');
+      previousHandler?.(error, isFatal);
+    };
+    errorUtils.setGlobalHandler(handler);
+    return () => {
+      if (previousHandler) errorUtils.setGlobalHandler(previousHandler);
     };
   }, []);
 

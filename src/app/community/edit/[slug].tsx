@@ -1,4 +1,5 @@
 import { router, useLocalSearchParams } from 'expo-router';
+import { getSingleRouteParam } from '../../../lib/routeParams';
 import { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -27,7 +28,7 @@ function errorMessage(error: unknown) {
 
 export default function EditCommunityScreen() {
   const params = useLocalSearchParams<{ slug?: string }>();
-  const slug = Array.isArray(params.slug) ? params.slug[0] : params.slug ?? '';
+  const slug = getSingleRouteParam(params.slug) ?? '';
   const [community, setCommunity] = useState<CommunityDetailRpcRow | null>(null);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
