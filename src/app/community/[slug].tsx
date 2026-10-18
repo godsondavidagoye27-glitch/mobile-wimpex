@@ -790,6 +790,9 @@ export default function CommunityScreen() {
             data={communityPosts}
             renderItem={renderCommunityPost}
             keyExtractor={(item) => item.id}
+            initialNumToRender={8}
+            maxToRenderPerBatch={6}
+            windowSize={7}
             contentContainerStyle={styles.postsList}
             ListEmptyComponent={!postsLoading && !postsError ? <Text style={styles.emptyText}>No posts yet.</Text> : null}
             ListFooterComponent={postsLoading ? <ActivityIndicator color={theme.colors.primary} style={styles.inlineLoader} /> : null}
@@ -864,6 +867,9 @@ export default function CommunityScreen() {
                 data={newestFirstChatMessages}
                 inverted
                 keyExtractor={communityMessageKey}
+                initialNumToRender={20}
+                maxToRenderPerBatch={10}
+                windowSize={7}
                 contentContainerStyle={styles.chatMessages}
                 keyboardShouldPersistTaps="handled"
                 keyboardDismissMode="on-drag"
@@ -910,7 +916,7 @@ export default function CommunityScreen() {
                 multiline
                 maxLength={1000}
                 returnKeyType="send"
-                blurOnSubmit={false}
+                submitBehavior="newline"
               />
               <Pressable
                 onPress={() => void sendMessage()}
@@ -932,6 +938,9 @@ export default function CommunityScreen() {
       <FlatList
         data={visibleMembers}
         keyExtractor={(item) => item.id}
+        initialNumToRender={20}
+        maxToRenderPerBatch={10}
+        windowSize={7}
         renderItem={renderMember}
         ListHeaderComponent={memberListHeader}
         ListEmptyComponent={!membersLoading && !membersError

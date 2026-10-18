@@ -734,7 +734,7 @@ export function ProfileScreen({ username }: { username: string | null }) {
           <Pressable style={styles.cancelButton} onPress={() => setDialogAction(null)}><Text style={styles.secondaryText}>Cancel</Text></Pressable>
         </View>
       </Modal>
-      {toastText ? <View pointerEvents="none" style={styles.toast}><Text style={styles.toastText}>{toastText}</Text></View> : null}
+      {toastText ? <View style={[styles.toast, { pointerEvents: 'none' }]}><Text style={styles.toastText}>{toastText}</Text></View> : null}
     </View>
   );
 }

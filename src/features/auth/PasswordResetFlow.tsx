@@ -342,7 +342,7 @@ export function PasswordResetFlow({
                       autoCapitalize="none"
                       autoCorrect={false}
                       returnKeyType={index === OTP_LENGTH - 1 ? 'done' : 'next'}
-                      blurOnSubmit={false}
+                      submitBehavior="submit"
                       maxLength={OTP_LENGTH}
                       accessibilityLabel={`Digit ${index + 1}`}
                       style={styles.codeInput}

@@ -493,8 +493,10 @@ export default function StoryViewerScreen() {
             />
           )}
           <Pressable
-            style={[StyleSheet.absoluteFill, { backgroundColor: 'transparent' }]}
-            pointerEvents={failed ? 'none' : 'auto'}
+            style={[
+              StyleSheet.absoluteFill,
+              { backgroundColor: 'transparent', pointerEvents: failed ? 'none' : 'auto' },
+            ]}
             onPress={(event) => {
               const x = event.nativeEvent.locationX || startX.current;
               if (activeWidth > 0 && x / activeWidth < 0.3) goPrevious();

@@ -50,8 +50,14 @@ import { getSupabaseClient } from '../../lib/supabase';
 import type { Database } from '../../types/database';
 import { theme } from '../../theme/theme';
 
-type Conversation = Database['public']['Tables']['conversations']['Row'];
-type Member = Database['public']['Tables']['conversation_members']['Row'];
+type Conversation = Pick<
+  Database['public']['Tables']['conversations']['Row'],
+  'id' | 'type' | 'title' | 'read_only'
+>;
+type Member = Pick<
+  Database['public']['Tables']['conversation_members']['Row'],
+  'user_id' | 'last_read_message_id'
+>;
 type Profile = Pick<ChatProfile, 'id' | 'username' | 'display_name' | 'avatar_url' | 'is_official' | 'date_of_birth'>;
 type ReactionGroup = { emoji: string; count: number; mine: boolean };
 
@@ -188,7 +194,7 @@ export default function ChatThreadScreen() {
     }
     const { data, error: reactionError } = await supabase
       .from('message_reactions')
-      .select('*')
+      .select('message_id,user_id,emoji')
       .in('message_id', ids);
     if (reactionError) throw reactionError;
     const grouped: Record<string, ReactionGroup[]> = {};
@@ -272,7 +278,7 @@ export default function ChatThreadScreen() {
 
     const { data: nextConversation, error: conversationError } = await supabase
       .from('conversations')
-      .select('*')
+      .select('id,type,title,read_only')
       .eq('id', conversationId)
       .maybeSingle();
     if (conversationError) throw conversationError;
@@ -280,7 +286,7 @@ export default function ChatThreadScreen() {
 
     const { data: nextMembers, error: membersError } = await supabase
       .from('conversation_members')
-      .select('*')
+      .select('user_id,last_read_message_id')
       .eq('conversation_id', conversationId)
       .is('left_at', null);
     if (membersError) throw membersError;
@@ -340,7 +346,7 @@ export default function ChatThreadScreen() {
       }, async () => {
         const { data, error: memberRefreshError } = await supabase
           .from('conversation_members')
-          .select('*')
+          .select('user_id,last_read_message_id')
           .eq('conversation_id', conversationId)
           .is('left_at', null);
         if (memberRefreshError) {
@@ -534,12 +540,12 @@ export default function ChatThreadScreen() {
       const { data, error: sendError } = await supabase
         .from('messages')
         .insert(insert)
-        .select('*')
+        .select('id,conversation_id,sender_id,client_id,kind,body,media_path,media_duration_ms,width,height,reply_to_id,story_reply_preview_path,story_reply_caption,created_at,deleted_at')
         .single();
       if (sendError) {
         const { data: existing, error: lookupError } = await supabase
           .from('messages')
-          .select('*')
+          .select('id,conversation_id,sender_id,client_id,kind,body,media_path,media_duration_ms,width,height,reply_to_id,story_reply_preview_path,story_reply_caption,created_at,deleted_at')
           .eq('sender_id', userId)
           .eq('client_id', message.client_id)
           .maybeSingle();
@@ -589,13 +595,13 @@ export default function ChatThreadScreen() {
       const { data, error: sendError } = await supabase
         .from('messages')
         .insert(insert)
-        .select('*')
+        .select('id,conversation_id,sender_id,client_id,kind,body,media_path,media_duration_ms,width,height,reply_to_id,story_reply_preview_path,story_reply_caption,created_at,deleted_at')
         .single();
       let savedMessage: MessageRow;
       if (sendError) {
         const { data: existing, error: lookupError } = await supabase
           .from('messages')
-          .select('*')
+          .select('id,conversation_id,sender_id,client_id,kind,body,media_path,media_duration_ms,width,height,reply_to_id,story_reply_preview_path,story_reply_caption,created_at,deleted_at')
           .eq('sender_id', userId)
           .eq('client_id', message.client_id)
           .maybeSingle();
@@ -658,14 +664,12 @@ export default function ChatThreadScreen() {
       sender_id: userId,
       client_id: clientId,
       kind: attachment?.kind ?? 'text',
-      is_demo: false,
       body: body || null,
       media_path: null,
       media_duration_ms: attachment?.durationMs ?? null,
       width: attachment?.width ?? null,
       height: attachment?.height ?? null,
       reply_to_id: replyTo?.id ?? null,
-      story_reply_story_id: null,
       story_reply_preview_path: null,
       story_reply_caption: null,
       created_at: new Date().toISOString(),
@@ -1131,7 +1135,7 @@ export default function ChatThreadScreen() {
                 accessibilityLabel="Message"
                 onFocus={() => listRef.current?.scrollToOffset({ offset: 0, animated: true })}
                 onSubmitEditing={() => void submitMessage()}
-                blurOnSubmit={false}
+                submitBehavior="newline"
               />
               {draft.trim() || attachment || sending ? (
                 <Pressable

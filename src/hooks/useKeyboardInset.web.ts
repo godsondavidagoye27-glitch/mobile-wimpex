@@ -17,9 +17,15 @@ export function KeyboardInsetProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const viewport = window.visualViewport;
     if (!viewport) return undefined;
-    const baselineHeight = window.innerHeight;
+    let baselineHeight = window.innerHeight;
+    let baselineWidth = window.innerWidth;
     const updateKeyboardInset = () => {
+      if (window.innerWidth !== baselineWidth) {
+        baselineWidth = window.innerWidth;
+        baselineHeight = window.innerHeight;
+      }
       const height = Math.max(0, baselineHeight - viewport.height - viewport.offsetTop);
+      if (height === 0) baselineHeight = window.innerHeight;
       // Web viewport events write shared values without causing a React render per frame.
       // eslint-disable-next-line react-hooks/immutability
       keyboardHeight.value = height;
@@ -27,8 +33,12 @@ export function KeyboardInsetProvider({ children }: { children: ReactNode }) {
       keyboardState.value = height > 0 ? KeyboardState.OPEN : KeyboardState.CLOSED;
     };
     viewport.addEventListener('resize', updateKeyboardInset);
+    window.addEventListener('resize', updateKeyboardInset);
     updateKeyboardInset();
-    return () => viewport.removeEventListener('resize', updateKeyboardInset);
+    return () => {
+      viewport.removeEventListener('resize', updateKeyboardInset);
+      window.removeEventListener('resize', updateKeyboardInset);
+    };
   }, [keyboardHeight, keyboardState]);
 
   return createElement(KeyboardInsetContext.Provider, { value: values }, children);

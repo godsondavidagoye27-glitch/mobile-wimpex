@@ -21,9 +21,8 @@ import {
   getPushPermissionGranted,
   syncPushTokenForCurrentSession,
 } from '../features/notifications/pushNotifications';
-import { preferenceStorage } from '../lib/storage';
 import { getSupabaseClient } from '../lib/supabase';
-import { resolveThemeMode, theme, type AppThemeMode } from '../theme/theme';
+import { theme } from '../theme/theme';
 import type { Database, ProfileRpcRow } from '../types/database';
 import { KeyboardAwareScreen } from '../hooks/useKeyboardInset';
 
@@ -81,7 +80,6 @@ export default function SettingsScreen() {
   const [isMinor, setIsMinor] = useState(false);
   const [pushPermissionGranted, setPushPermissionGranted] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [themeMode, setThemeMode] = useState<AppThemeMode>('dark');
   const [error, setError] = useState('');
   const [policyOpen, setPolicyOpen] = useState(false);
   const [storyRepliesOpen, setStoryRepliesOpen] = useState(false);
@@ -89,10 +87,6 @@ export default function SettingsScreen() {
   const [typedUsername, setTypedUsername] = useState('');
   const [saving, setSaving] = useState(false);
   const followRequestCount = useFollowRequestCount(profile !== null);
-
-  useEffect(() => {
-    void preferenceStorage.getItem('wimpex.app.theme-mode').then((value) => setThemeMode(resolveThemeMode(value))).catch(() => undefined);
-  }, []);
 
   useEffect(() => {
     let active = true;
@@ -223,16 +217,6 @@ export default function SettingsScreen() {
     } catch (caught) {
       setSettings((current) => ({ ...current, [key]: previous }));
       setError(`Could not save setting. ${errorMessage(caught)}`);
-    }
-  };
-
-  const persistTheme = async (value: boolean) => {
-    const nextMode: AppThemeMode = value ? 'light' : 'dark';
-    setThemeMode(nextMode);
-    try {
-      await preferenceStorage.setItem('wimpex.app.theme-mode', nextMode);
-    } catch (caught) {
-      setError(`Could not save appearance preference. ${errorMessage(caught)}`);
     }
   };
 
@@ -387,9 +371,6 @@ export default function SettingsScreen() {
         {renderRow('Follow requests', 'user', <View style={styles.valueWrap}>{followRequestCount > 0 ? <Text style={styles.badgeText}>{followRequestCount}</Text> : null}<Icon name="chevronRight" size={20} color={theme.colors.textMuted} /></View>, () => router.push('/follow-requests'))}
         {renderRow('Blocked users', 'ban', <Icon name="chevronRight" size={20} color={theme.colors.textMuted} />, () => router.push('/blocked-users'))}
         {renderRow('Personalized recommendations', 'sparkles', renderSwitch(settings.personalized_recommendations, (value) => void persistPreference('personalized_recommendations', value)))}
-
-        <Text style={styles.sectionTitle}>Appearance</Text>
-        {renderRow('Light theme', themeMode === 'light' ? 'sun' : 'moon', renderSwitch(themeMode === 'light', (value) => void persistTheme(value)))}
 
         <Text style={styles.sectionTitle}>Notifications</Text>
         {renderRow('Push notifications', 'bell', renderSwitch(settings.push_enabled && pushPermissionGranted, (value) => void persistNotification('push_enabled', value)))}

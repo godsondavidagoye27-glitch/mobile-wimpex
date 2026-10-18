@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
-import { router } from 'expo-router';
-import { useEffect } from 'react';
-import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback } from 'react';
+import { ActivityIndicator, AppState, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { getLiveStreams } from './liveService';
 import { theme } from '../../theme/theme';
 
@@ -15,10 +15,29 @@ export function LiveNowRail() {
   });
   const refetchLiveStreams = query.refetch;
 
-  useEffect(() => {
-    const interval = setInterval(() => void refetchLiveStreams(), 30_000);
-    return () => clearInterval(interval);
-  }, [refetchLiveStreams]);
+  useFocusEffect(
+    useCallback(() => {
+      let interval: ReturnType<typeof setInterval> | null = null;
+      const stop = () => {
+        if (interval) clearInterval(interval);
+        interval = null;
+      };
+      const start = () => {
+        if (AppState.currentState === 'active' && !interval) {
+          interval = setInterval(() => void refetchLiveStreams(), 30_000);
+        }
+      };
+      start();
+      const subscription = AppState.addEventListener('change', (state) => {
+        if (state === 'active') start();
+        else stop();
+      });
+      return () => {
+        stop();
+        subscription.remove();
+      };
+    }, [refetchLiveStreams]),
+  );
 
   if (query.isPending) {
     return (

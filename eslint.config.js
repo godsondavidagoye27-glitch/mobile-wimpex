@@ -7,11 +7,4 @@ module.exports = defineConfig([
   {
     ignores: ["dist/*"],
   },
-  {
-    files: ["src/features/auth/SignUpFlow.tsx", "src/features/splash/SplashSequence.tsx"],
-    rules: {
-      // Reanimated shared values are designed to be mutated by animation callbacks and effects.
-      "react-hooks/immutability": "off",
-    },
-  },
 ]);

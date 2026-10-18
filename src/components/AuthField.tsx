@@ -98,7 +98,7 @@ export function AuthField({
             onBlur?.(event);
           }}
           secureTextEntry={secureTextEntry && !passwordVisible}
-          blurOnSubmit={inputProps.returnKeyType === 'next' ? false : inputProps.blurOnSubmit}
+          submitBehavior={inputProps.returnKeyType === 'next' ? 'submit' : inputProps.submitBehavior}
           autoCapitalize={inputProps.autoCapitalize ?? 'none'}
           autoCorrect={inputProps.autoCorrect ?? false}
           cursorColor={theme.colors.primary}
@@ -107,11 +107,15 @@ export function AuthField({
           style={[styles.input, floated && styles.inputFloated, secureTextEntry && styles.passwordInput, inputStyle]}
         />
         <Text
-          pointerEvents="none"
           accessible={false}
           accessibilityElementsHidden
           importantForAccessibility="no"
-          style={[styles.fieldLabel, floated && styles.fieldLabelFloated, focused && styles.fieldLabelFocused]}
+          style={[
+            styles.fieldLabel,
+            { pointerEvents: 'none' },
+            floated && styles.fieldLabelFloated,
+            focused && styles.fieldLabelFocused,
+          ]}
         >
           {label}
         </Text>

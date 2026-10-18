@@ -149,8 +149,8 @@ function FeedPostCard({
         post={item.post}
         isAuthor={isAuthor}
       />
-      <View pointerEvents="box-none" style={styles.videoOverlay}>
-        <View pointerEvents="box-none" style={styles.metaStack}>
+      <View style={[styles.videoOverlay, { pointerEvents: 'box-none' }]}>
+        <View style={[styles.metaStack, { pointerEvents: 'box-none' }]}>
           <Link href={{ pathname: '/user/[username]', params: { username: item.author.username } }} asChild>
             <Pressable style={styles.profileLink} accessibilityRole="button">
               <Text style={styles.displayName}>{item.author.display_name}</Text>
@@ -254,7 +254,9 @@ export default function HomeScreen() {
       if (!mounted) return;
       setUploadJobs(savedJobs);
       savedJobs.filter((job) => job.state !== 'failed').forEach((job) => {
-        void resumeVideoUpload(job.id).catch(() => undefined);
+        void resumeVideoUpload(job.id).catch((error: unknown) => {
+          console.error('Unable to resume saved video upload.', error);
+        });
       });
     }).catch((error: unknown) => {
       if (mounted) {
@@ -450,6 +452,10 @@ export default function HomeScreen() {
         data={posts}
         keyExtractor={(item) => item.post.id}
         renderItem={renderPost}
+        getItemLayout={(_, index) => {
+          const itemHeight = listHeight || 480;
+          return { length: itemHeight, offset: itemHeight * index, index };
+        }}
         ListEmptyComponent={emptyContent}
         ListFooterComponent={feedQuery.isFetchingNextPage ? (
           <ActivityIndicator color={theme.colors.primary} style={styles.listFooter} />

@@ -1,4 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { constantTimeEquals } from '../_shared/constantTime.ts';
 
 const jsonHeaders = { 'Content-Type': 'application/json' };
 
@@ -22,7 +23,7 @@ Deno.serve(async (request: Request) => {
     });
   }
 
-  if (request.headers.get('x-story-purge-secret') !== sharedSecret) {
+  if (!constantTimeEquals(request.headers.get('x-story-purge-secret'), sharedSecret)) {
     return new Response(JSON.stringify({ error: 'Authentication is required.' }), {
       status: 401,
       headers: jsonHeaders,

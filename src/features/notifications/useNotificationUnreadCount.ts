@@ -7,9 +7,12 @@ export function useNotificationUnreadCount() {
   useEffect(() => {
     let active = true;
     let channel: ReturnType<ReturnType<typeof getSupabaseClient>['channel']> | null = null;
+    let observedUserId: string | null | undefined;
     const client = getSupabaseClient();
 
     const observeUser = (userId: string | null) => {
+      if (observedUserId === userId) return;
+      observedUserId = userId;
       if (channel) {
         void client.removeChannel(channel);
         channel = null;

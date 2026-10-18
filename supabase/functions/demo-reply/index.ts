@@ -1,4 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { constantTimeEquals } from '../_shared/constantTime.ts';
 
 const replyLines = [
   'That sounds good. How did it go?',
@@ -26,7 +27,7 @@ Deno.serve(async (request) => {
     console.error('DEMO_REPLY_WEBHOOK_SECRET is not configured.');
     return jsonResponse(503, { error: 'Demo replies are not configured.' });
   }
-  if (request.headers.get('x-webhook-secret') !== expectedSecret) {
+  if (!constantTimeEquals(request.headers.get('x-webhook-secret'), expectedSecret)) {
     return jsonResponse(401, { error: 'Unauthorized webhook.' });
   }
   if (Deno.env.get('DEMO_MODE') !== 'true') {

@@ -1,4 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { constantTimeEquals } from '../_shared/constantTime.ts';
 import { normalizeWebVtt, parseWebVtt, writeWebVtt } from '../../../src/features/captions/vtt.ts';
 
 const headers = { 'Content-Type': 'application/json' };
@@ -39,7 +40,7 @@ Deno.serve(async (request: Request) => {
     console.error('The captions-callback function is missing required server configuration.');
     return respond(503, { error: 'Captions are not configured.' });
   }
-  if (request.headers.get(secretHeader) !== secret) {
+  if (!constantTimeEquals(request.headers.get(secretHeader), secret)) {
     return respond(401, { error: 'Authentication is required.' });
   }
 

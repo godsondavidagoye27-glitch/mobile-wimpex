@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/immutability */
 import { router } from 'expo-router';
 import { Component, useCallback, useEffect, useMemo, useRef, useState, type ErrorInfo, type ReactNode } from 'react';
 import {
@@ -239,14 +240,15 @@ const finishStyles = StyleSheet.create({
 
 export function SplashSequence() {
   const { height } = useWindowDimensions();
-  const [stableWindowHeight] = useState(() => height);
-  const authCardHeight = stableWindowHeight * 0.7;
+  const authCardHeight = height * 0.7;
+  const [rootLayoutHeight, setRootLayoutHeight] = useState(height);
+  const [keyboardLayoutHeight, setKeyboardLayoutHeight] = useState(0);
   const {
     keyboardHeight,
     safeAreaTop,
     safeAreaBottom,
     containerHeight,
-    onLayout: onRootLayout,
+    onLayout: updateKeyboardContainerLayout,
   } = useKeyboardInset();
   const reduceMotion = useReducedMotion();
   const signupStep = useAuthFlow((state) => state.currentStep);
@@ -294,6 +296,30 @@ export function SplashSequence() {
   const segmentOpacity = useSharedValue(1);
   const segmentHeight = useSharedValue(42);
   const authTransitionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const onRootLayout = useCallback((event: Parameters<typeof updateKeyboardContainerLayout>[0]) => {
+    updateKeyboardContainerLayout(event);
+    setRootLayoutHeight(event.nativeEvent.layout.height);
+  }, [updateKeyboardContainerLayout]);
+
+  useEffect(() => {
+    if (Platform.OS === 'web') return undefined;
+
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const showSubscription = Keyboard.addListener(showEvent, (event) => {
+      if (Platform.OS === 'ios') Keyboard.scheduleLayoutAnimation(event);
+      setKeyboardLayoutHeight(event.endCoordinates.height);
+    });
+    const hideSubscription = Keyboard.addListener(hideEvent, (event) => {
+      if (Platform.OS === 'ios') Keyboard.scheduleLayoutAnimation(event);
+      setKeyboardLayoutHeight(0);
+    });
+    return () => {
+      showSubscription.remove();
+      hideSubscription.remove();
+    };
+  }, []);
 
   const beginAuthTransition = useCallback(() => {
     setAuthTransitionReady(false);
@@ -417,21 +443,32 @@ export function SplashSequence() {
     transform: [{ translateY: welcomeTranslateY.value }],
   }));
   const cardStyle = useAnimatedStyle(() => ({ transform: [{ translateY: cardTranslateY.value }] }));
-  const authKeyboardStyle = useAnimatedStyle(() => {
+  const authCardAnimatedLayoutStyle = useAnimatedStyle(() => {
     const rootHeight = containerHeight.value || height;
     const currentKeyboardHeight = keyboardHeight.value;
     const bottomInset = currentKeyboardHeight > 0
       ? Math.max(currentKeyboardHeight, safeAreaBottom)
       : 0;
     const availableHeight = Math.max(0, rootHeight - bottomInset);
-    const keyboardOpen = currentKeyboardHeight > 0;
     return {
       bottom: bottomInset,
-      height: keyboardOpen
+      height: currentKeyboardHeight > 0
         ? Math.max(0, availableHeight - safeAreaTop)
         : authCardHeight,
     };
   }, [authCardHeight, containerHeight, height, safeAreaBottom, safeAreaTop]);
+  const authCardBottomInset = keyboardLayoutHeight > 0
+    ? Math.max(keyboardLayoutHeight, safeAreaBottom)
+    : 0;
+  const authCardAvailableHeight = Math.max(0, rootLayoutHeight - authCardBottomInset);
+  const authCardLayoutStyle = Platform.OS === 'web'
+    ? authCardAnimatedLayoutStyle
+    : {
+      bottom: authCardBottomInset,
+      height: keyboardLayoutHeight > 0
+        ? Math.max(0, authCardAvailableHeight - safeAreaTop)
+        : authCardHeight,
+    };
   const keyboardAwareLogoStyle = useAnimatedStyle(() => {
     const keyboardAmount = keyboardHeight.value;
     return {
@@ -671,7 +708,7 @@ export function SplashSequence() {
 
       <Animated.View style={[styles.logoStack, { top: 0 }, logoStyle, keyboardAwareLogoStyle]}>
         {skiaFailed ? (
-          <Animated.View style={[styles.logoGlowFallback, fallbackGlowStyle]} pointerEvents="none" />
+          <Animated.View style={[styles.logoGlowFallback, fallbackGlowStyle, { pointerEvents: 'none' }]} />
         ) : (
           <SkiaSetupBoundary onError={() => setSkiaFailed(true)}>
             <SplashLogoGlow opacity={goldGlowOpacity} />
@@ -685,8 +722,11 @@ export function SplashSequence() {
       </Animated.View>
 
       <Animated.View
-        style={[styles.welcome, welcomeStyle]}
-        pointerEvents={displayedPhase === 'welcome' && !authOpen ? 'auto' : 'none'}
+        style={[
+          styles.welcome,
+          welcomeStyle,
+          { pointerEvents: displayedPhase === 'welcome' && !authOpen ? 'auto' : 'none' },
+        ]}
       >
         {displayedPhase === 'welcome' && !authOpen ? (
           <>
@@ -741,8 +781,12 @@ export function SplashSequence() {
       </Animated.View>
 
       <Animated.View
-        style={[styles.authCard, { height: authCardHeight, maxHeight: '100%' }, cardStyle, authKeyboardStyle]}
-        pointerEvents={authOpen ? 'auto' : 'none'}
+        style={[
+          styles.authCard,
+          { maxHeight: '100%', pointerEvents: authOpen ? 'auto' : 'none' },
+          authCardLayoutStyle,
+          cardStyle,
+        ]}
         collapsable={false}
       >
         <Pressable
@@ -761,8 +805,8 @@ export function SplashSequence() {
               styles.segmentSlot,
               segmentSlotStyle,
               resetOpen && styles.segmentSlotHidden,
+              { pointerEvents: resetOpen ? 'none' : 'auto' },
             ]}
-            pointerEvents={resetOpen ? 'none' : 'auto'}
           >
             <View style={styles.segment} onLayout={(event) => setSegmentWidth(event.nativeEvent.layout.width)}>
               <Animated.View style={[styles.segmentPill, segmentPillStyle]} />

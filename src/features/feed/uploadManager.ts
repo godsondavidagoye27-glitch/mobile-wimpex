@@ -325,6 +325,17 @@ async function performUpload(job: VideoUploadJob): Promise<void> {
     jobs.delete(uploading.id);
     publishJobs();
   } catch (error) {
+    try {
+      const { error: statusError } = await getSupabaseClient()
+        .from('posts')
+        .update({ status: 'failed' })
+        .eq('id', uploading.postId)
+        .eq('author_id', uploading.ownerId)
+        .in('status', ['uploading', 'failed']);
+      if (statusError) throw statusError;
+    } catch (statusError) {
+      console.error('Unable to mark a failed video upload.', statusError);
+    }
     const current = jobs.get(uploading.id) ?? uploading;
     await saveJob({
       ...current,

@@ -233,7 +233,11 @@ export default function EditCommunityScreen() {
         {rules.map((rule, index) => (
           <View key={`${rule}-${index}`} style={styles.ruleRow}>
             <Text style={styles.ruleText}>{rule}</Text>
-            <Pressable onPress={() => setRules((current) => current.filter((_, itemIndex) => itemIndex !== index))}>
+            <Pressable
+              onPress={() => setRules((current) => current.filter((_, itemIndex) => itemIndex !== index))}
+              accessibilityRole="button"
+              accessibilityLabel={`Remove rule ${index + 1}`}
+            >
               <Icon name="close" size={20} color={theme.colors.textMuted} />
             </Pressable>
           </View>

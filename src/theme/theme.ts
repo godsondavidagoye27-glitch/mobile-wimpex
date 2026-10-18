@@ -1,7 +1,3 @@
-export type AppThemeMode = 'light' | 'dark';
-
-export const themeModeStorageKey = 'wimpex.app.theme-mode';
-
 export const darkTheme = {
   colors: {
     black: '#000000',
@@ -55,33 +51,6 @@ export const darkTheme = {
   },
 } as const;
 
-export const lightTheme = {
-  ...darkTheme,
-  colors: {
-    ...darkTheme.colors,
-    black: '#F8FAFC',
-    white: '#0F172A',
-    surface: '#F8FAFC',
-    surfaceLight: '#FFFFFF',
-    line: '#E2E8F0',
-    lineLight: '#CBD5E1',
-    text: '#0F172A',
-    textMuted: '#475569',
-    textMutedLight: '#64748B',
-    textDark: '#020617',
-    overlay: 'rgba(15, 23, 42, 0.3)',
-  },
-} as const;
-
-export const themeModes = {
-  dark: darkTheme,
-  light: lightTheme,
-} as const;
-
 export const theme = darkTheme;
-
-export function resolveThemeMode(value: string | null | undefined): AppThemeMode {
-  return value === 'light' ? 'light' : 'dark';
-}
 
 export type AppTheme = typeof theme;

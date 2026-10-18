@@ -1,8 +1,8 @@
 # Chat layout manual checklist
 
 Test direct and group threads, community chat, and post-detail comments on a real
-Android device. Repeat in light and dark themes, portrait, with gesture and
-three-button navigation, at the default font scale and 200% font scale.
+Android device in portrait, with gesture and three-button navigation, at the
+default font scale and 200% font scale. The app is dark-mode only.
 
 ## Three-zone layout
 

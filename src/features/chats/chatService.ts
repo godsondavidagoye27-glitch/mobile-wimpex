@@ -6,6 +6,11 @@ type Client = SupabaseClient<Database>;
 type ProfileRow = Database['public']['Tables']['profiles']['Row'];
 type ConversationRow = Database['public']['Tables']['conversations']['Row'];
 type MemberRow = Database['public']['Tables']['conversation_members']['Row'];
+type ChatConversation = Pick<
+  ConversationRow,
+  'id' | 'type' | 'title' | 'last_message_id' | 'last_message_at' | 'created_at'
+>;
+type ChatMembership = Pick<MemberRow, 'conversation_id' | 'user_id' | 'unread_count'>;
 
 export type ChatProfile = Pick<
   ProfileRow,
@@ -13,9 +18,9 @@ export type ChatProfile = Pick<
 >;
 
 export type ChatListEntry = {
-  conversation: ConversationRow;
-  membership: MemberRow;
-  members: MemberRow[];
+  conversation: ChatConversation;
+  membership: ChatMembership;
+  members: Pick<MemberRow, 'conversation_id' | 'user_id'>[];
   peer: ChatProfile | null;
   lastMessage: Pick<MessageRow, 'id' | 'sender_id' | 'kind' | 'body' | 'created_at' | 'deleted_at'> | null;
 };
@@ -23,7 +28,7 @@ export type ChatListEntry = {
 export async function fetchChatList(client: Client, userId: string): Promise<ChatListEntry[]> {
   const { data: memberships, error: membershipError } = await client
     .from('conversation_members')
-    .select('*')
+    .select('conversation_id,user_id,unread_count')
     .eq('user_id', userId)
     .is('left_at', null);
   if (membershipError) throw membershipError;
@@ -32,13 +37,13 @@ export async function fetchChatList(client: Client, userId: string): Promise<Cha
   const conversationIds = memberships.map((membership) => membership.conversation_id);
   const { data: conversations, error: conversationError } = await client
     .from('conversations')
-    .select('*')
+    .select('id,type,title,last_message_id,last_message_at,created_at')
     .in('id', conversationIds);
   if (conversationError) throw conversationError;
 
   const { data: members, error: membersError } = await client
     .from('conversation_members')
-    .select('*')
+    .select('conversation_id,user_id')
     .in('conversation_id', conversationIds)
     .is('left_at', null);
   if (membersError) throw membersError;
@@ -114,7 +119,7 @@ export async function fetchConversationMessages(
 ): Promise<MessageRow[]> {
   let query = client
     .from('messages')
-    .select('*')
+    .select('id,conversation_id,sender_id,client_id,kind,body,media_path,media_duration_ms,width,height,reply_to_id,story_reply_preview_path,story_reply_caption,created_at,deleted_at')
     .eq('conversation_id', conversationId)
     .order('created_at', { ascending: false })
     .order('id', { ascending: false })

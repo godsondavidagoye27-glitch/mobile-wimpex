@@ -1,4 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { constantTimeEquals } from '../_shared/constantTime.ts';
 
 const headers = { 'Content-Type': 'application/json' };
 const secretHeader = 'x-captions-webhook-secret';
@@ -8,7 +9,7 @@ function respond(status: number, body: Record<string, unknown>) {
 }
 
 function secretMatches(request: Request, secret: string) {
-  return request.headers.get(secretHeader) === secret;
+  return constantTimeEquals(request.headers.get(secretHeader), secret);
 }
 
 async function setPostState(

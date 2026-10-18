@@ -14,7 +14,7 @@ export default function SplashSkiaBackdrop(_props: SplashSkiaBackdropProps) {
 export function SplashLogoGlow({ opacity }: { opacity: SharedValue<number> }) {
   const animatedStyle = useAnimatedStyle(() => ({ opacity: opacity.value }));
   return (
-    <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+    <View style={[StyleSheet.absoluteFill, { pointerEvents: 'none' }]}>
       <Animated.View style={[styles.glow, animatedStyle]} />
     </View>
   );

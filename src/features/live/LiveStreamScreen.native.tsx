@@ -114,7 +114,7 @@ function LiveRoomContent({
           <Text style={styles.placeholderText}>{ended ? 'This live has ended.' : 'Connecting to the live stream…'}</Text>
         </View>
       )}
-      <View style={styles.shade} pointerEvents="none" />
+      <View style={[styles.shade, { pointerEvents: 'none' }]} />
       <View style={styles.topBar}>
         <View style={styles.streamHeading}>
           <View style={styles.livePill}><Text style={styles.livePillText}>{ended ? 'ENDED' : 'LIVE'}</Text></View>

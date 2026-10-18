@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback } from 'react';
-import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, AppState, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { Icon } from '../../components/Icon';
 import { getLiveStreams } from '../../features/live/liveService';
 import { theme } from '../../theme/theme';
@@ -19,8 +19,25 @@ export default function LiveScreen() {
   useFocusEffect(
     useCallback(() => {
       void refetchLiveStreams();
-      const interval = setInterval(() => void refetchLiveStreams(), 30_000);
-      return () => clearInterval(interval);
+      let interval: ReturnType<typeof setInterval> | null = null;
+      const stop = () => {
+        if (interval) clearInterval(interval);
+        interval = null;
+      };
+      const start = () => {
+        if (AppState.currentState === 'active' && !interval) {
+          interval = setInterval(() => void refetchLiveStreams(), 30_000);
+        }
+      };
+      start();
+      const subscription = AppState.addEventListener('change', (state) => {
+        if (state === 'active') start();
+        else stop();
+      });
+      return () => {
+        stop();
+        subscription.remove();
+      };
     }, [refetchLiveStreams]),
   );
 

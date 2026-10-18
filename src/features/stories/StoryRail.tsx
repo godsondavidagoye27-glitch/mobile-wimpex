@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { router, useFocusEffect } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useCallback } from 'react';
-import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { AppState, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { getStoryRail } from './storyService';
 import { theme } from '../../theme/theme';
 
@@ -21,9 +21,26 @@ export function StoryRail() {
 
   useFocusEffect(
     useCallback(() => {
-      void refetchStoryRail();
-      const interval = setInterval(() => void refetchStoryRail(), 60_000);
-      return () => clearInterval(interval);
+      let interval: ReturnType<typeof setInterval> | null = null;
+      const stop = () => {
+        if (interval) clearInterval(interval);
+        interval = null;
+      };
+      const start = () => {
+        void refetchStoryRail();
+        if (AppState.currentState === 'active' && !interval) {
+          interval = setInterval(() => void refetchStoryRail(), 60_000);
+        }
+      };
+      start();
+      const subscription = AppState.addEventListener('change', (state) => {
+        if (state === 'active') start();
+        else stop();
+      });
+      return () => {
+        stop();
+        subscription.remove();
+      };
     }, [refetchStoryRail]),
   );
 

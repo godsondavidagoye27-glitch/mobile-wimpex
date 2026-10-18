@@ -1,4 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { constantTimeEquals } from '../_shared/constantTime.ts';
 
 const headers = { 'Content-Type': 'application/json' };
 
@@ -15,7 +16,7 @@ Deno.serve(async (request: Request) => {
     console.error('The captions-retry function is missing required server configuration.');
     return respond(503, { error: 'Caption retries are not configured.' });
   }
-  if (request.headers.get('x-captions-webhook-secret') !== secret) {
+  if (!constantTimeEquals(request.headers.get('x-captions-webhook-secret'), secret)) {
     return respond(401, { error: 'Authentication is required.' });
   }
 

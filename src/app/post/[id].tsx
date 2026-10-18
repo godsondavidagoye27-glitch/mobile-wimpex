@@ -30,7 +30,23 @@ import { theme } from '../../theme/theme';
 import { calculateChatComposerHeight } from '../../features/chats/chatLayout';
 
 type PostDetail = {
-  post: Post;
+  post: Pick<
+    Post,
+    | 'id'
+    | 'author_id'
+    | 'captions_path'
+    | 'auto_captions'
+    | 'captions_status'
+    | 'captions_language'
+    | 'video_path'
+    | 'created_at'
+    | 'caption'
+    | 'hashtags'
+    | 'like_count'
+    | 'comment_count'
+    | 'save_count'
+    | 'allow_comments'
+  >;
   author: {
     id: string;
     username: string;
@@ -73,7 +89,7 @@ async function loadPost(postId: string): Promise<PostDetail> {
   const client = getSupabaseClient();
   const { data: post, error: postError } = await client
     .from('posts')
-    .select('*')
+    .select('id,author_id,captions_path,auto_captions,captions_status,captions_language,video_path,created_at,caption,hashtags,like_count,comment_count,save_count,allow_comments')
     .eq('id', postId)
     .maybeSingle();
   if (postError) throw postError;
@@ -165,7 +181,9 @@ async function loadCommentPage(postId: string, cursor: CommentCursor | null): Pr
   };
 }
 
-function PostVideo({ uri, post, isAuthor }: { uri: string | null; post: Post; isAuthor: boolean }) {
+type CaptionPost = Pick<Post, 'id' | 'captions_path' | 'captions_status' | 'captions_language'>;
+
+function PostVideo({ uri, post, isAuthor }: { uri: string | null; post: CaptionPost; isAuthor: boolean }) {
   if (!uri) {
     return (
       <View style={styles.videoUnavailable}>
@@ -177,7 +195,7 @@ function PostVideo({ uri, post, isAuthor }: { uri: string | null; post: Post; is
   return <PlayingPostVideo uri={uri} post={post} isAuthor={isAuthor} />;
 }
 
-function PlayingPostVideo({ uri, post, isAuthor }: { uri: string; post: Post; isAuthor: boolean }) {
+function PlayingPostVideo({ uri, post, isAuthor }: { uri: string; post: CaptionPost; isAuthor: boolean }) {
   const player = useVideoPlayer(uri, (videoPlayer) => {
     videoPlayer.loop = true;
   });
@@ -192,7 +210,7 @@ function PlayingPostVideo({ uri, post, isAuthor }: { uri: string; post: Post; is
       <VideoView player={player} style={StyleSheet.absoluteFill} contentFit="contain" nativeControls />
       <CaptionOverlay player={player} post={post} active isAuthor={isAuthor} />
       {!isPlaying ? (
-        <View pointerEvents="none" style={styles.pausedVideoOverlay}>
+        <View style={[styles.pausedVideoOverlay, { pointerEvents: 'none' }]}>
           <Icon name="play" size={24} color={theme.colors.white} />
         </View>
       ) : null}
@@ -357,14 +375,20 @@ export default function PostDetailScreen() {
         text: 'Delete',
         style: 'destructive',
         onPress: () => {
-          void getSupabaseClient()
+          void Promise.resolve(getSupabaseClient()
             .from('comments')
             .update({ deleted_at: new Date().toISOString() })
             .eq('id', comment.id)
-            .eq('author_id', detail?.currentUserId ?? '')
-            .then(({ error }) => {
-              if (error) Alert.alert('Could not delete comment', error.message);
-              else void refreshPost();
+            .eq('author_id', detail?.currentUserId ?? ''))
+            .then(async ({ error }) => {
+              if (error) throw error;
+              await refreshPost();
+            })
+            .catch((caught: unknown) => {
+              Alert.alert(
+                'Could not delete comment',
+                caught instanceof Error ? caught.message : 'Try again.',
+              );
             });
         },
       },
@@ -582,7 +606,7 @@ export default function PostDetailScreen() {
               placeholderTextColor={theme.colors.textMuted}
               style={[styles.commentInput, { height: commentInputHeight }]}
               returnKeyType="send"
-              blurOnSubmit={false}
+              submitBehavior="newline"
               onSubmitEditing={() => void sendComment()}
             />
             <Pressable

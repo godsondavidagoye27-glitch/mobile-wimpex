@@ -52,7 +52,7 @@ export function CaptionOverlay({
   isAuthor,
 }: {
   player: VideoPlayer;
-  post: FeedPost;
+  post: Pick<FeedPost, 'id' | 'captions_path' | 'captions_status' | 'captions_language'>;
   active: boolean;
   isAuthor: boolean;
 }) {
@@ -178,7 +178,7 @@ export function CaptionOverlay({
   const cue = enabled && post.captions_status === 'ready' ? findVttCue(cues, currentTime) : null;
 
   return (
-    <View pointerEvents="box-none" style={styles.container}>
+    <View style={[styles.container, { pointerEvents: 'box-none' }]}>
       <View style={styles.controls}>
         <Pressable
           onPress={() => void toggleCaptions()}

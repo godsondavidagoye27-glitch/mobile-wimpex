@@ -1,7 +1,7 @@
 # Android input focus checklist
 
-Run on a real Android device with the development build. Test in portrait, light and
-dark themes, with gesture navigation and three-button navigation. For every text
+Run on a real Android device with the development build. Test in portrait and
+dark mode, with gesture navigation and three-button navigation. For every text
 field, tap its left edge, floating-label area (when present), center, and right
 edge. Confirm the cursor appears and the keyboard opens on the first tap. Repeat
 after closing and reopening the screen; do not type during the edge-hit test.
@@ -51,3 +51,6 @@ after closing and reopening the screen; do not type during the edge-hit test.
 - [ ] Use a 640 dp-tall display; focused inputs and primary actions remain visible.
 - [ ] Repeat with autofill suggestions visible; suggestions do not obscure the
       password field or prevent a first-tap focus.
+
+The Android device tap/reproduction checklist still requires a connected device;
+static checks are not a substitute for this manual verification.

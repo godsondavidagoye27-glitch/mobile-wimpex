@@ -1,13 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { resolveThemeMode } from './theme';
+import { theme } from './theme';
 
-describe('theme mode helpers', () => {
-  it('accepts the light mode setting', () => {
-    expect(resolveThemeMode('light')).toBe('light');
-  });
-
-  it('defaults anything else to dark mode', () => {
-    expect(resolveThemeMode(null)).toBe('dark');
-    expect(resolveThemeMode('system')).toBe('dark');
+describe('app theme', () => {
+  it('uses the dark color palette consistently', () => {
+    expect(theme.colors.black).toBe('#000000');
+    expect(theme.colors.white).toBe('#FFFFFF');
   });
 });

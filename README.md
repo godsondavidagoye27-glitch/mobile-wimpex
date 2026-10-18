@@ -8,9 +8,9 @@ Wimpex is an Expo and React Native mobile application using Expo Router and Supa
 - [Authentication setup](#authentication-setup)
 - [Sign up testing](#sign-up-test-checklist)
 - [Social sign-in and password reset testing](#social-sign-in-and-password-reset-checks)
+- [Input focus and keyboard manual checks](#input-focus-and-keyboard-manual-checks)
 - [Profile and follow testing](#profile-and-follow-testing)
 - [Feed testing](#feed-test-checklist)
-- [AI captions](#ai-captions)
 - [AI captions](#ai-captions)
 - [Search testing](#search-test-guide)
 - [Communities testing](#communities-test-guide)
@@ -43,6 +43,12 @@ npx vitest run
 ```
 
 For features that require native modules, build and run a development client rather than using Expo Go. Apply Supabase migrations before using server-backed features. Feature-specific database tests and deployment instructions follow.
+
+## Input focus and keyboard manual checks
+
+- [Android input focus checklist](./docs/input-focus-test.md)
+- [Keyboard coverage checklist](./docs/keyboard-test.md)
+- [Chat layout checklist](./docs/chat-layout-test.md)
 
 ## Authentication setup
 
@@ -78,7 +84,7 @@ Native Apple authentication sends a SHA-256 nonce to Apple and supplies the orig
 
 1. Configure Supabase email signup and a six digit OTP email template. The recovery email template must expose the token code, not only a deep link, for the in-app reset screen.
 2. Apply the migrations in `supabase/migrations` before creating profiles.
-3. In Supabase Dashboard, open Edge Functions, then Secrets, and add `WIMPEX_SERVICE_ROLE_KEY` with the project service role key as its value. This secret is only read by the Edge Function. Do not add it to `.env`, `.env.example`, an EAS public variable, or app config.
+3. The Supabase Edge Function runtime supplies `SUPABASE_SERVICE_ROLE_KEY`. Do not add it to `.env`, `.env.example`, an EAS public variable, or app config.
 4. Deploy the account cleanup function:
 
    ```sh

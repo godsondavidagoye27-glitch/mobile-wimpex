@@ -1,4 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { constantTimeEquals } from '../_shared/constantTime.ts';
 
 type Message = {
   id: string;
@@ -162,7 +163,7 @@ Deno.serve(async (request) => {
     console.error('PUSH_NOTIFICATION_WEBHOOK_SECRET is not configured.');
     return jsonResponse(503, { error: 'Push notifications are not configured.' });
   }
-  if (request.headers.get('x-webhook-secret') !== expectedSecret) {
+  if (!constantTimeEquals(request.headers.get('x-webhook-secret'), expectedSecret)) {
     return jsonResponse(401, { error: 'Unauthorized webhook.' });
   }
 

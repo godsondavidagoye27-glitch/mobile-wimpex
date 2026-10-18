@@ -4,13 +4,13 @@ import { router, Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { Component, useCallback, useEffect, useRef, useState, type ErrorInfo, type ReactNode } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { AppState, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { OnlinePresence } from '../features/chats/OnlinePresence';
 import { NotificationLifecycle } from '../features/notifications/NotificationLifecycle';
 import { KeyboardInsetProvider } from '../hooks/useKeyboardInset';
-import { preferenceStorage } from '../lib/storage';
-import { resolveThemeMode, type AppThemeMode, theme } from '../theme/theme';
+import { getSupabaseClient } from '../lib/supabase';
+import { theme } from '../theme/theme';
 
 void SplashScreen.preventAutoHideAsync().catch((error: unknown) => {
   console.error('Unable to prevent the native splash screen from auto-hiding.', error);
@@ -55,7 +55,6 @@ class AppErrorBoundary extends Component<
 
 export default function RootLayout() {
   const [queryClient] = useState(() => new QueryClient());
-  const [themeMode, setThemeMode] = useState<AppThemeMode>('dark');
   const splashHidden = useRef(false);
 
   const hideSplash = useCallback(() => {
@@ -68,13 +67,24 @@ export default function RootLayout() {
   }, []);
 
   useEffect(() => {
-    void preferenceStorage.getItem('wimpex.app.theme-mode').then((value) => setThemeMode(resolveThemeMode(value))).catch(() => undefined);
-  }, []);
-
-  useEffect(() => {
     const timeout = setTimeout(hideSplash, 3000);
     return () => clearTimeout(timeout);
   }, [hideSplash]);
+
+  useEffect(() => {
+    if (!process.env.EXPO_PUBLIC_SUPABASE_URL || !process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY) return;
+    const auth = getSupabaseClient().auth;
+    const updateAutoRefresh = (state: string) => {
+      if (state === 'active') auth.startAutoRefresh();
+      else auth.stopAutoRefresh();
+    };
+    updateAutoRefresh(AppState.currentState);
+    const subscription = AppState.addEventListener('change', updateAutoRefresh);
+    return () => {
+      subscription.remove();
+      auth.stopAutoRefresh();
+    };
+  }, []);
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
@@ -82,7 +92,7 @@ export default function RootLayout() {
         <QueryClientProvider client={queryClient}>
           <SafeAreaProvider>
             <KeyboardInsetProvider>
-              <StatusBar style={themeMode === 'light' ? 'dark' : 'light'} />
+              <StatusBar style="light" />
               <OnlinePresence />
               <NotificationLifecycle />
               <View style={styles.rootContent} onLayout={hideSplash}>

@@ -4,22 +4,28 @@ import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { getSupabaseClient } from '../lib/supabase';
 import { theme } from '../theme/theme';
 import { beginProfileCompletion, rehydrateAuthFlow } from '../features/auth/useAuthFlow';
+import { routeForSessionCheckFailure } from '../features/auth/initialRoute';
 
 export default function IndexRoute() {
   const resolveInitialRoute = async () => {
     let timeout: ReturnType<typeof setTimeout> | undefined;
+    let restoredSession = false;
     try {
       const destination = await Promise.race([
         (async () => {
-          await rehydrateAuthFlow();
           if (!process.env.EXPO_PUBLIC_SUPABASE_URL || !process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY) {
+            await rehydrateAuthFlow();
             return { route: 'welcome' as const };
           }
 
           const { data, error } = await getSupabaseClient().auth.getSession();
           if (error) throw error;
-          console.log('session result', data.session ? 'authenticated' : 'no session');
-          if (!data.session) return { route: 'welcome' as const };
+          if (!data.session) {
+            await rehydrateAuthFlow();
+            return { route: 'welcome' as const };
+          }
+          restoredSession = true;
+          await rehydrateAuthFlow();
 
           const { data: profile, error: profileError } = await getSupabaseClient()
             .from('profiles')
@@ -45,15 +51,14 @@ export default function IndexRoute() {
         router.replace('/(auth)/welcome');
       }
     } catch (error) {
-      console.error('Unable to resolve the initial route; opening welcome.', error);
-      router.replace('/(auth)/welcome');
+      console.error('Unable to resolve the initial route.', error);
+      router.replace(routeForSessionCheckFailure(restoredSession));
     } finally {
       if (timeout) clearTimeout(timeout);
     }
   };
 
   useEffect(() => {
-    console.log('index start');
     void resolveInitialRoute();
   }, []);
 

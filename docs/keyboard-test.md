@@ -2,7 +2,8 @@
 
 Run on a real Android device or emulator with a 640 dp-high viewport, 200% font
 scale, a tall keyboard with its suggestion strip, and both gesture and three-button
-navigation. Repeat in the mobile web emulator and on iOS where available.
+navigation. Repeat in the mobile web emulator and on iOS where available. The app
+is dark-mode only.
 
 For every field below, tap it, type `wimpex`, delete the final character, paste
 `wimpex`, and verify the text remains visible and the cursor/focus border remains
@@ -66,8 +67,8 @@ action. Scrollable forms must keep taps working while the keyboard is open.
 
 ## Regression checks
 
-- [ ] Switch light/dark themes and repeat the login, signup, reset, chat, and
-  composer checks.
+- [ ] Repeat the login, signup, reset, chat, and composer checks after a cold
+  restart and after switching between app screens.
 - [ ] Test paste and autofill into email, password, username, and one-time-code
   inputs.
 - [ ] Confirm no release build displays Replay or other splash/demo-only controls.

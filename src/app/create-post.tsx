@@ -89,7 +89,9 @@ export default function CreatePostScreen() {
         if (!mounted) return;
         setJobs(pendingJobs);
         pendingJobs.filter((job) => job.state !== 'failed').forEach((job) => {
-          void resumeVideoUpload(job.id).catch(() => undefined);
+          void resumeVideoUpload(job.id).catch((error: unknown) => {
+            console.error('Unable to resume saved video upload.', error);
+          });
         });
       }
     }).catch((loadError: unknown) => {
@@ -290,7 +292,12 @@ export default function CreatePostScreen() {
         {draft.uri ? (
           <View style={styles.preview}>
             <LocalVideoPreview uri={draft.uri} />
-            <Pressable onPress={clearSelectedVideo} style={styles.removeMedia}>
+            <Pressable
+              onPress={clearSelectedVideo}
+              style={styles.removeMedia}
+              accessibilityRole="button"
+              accessibilityLabel="Remove selected video"
+            >
               <Icon name="close" size={20} color={theme.colors.white} />
             </Pressable>
             <Text style={styles.videoDetails}>

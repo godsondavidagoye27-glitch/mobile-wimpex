@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/immutability */
 import { Picker } from '@react-native-picker/picker';
 import * as ImagePicker from 'expo-image-picker';
 import { useEffect, useRef, useState } from 'react';
@@ -109,7 +110,7 @@ function OtpCell({
         autoCapitalize="none"
         autoCorrect={false}
         returnKeyType={index === OTP_LENGTH - 1 ? 'done' : 'next'}
-        blurOnSubmit={false}
+        submitBehavior="submit"
         maxLength={OTP_LENGTH}
         accessibilityLabel={`Digit ${index + 1}`}
         style={styles.codeInput}

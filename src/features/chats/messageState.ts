@@ -1,6 +1,23 @@
 import type { Database } from '../../types/database';
 
-export type MessageRow = Database['public']['Tables']['messages']['Row'];
+export type MessageRow = Pick<
+  Database['public']['Tables']['messages']['Row'],
+  | 'id'
+  | 'conversation_id'
+  | 'sender_id'
+  | 'client_id'
+  | 'kind'
+  | 'body'
+  | 'media_path'
+  | 'media_duration_ms'
+  | 'width'
+  | 'height'
+  | 'reply_to_id'
+  | 'story_reply_preview_path'
+  | 'story_reply_caption'
+  | 'created_at'
+  | 'deleted_at'
+>;
 export type MessageDeliveryState = 'sending' | 'sent' | 'failed';
 export type ChatMessage = MessageRow & {
   deliveryState: MessageDeliveryState;
