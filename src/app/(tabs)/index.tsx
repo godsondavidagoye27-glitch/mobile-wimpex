@@ -1,3 +1,4 @@
+import { getErrorMessage } from '../../lib/errorMessage';
 import { useEvent } from 'expo';
 import { Link, router, useFocusEffect } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -264,13 +265,13 @@ export default function HomeScreen() {
       if (!mounted) return;
       setUploadJobs(savedJobs);
       savedJobs.filter((job) => job.state !== 'failed').forEach((job) => {
-        void resumeVideoUpload(job.id).catch((error: unknown) => {
+        void resumeVideoUpload(job.id).catch(async (error: unknown) => {
           console.error('Unable to resume saved video upload.', error);
         });
       });
-    }).catch((error: unknown) => {
+    }).catch(async (error: unknown) => {
       if (mounted) {
-        Alert.alert('Could not resume video uploads', error instanceof Error ? error.message : 'Try again from Create post.');
+        Alert.alert('Could not resume video uploads', await getErrorMessage(error, 'Try again from Create post.'));
       }
     });
 
@@ -290,8 +291,8 @@ export default function HomeScreen() {
   useEffect(() => {
     if (!activePostId || viewedPostIds.current.has(activePostId)) return;
     viewedPostIds.current.add(activePostId);
-    void recordPostView(activePostId).catch((error: unknown) => {
-      Alert.alert('Could not record this view', error instanceof Error ? error.message : 'Try again.');
+    void recordPostView(activePostId).catch(async (error: unknown) => {
+      Alert.alert('Could not record this view', await getErrorMessage(error, 'Try again.'));
     });
   }, [activePostId]);
 
@@ -332,7 +333,7 @@ export default function HomeScreen() {
     } catch (error) {
       queryClient.setQueryData(queryKeys.feed('for_you'), previousForYou);
       queryClient.setQueryData(queryKeys.feed('following'), previousFollowing);
-      Alert.alert('Could not update this video', error instanceof Error ? error.message : 'Check your connection and try again.');
+      Alert.alert('Could not update this video', await getErrorMessage(error, 'Check your connection and try again.'));
     } finally {
       setBusyPostIds((current) => {
         const next = new Set(current);
@@ -355,7 +356,7 @@ export default function HomeScreen() {
         await refreshFeeds();
       }
     } catch (error) {
-      Alert.alert('Could not share this video', error instanceof Error ? error.message : 'Try again.');
+      Alert.alert('Could not share this video', await getErrorMessage(error, 'Try again.'));
     }
   };
 
@@ -363,7 +364,7 @@ export default function HomeScreen() {
     try {
       await resumeVideoUpload(job.id);
     } catch (error) {
-      Alert.alert('Upload failed', error instanceof Error ? error.message : 'Try again.');
+      Alert.alert('Upload failed', await getErrorMessage(error, 'Try again.'));
     }
   };
 
@@ -371,7 +372,7 @@ export default function HomeScreen() {
     try {
       await removeUploadJob(job.id);
     } catch (error) {
-      Alert.alert('Could not remove upload', error instanceof Error ? error.message : 'Try again.');
+      Alert.alert('Could not remove upload', await getErrorMessage(error, 'Try again.'));
     }
   };
 

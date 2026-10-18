@@ -18,8 +18,21 @@ export type ChatMediaAttachment = {
 const allowedChatMediaTypes: Record<ChatMediaKind, string[]> = {
   image: ['image/jpeg', 'image/png', 'image/webp'],
   video: ['video/mp4'],
-  voice: ['audio/mp4', 'audio/x-m4a', 'audio/webm'],
+  voice: ['audio/mp4', 'audio/x-m4a', 'audio/webm', 'audio/mpeg', 'audio/aac', 'audio/3gpp', 'audio/ogg'],
 };
+
+export function extensionFor(attachment: ChatMediaAttachment): string {
+  if (attachment.kind === 'image') return 'jpg';
+  if (attachment.kind === 'video') return 'mp4';
+  switch (attachment.contentType.toLowerCase()) {
+    case 'audio/webm': return 'webm';
+    case 'audio/mpeg': return 'mp3';
+    case 'audio/aac': return 'aac';
+    case 'audio/3gpp': return '3gp';
+    case 'audio/ogg': return 'ogg';
+    default: return 'm4a';
+  }
+}
 
 export function validateChatMedia(attachment: ChatMediaAttachment): string | null {
   if (!Number.isFinite(attachment.sizeBytes) || attachment.sizeBytes <= 0) {

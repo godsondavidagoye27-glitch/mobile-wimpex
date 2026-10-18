@@ -4,6 +4,7 @@ import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'rea
 import { Icon } from '../../components/Icon';
 import { FocusableTextInput } from '../../components/AuthField';
 import { startLive } from '../../features/live/liveService';
+import { getErrorMessage } from '../../lib/errorMessage';
 import { theme } from '../../theme/theme';
 import { KeyboardAwareScreen } from '../../hooks/useKeyboardInset';
 
@@ -22,7 +23,8 @@ export default function CreateLiveScreen() {
       const streamId = await startLive(title);
       router.replace({ pathname: '/live/[streamId]', params: { streamId } });
     } catch (error) {
-      Alert.alert('Could not start live', error instanceof Error ? error.message : 'Try again.');
+      console.error('Unable to start live streaming.', error);
+      Alert.alert('Could not start live', await getErrorMessage(error, 'Try again.'));
     } finally {
       setStarting(false);
     }

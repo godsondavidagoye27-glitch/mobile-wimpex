@@ -1,3 +1,4 @@
+import { getErrorMessage } from '../../lib/errorMessage';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -86,7 +87,7 @@ function useProfileData(username: string | null) {
         setResult({
           key,
           profile: null,
-          error: caught instanceof Error ? caught.message : 'Unable to load this profile.',
+          error: await getErrorMessage(caught, 'Unable to load this profile.'),
         });
       }
     })();
@@ -163,7 +164,7 @@ export function ProfileScreen({ username }: { username: string | null }) {
           key,
           rows: [],
           cursor: null,
-          error: caught instanceof Error ? caught.message : 'Unable to load videos.',
+          error: await getErrorMessage(caught, 'Unable to load videos.'),
         });
       }
     })();
@@ -196,7 +197,7 @@ export function ProfileScreen({ username }: { username: string | null }) {
         }
         : current);
     } catch (caught) {
-      setScreenError(caught instanceof Error ? caught.message : 'Unable to load more videos.');
+      setScreenError(await getErrorMessage(caught, 'Unable to load more videos.'));
     } finally {
       setLoadingMore(false);
     }
@@ -225,7 +226,7 @@ export function ProfileScreen({ username }: { username: string | null }) {
         error: '',
       });
     } catch (caught) {
-      setScreenError(caught instanceof Error ? caught.message : 'Unable to refresh this profile.');
+      setScreenError(await getErrorMessage(caught, 'Unable to refresh this profile.'));
     } finally {
       setRefreshing(false);
     }
@@ -254,7 +255,7 @@ export function ProfileScreen({ username }: { username: string | null }) {
       await refreshProfile();
       setProfileRefreshOverride(null);
     } catch (caught) {
-      setScreenError(caught instanceof Error ? caught.message : 'Unable to update this follow.');
+      setScreenError(await getErrorMessage(caught, 'Unable to update this follow.'));
     } finally {
       setActing(false);
     }
@@ -308,7 +309,7 @@ export function ProfileScreen({ username }: { username: string | null }) {
           : current);
       }
     } catch (caught) {
-      setScreenError(caught instanceof Error ? caught.message : 'Unable to complete this action.');
+      setScreenError(await getErrorMessage(caught, 'Unable to complete this action.'));
     } finally {
       setActing(false);
       setDialogAction(null);
@@ -325,7 +326,7 @@ export function ProfileScreen({ username }: { username: string | null }) {
         : current);
       setDialogAction(null);
     } catch (caught) {
-      setScreenError(caught instanceof Error ? caught.message : 'Unable to change video visibility.');
+      setScreenError(await getErrorMessage(caught, 'Unable to change video visibility.'));
     }
   };
 
@@ -352,7 +353,7 @@ export function ProfileScreen({ username }: { username: string | null }) {
         }
         : current);
     } catch (caught) {
-      setScreenError(caught instanceof Error ? caught.message : 'Unable to pin this video.');
+      setScreenError(await getErrorMessage(caught, 'Unable to pin this video.'));
     }
   };
 
@@ -365,7 +366,7 @@ export function ProfileScreen({ username }: { username: string | null }) {
         url: `wimpex://user/${shownProfile.username}`,
       });
     } catch (caught) {
-      setScreenError(caught instanceof Error ? caught.message : 'Unable to share this profile.');
+      setScreenError(await getErrorMessage(caught, 'Unable to share this profile.'));
     }
   };
 
@@ -386,7 +387,7 @@ export function ProfileScreen({ username }: { username: string | null }) {
       if (error) throw error;
       Alert.alert('Report sent', 'Thank you for helping keep Wimpex safe.');
     } catch (caught) {
-      setScreenError(caught instanceof Error ? caught.message : 'Unable to submit this report.');
+      setScreenError(await getErrorMessage(caught, 'Unable to submit this report.'));
     }
   };
 
@@ -485,8 +486,8 @@ export function ProfileScreen({ username }: { username: string | null }) {
           <Pressable
             style={styles.linkRow}
             onPress={() => {
-              void Linking.openURL(shownProfile.link!).catch((caught: unknown) => {
-                setScreenError(caught instanceof Error ? caught.message : 'Unable to open this link.');
+              void Linking.openURL(shownProfile.link!).catch(async (caught: unknown) => {
+                setScreenError(await getErrorMessage(caught, 'Unable to open this link.'));
               });
             }}
             accessibilityRole="link"
@@ -761,7 +762,7 @@ async function startMessage(profile: ProfileRpcRow) {
     if (error) throw error;
     router.push({ pathname: '/chat/[id]', params: { id: data } });
   } catch (caught) {
-    Alert.alert('Could not start conversation', caught instanceof Error ? caught.message : 'Try again.');
+    Alert.alert('Could not start conversation', await getErrorMessage(caught, 'Try again.'));
   }
 }
 

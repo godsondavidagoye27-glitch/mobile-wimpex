@@ -1,3 +1,4 @@
+import { getErrorMessage } from '../../lib/errorMessage';
 import { useEvent } from 'expo';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -195,7 +196,7 @@ export default function StoryViewerScreen() {
       setStoryViewers((current) => reset ? page.viewers : [...current, ...page.viewers]);
       setStoryViewerCount(page.total_count);
     } catch (caught) {
-      setStoryViewerError(caught instanceof Error ? caught.message : 'Could not load story viewers.');
+      setStoryViewerError(await getErrorMessage(caught, 'Could not load story viewers.'));
     } finally {
       setStoryViewerLoading(false);
     }
@@ -216,12 +217,12 @@ export default function StoryViewerScreen() {
       .then((allowed) => {
         if (mounted) setReplyPolicyState({ storyId: activeStory.id, allowed, error: '' });
       })
-      .catch((caught: unknown) => {
+      .catch(async (caught: unknown) => {
         if (mounted) {
           setReplyPolicyState({
             storyId: activeStory.id,
             allowed: false,
-            error: caught instanceof Error ? caught.message : 'Story replies could not be checked.',
+            error: await getErrorMessage(caught, 'Story replies could not be checked.'),
           });
         }
       });
@@ -289,7 +290,7 @@ export default function StoryViewerScreen() {
     const mediaToPreload = stories.slice(storyIndex + 1, storyIndex + 3);
     mediaToPreload.forEach((story) => {
       const preview = story.thumb_url ?? (story.kind === 'image' ? story.media_url : null);
-      if (preview) void Image.prefetch(preview).catch((error: unknown) => console.warn('Unable to preload a story preview.', error));
+      if (preview) void Image.prefetch(preview).catch(async (error: unknown) => console.warn('Unable to preload a story preview.', error));
     });
   }, [activeStory, stories, storyIndex]);
 
@@ -299,7 +300,7 @@ export default function StoryViewerScreen() {
       viewedStories.current.add(activeStory.id);
       void markStoryViewed(activeStory.id)
         .then(() => queryClient.invalidateQueries({ queryKey: railQueryKey }))
-        .catch((error: unknown) => {
+        .catch(async (error: unknown) => {
           viewedStories.current.delete(activeStory.id);
           console.error('Unable to mark the story as viewed.', error);
         });
@@ -326,7 +327,7 @@ export default function StoryViewerScreen() {
               await queryClient.invalidateQueries({ queryKey: authorStoriesQueryKey(authorId) });
               router.back();
             })
-            .catch((error: unknown) => Alert.alert('Could not delete the story', error instanceof Error ? error.message : 'Try again.'));
+            .catch(async (error: unknown) => Alert.alert('Could not delete the story', await getErrorMessage(error, 'Try again.')));
         },
       },
     ]);
@@ -336,7 +337,7 @@ export default function StoryViewerScreen() {
     if (!activeStory) return;
     void reportStory(activeStory.id, reason)
       .then(() => Alert.alert('Report received', 'Thank you for helping keep Wimpex safe.'))
-      .catch((error: unknown) => Alert.alert('Could not report this story', error instanceof Error ? error.message : 'Try again.'));
+      .catch(async (error: unknown) => Alert.alert('Could not report this story', await getErrorMessage(error, 'Try again.')));
   };
 
   const replyToStory = async () => {
@@ -346,7 +347,7 @@ export default function StoryViewerScreen() {
       const conversationId = await sendStoryReply(activeStory.id, replyDraft);
       router.push({ pathname: '/chat/[id]', params: { id: conversationId } });
     } catch (caught) {
-      Alert.alert('Could not send story reply', caught instanceof Error ? caught.message : 'Try again.');
+      Alert.alert('Could not send story reply', await getErrorMessage(caught, 'Try again.'));
     } finally {
       setReplySending(false);
     }
@@ -375,7 +376,7 @@ export default function StoryViewerScreen() {
             onPress: () => {
               void blockStoryAuthor(authorId)
                 .then(() => router.back())
-                .catch((error: unknown) => Alert.alert('Could not block this account', error instanceof Error ? error.message : 'Try again.'));
+                .catch(async (error: unknown) => Alert.alert('Could not block this account', await getErrorMessage(error, 'Try again.')));
             },
           },
         ]),

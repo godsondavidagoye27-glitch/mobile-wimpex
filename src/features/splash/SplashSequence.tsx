@@ -1,3 +1,4 @@
+import { getErrorMessage } from '../../lib/errorMessage';
 /* eslint-disable react-hooks/immutability */
 import { router } from 'expo-router';
 import { Component, useCallback, useEffect, useMemo, useRef, useState, type ErrorInfo, type ReactNode } from 'react';
@@ -144,7 +145,7 @@ function SignupFinish({
         reduceMotion ? 0 : 200,
         withTiming(0, { duration: reduceMotion ? 0 : 600 }),
       );
-      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch((error: unknown) => {
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(async (error: unknown) => {
         console.warn('Unable to play the signup confirmation haptic.', error);
       });
     }, reduceMotion ? 0 : 900);
@@ -338,7 +339,7 @@ export function SplashSequence() {
       .then((available) => {
         if (mounted) setAppleAvailable(available);
       })
-      .catch((error: unknown) => {
+      .catch(async (error: unknown) => {
         console.warn('Unable to check Apple sign in availability.', error);
       });
     return () => {
@@ -604,7 +605,7 @@ export function SplashSequence() {
     Keyboard.dismiss();
     setSocialState('loading');
     setAuthError('');
-    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch((error: unknown) => {
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(async (error: unknown) => {
       console.warn('Unable to play the sign in haptic.', error);
     });
     try {
@@ -684,7 +685,7 @@ export function SplashSequence() {
       router.replace('/(tabs)');
     } catch (error) {
       setButtonState('idle');
-      setAuthError(error instanceof Error ? error.message : 'Unable to sign in. Please try again.');
+      setAuthError(await getErrorMessage(error, 'Unable to sign in. Please try again.'));
     }
   };
 

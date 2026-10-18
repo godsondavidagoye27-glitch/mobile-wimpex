@@ -16,6 +16,7 @@ import {
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { Icon } from '../components/Icon';
 import { FocusableTextInput } from '../components/AuthField';
+import { getErrorMessage } from '../lib/errorMessage';
 import { getSupabaseClient } from '../lib/supabase';
 import { preferenceStorage } from '../lib/storage';
 import { theme } from '../theme/theme';
@@ -32,8 +33,15 @@ import {
   type VideoDraft,
   type VideoUploadJob,
 } from '../features/feed/uploadManager';
-import { extractHashtags, validateVideo } from '../features/feed/uploadValidation';
+import {
+  extractHashtags,
+  maxVideoDurationMs,
+  maxVideoSizeBytes,
+  validateVideo,
+} from '../features/feed/uploadValidation';
 import { getVideoExtension } from '../features/media/videoExtension';
+import { deleteEditedVideo } from '../features/video-editor/exportVideo';
+import { openVideoEditor } from '../features/video-editor/videoEditorRequests';
 
 const emptyDraft: VideoDraft = {
   uri: '',
@@ -97,7 +105,8 @@ export default function CreatePostScreen() {
         });
       }
     }).catch((loadError: unknown) => {
-      if (mounted) setError(loadError instanceof Error ? loadError.message : 'Could not load your saved draft.');
+      console.error('Unable to load the saved video draft.', loadError);
+      if (mounted) void getErrorMessage(loadError, 'Could not load your saved draft.').then(setError);
     });
     return () => {
       mounted = false;
@@ -111,7 +120,8 @@ export default function CreatePostScreen() {
     }).catch((loadError: unknown) => {
       if (mounted) {
         setCaptionsNoticeSeen(true);
-        setError(loadError instanceof Error ? loadError.message : 'Could not load caption settings.');
+        console.error('Unable to load caption settings.', loadError);
+        void getErrorMessage(loadError, 'Could not load caption settings.').then(setError);
       }
     });
     return () => {
@@ -134,12 +144,17 @@ export default function CreatePostScreen() {
 
   useEffect(() => {
     if (!draftReady) return;
+    let active = true;
     const save = setTimeout(() => {
       void saveVideoDraft(draft).catch((saveError: unknown) => {
-        setError(saveError instanceof Error ? saveError.message : 'Could not save your draft.');
+        console.error('Unable to save the video draft.', saveError);
+        if (active) void getErrorMessage(saveError, 'Could not save your draft.').then(setError);
       });
     }, 250);
-    return () => clearTimeout(save);
+    return () => {
+      active = false;
+      clearTimeout(save);
+    };
   }, [draft, draftReady]);
 
   const pickVideo = async () => {
@@ -153,7 +168,6 @@ export default function CreatePostScreen() {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['videos'],
         allowsEditing: false,
-        videoMaxDuration: 60,
         quality: 1,
       });
       if (result.canceled) return;
@@ -164,7 +178,36 @@ export default function CreatePostScreen() {
       const durationMs = asset.duration ?? 0;
       const videoError = validateVideo({ durationMs, sizeBytes: fileSize });
       if (videoError) {
-        setError(videoError);
+        const edited = await openVideoEditor({
+          uri: asset.uri,
+          maxDurationMs: maxVideoDurationMs,
+          maxSizeBytes: maxVideoSizeBytes,
+          durationMs,
+          sizeBytes: fileSize,
+          width: asset.width,
+          height: asset.height,
+        });
+        if (!edited) return;
+        const editedError = validateVideo(edited);
+        if (editedError) {
+          deleteEditedVideo(edited.uri);
+          setError(editedError);
+          return;
+        }
+        if (draft.uri && !draftHasUpload) {
+          const previousFile = new File(draft.uri);
+          if (previousFile.exists) previousFile.delete();
+        }
+        setDraft((current) => ({
+          ...current,
+          uri: edited.uri,
+          fileName: 'video.mp4',
+          contentType: 'video/mp4',
+          fileSize: edited.sizeBytes,
+          durationMs: edited.durationMs,
+          width: edited.width,
+          height: edited.height,
+        }));
         return;
       }
       const extension = getVideoExtension(fileName, asset.mimeType);
@@ -187,7 +230,48 @@ export default function CreatePostScreen() {
         height: asset.height,
       }));
     } catch (pickError) {
-      setError(pickError instanceof Error ? pickError.message : 'Could not open your video library.');
+      console.error('Unable to pick a video for the post.', pickError);
+      setError(await getErrorMessage(pickError, 'Could not open your video library.'));
+    }
+  };
+
+  const editSelectedVideo = async () => {
+    if (!draft.uri || draftHasUpload) return;
+    setError(null);
+    try {
+      const edited = await openVideoEditor({
+        uri: draft.uri,
+        maxDurationMs: maxVideoDurationMs,
+        maxSizeBytes: maxVideoSizeBytes,
+        durationMs: draft.durationMs,
+        sizeBytes: draft.fileSize,
+        width: draft.width,
+        height: draft.height,
+        caption: draft.caption,
+      });
+      if (!edited) return;
+      const editedError = validateVideo(edited);
+      if (editedError) {
+        deleteEditedVideo(edited.uri);
+        setError(editedError);
+        return;
+      }
+      const previousFile = new File(draft.uri);
+      if (previousFile.exists && !draftHasUpload) previousFile.delete();
+      setDraft((current) => ({
+        ...current,
+        uri: edited.uri,
+        fileName: 'video.mp4',
+        contentType: 'video/mp4',
+        fileSize: edited.sizeBytes,
+        durationMs: edited.durationMs,
+        width: edited.width,
+        height: edited.height,
+        caption: edited.caption,
+      }));
+    } catch (editError) {
+      console.error('Unable to open the video editor for the post.', editError);
+      setError(await getErrorMessage(editError, 'Could not edit this video.'));
     }
   };
 
@@ -228,7 +312,8 @@ export default function CreatePostScreen() {
       Alert.alert('Video posted', 'Your video is now available in the feed.');
       router.replace({ pathname: '/post/[id]', params: { id: postId } });
     } catch (uploadError) {
-      setError(uploadError instanceof Error ? uploadError.message : 'The video upload failed. Try again.');
+      console.error('Unable to enqueue the video post.', uploadError);
+      setError(await getErrorMessage(uploadError, 'The video upload failed. Try again.'));
     } finally {
       setBusy(false);
     }
@@ -245,7 +330,8 @@ export default function CreatePostScreen() {
         router.replace({ pathname: '/post/[id]', params: { id: job.postId } });
       }
     } catch (uploadError) {
-      setError(uploadError instanceof Error ? uploadError.message : 'The video upload failed. Try again.');
+      console.error('Unable to retry the video upload.', uploadError);
+      setError(await getErrorMessage(uploadError, 'The video upload failed. Try again.'));
     } finally {
       setBusy(false);
     }
@@ -255,7 +341,8 @@ export default function CreatePostScreen() {
     try {
       await removeUploadJob(job.id);
     } catch (deleteError) {
-      setError(deleteError instanceof Error ? deleteError.message : 'Could not remove this upload.');
+      console.error('Unable to remove the failed video upload.', deleteError);
+      setError(await getErrorMessage(deleteError, 'Could not remove this upload.'));
     }
   };
 
@@ -303,6 +390,15 @@ export default function CreatePostScreen() {
             <Text style={styles.videoDetails}>
               {Math.ceil(draft.durationMs / 1000)} seconds, {(draft.fileSize / (1024 * 1024)).toFixed(1)} MB
             </Text>
+            <Pressable
+              onPress={() => void editSelectedVideo()}
+              disabled={busy || draftHasUpload}
+              style={styles.editMedia}
+              accessibilityRole="button"
+              accessibilityLabel="Trim or edit selected video"
+            >
+              <Text style={styles.editMediaText}>Edit</Text>
+            </Pressable>
           </View>
         ) : (
           <Pressable onPress={() => void pickVideo()} style={styles.pickButton} accessibilityRole="button">
@@ -378,7 +474,8 @@ export default function CreatePostScreen() {
                 setShowCaptionsNoticeAfterToggle(true);
                 setCaptionsNoticeSeen(true);
                 void preferenceStorage.setItem(captionsNoticePreferenceKey, 'true').catch((noticeError: unknown) => {
-                  setError(noticeError instanceof Error ? noticeError.message : 'Could not save caption settings.');
+                  console.error('Unable to save caption settings.', noticeError);
+                  void getErrorMessage(noticeError, 'Could not save caption settings.').then(setError);
                 });
               }}
               trackColor={{ false: theme.colors.line, true: theme.colors.success }}
@@ -489,6 +586,16 @@ const styles = StyleSheet.create({
     color: theme.colors.white,
     fontSize: 12,
   },
+  editMedia: {
+    position: 'absolute',
+    right: 12,
+    bottom: 12,
+    borderRadius: 10,
+    backgroundColor: theme.colors.overlay,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  editMediaText: { color: theme.colors.gold, fontSize: 13, fontWeight: '700' },
   pickButton: {
     height: 200,
     borderRadius: 18,

@@ -1,3 +1,4 @@
+import { getErrorMessage } from '../lib/errorMessage';
 import { router } from 'expo-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
@@ -71,8 +72,8 @@ const messagePolicies: { value: PrivacyPolicy; label: string }[] = [
   { value: 'none', label: 'No one' },
 ];
 
-function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : 'Try again.';
+async function errorMessage(error: unknown) {
+  return getErrorMessage(error, 'Try again.');
 }
 
 export default function SettingsScreen() {
@@ -128,7 +129,7 @@ export default function SettingsScreen() {
           setIsMinor(age < 18);
         }
       } catch (caught) {
-        if (active) setError(errorMessage(caught));
+        if (active) setError(await errorMessage(caught));
       } finally {
         if (active) setLoading(false);
       }
@@ -142,8 +143,8 @@ export default function SettingsScreen() {
     const refreshPermission = () => {
       void getPushPermissionGranted()
         .then(setPushPermissionGranted)
-        .catch((caught: unknown) => {
-          setError(`Could not check notification permission. ${errorMessage(caught)}`);
+        .catch(async (caught: unknown) => {
+          setError(`Could not check notification permission. ${await errorMessage(caught)}`);
         });
     };
     refreshPermission();
@@ -185,7 +186,7 @@ export default function SettingsScreen() {
             .upsert({ user_id: profile.id, push_enabled: previous }, { onConflict: 'user_id' });
           if (rollbackError) {
             throw new Error(
-              `Push setup failed (${errorMessage(registrationError)}); `
+              `Push setup failed (${await errorMessage(registrationError)}); `
               + `the setting could not be restored (${rollbackError.message}).`,
             );
           }
@@ -194,7 +195,7 @@ export default function SettingsScreen() {
       }
     } catch (caught) {
       setSettings((current) => ({ ...current, [key]: previous }));
-      setError(`Could not save setting. ${errorMessage(caught)}`);
+      setError(`Could not save setting. ${await errorMessage(caught)}`);
     }
   };
 
@@ -220,7 +221,7 @@ export default function SettingsScreen() {
       if (saveError) throw saveError;
     } catch (caught) {
       setSettings((current) => ({ ...current, [key]: previous }));
-      setError(`Could not save setting. ${errorMessage(caught)}`);
+      setError(`Could not save setting. ${await errorMessage(caught)}`);
     }
   };
 
@@ -232,7 +233,7 @@ export default function SettingsScreen() {
       if (updateError) throw updateError;
       setProfile((current) => current ? { ...current, is_private: value } : current);
     } catch (caught) {
-      const message = errorMessage(caught);
+      const message = await errorMessage(caught);
       if (message.includes('Accounts under 18 stay private')) Alert.alert('Accounts under 18 stay private.');
       else setError(`Could not update account privacy. ${message}`);
     }
@@ -249,7 +250,7 @@ export default function SettingsScreen() {
       if (updateError) throw updateError;
       setProfile((current) => current ? { ...current, dm_policy: value } : current);
     } catch (caught) {
-      setError(`Could not update who can message you. ${errorMessage(caught)}`);
+      setError(`Could not update who can message you. ${await errorMessage(caught)}`);
     }
   };
 
@@ -268,7 +269,7 @@ export default function SettingsScreen() {
       if (saveError) throw saveError;
     } catch (caught) {
       setSettings((current) => ({ ...current, story_replies: previous }));
-      setError(`Could not save who can reply to your stories. ${errorMessage(caught)}`);
+      setError(`Could not save who can reply to your stories. ${await errorMessage(caught)}`);
     }
   };
 
@@ -279,7 +280,7 @@ export default function SettingsScreen() {
       useAuthFlow.getState().resetSignup();
       router.replace('/(auth)/welcome');
     } catch (caught) {
-      setError(`Unable to log out. ${errorMessage(caught)}`);
+      setError(`Unable to log out. ${await errorMessage(caught)}`);
     }
   };
 
@@ -302,7 +303,7 @@ export default function SettingsScreen() {
       useAuthFlow.getState().resetSignup();
       router.replace('/(auth)/welcome');
     } catch (caught) {
-      setError(`Unable to delete account. ${errorMessage(caught)}`);
+      setError(`Unable to delete account. ${await errorMessage(caught)}`);
     } finally {
       setSaving(false);
     }

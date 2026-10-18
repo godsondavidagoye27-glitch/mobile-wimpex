@@ -40,6 +40,7 @@ import {
 } from './liveService';
 import { getSupabaseClient } from '../../lib/supabase';
 import { getSingleRouteParam, isUuidRouteParam } from '../../lib/routeParams';
+import { getErrorMessage } from '../../lib/errorMessage';
 import type { LiveMessageRow, LiveStreamRpcRow } from '../../types/database';
 import { theme } from '../../theme/theme';
 
@@ -91,17 +92,30 @@ function LiveRoomContent({
   const [cameraEnabled, setCameraEnabled] = useState(true);
   const [controlBusy, setControlBusy] = useState(false);
   const [controlError, setControlError] = useState('');
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   const toggleMicrophone = async () => {
     setControlBusy(true);
     try {
       await room.localParticipant.setMicrophoneEnabled(!microphoneEnabled);
-      setMicrophoneEnabled((enabled) => !enabled);
-      setControlError('');
+      if (mountedRef.current) {
+        setMicrophoneEnabled((enabled) => !enabled);
+        setControlError('');
+      }
     } catch (caught) {
-      setControlError(caught instanceof Error ? caught.message : 'Could not change microphone settings.');
+      console.error('Unable to change live microphone settings.', caught);
+      if (mountedRef.current) {
+        setControlError(await getErrorMessage(caught, 'Could not change microphone settings.'));
+      }
     } finally {
-      setControlBusy(false);
+      if (mountedRef.current) setControlBusy(false);
     }
   };
 
@@ -109,12 +123,17 @@ function LiveRoomContent({
     setControlBusy(true);
     try {
       await room.localParticipant.setCameraEnabled(!cameraEnabled);
-      setCameraEnabled((enabled) => !enabled);
-      setControlError('');
+      if (mountedRef.current) {
+        setCameraEnabled((enabled) => !enabled);
+        setControlError('');
+      }
     } catch (caught) {
-      setControlError(caught instanceof Error ? caught.message : 'Could not change camera settings.');
+      console.error('Unable to change live camera settings.', caught);
+      if (mountedRef.current) {
+        setControlError(await getErrorMessage(caught, 'Could not change camera settings.'));
+      }
     } finally {
-      setControlBusy(false);
+      if (mountedRef.current) setControlBusy(false);
     }
   };
 
@@ -228,8 +247,16 @@ export default function LiveStreamScreen() {
   const startConfirmed = useRef(false);
   const ending = useRef(false);
   const reconnecting = useRef(false);
+  const mountedRef = useRef(true);
   const streamIsHost = Boolean(userId && stream?.host_id === userId);
   const hasConnectionToken = Boolean(connection?.token);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
@@ -268,7 +295,8 @@ export default function LiveStreamScreen() {
           setConnectionIssuedAt(Date.now());
         }
       } catch (caught) {
-        if (mounted) setError(caught instanceof Error ? caught.message : 'Could not connect to this live stream.');
+        console.error('Unable to establish the live connection.', caught);
+        if (mounted) setError(await getErrorMessage(caught, 'Could not connect to this live stream.'));
       } finally {
         if (mounted) setLoading(false);
       }
@@ -294,7 +322,8 @@ export default function LiveStreamScreen() {
         setError('');
       } catch (caught) {
         if (!mounted) return;
-        const detail = caught instanceof Error ? caught.message : 'Try again shortly.';
+        console.error('Unable to refresh the live connection token.', caught);
+        const detail = await getErrorMessage(caught, 'Try again shortly.');
         setError(`Live connection token refresh failed: ${detail}`);
         scheduleRefresh(30_000);
       }
@@ -311,10 +340,12 @@ export default function LiveStreamScreen() {
     let mounted = true;
     void getLiveMessages(streamId)
       .then((rows) => { if (mounted) setMessages(rows); })
-      .catch((caught: unknown) => {
-        if (mounted) setMessageError(caught instanceof Error ? caught.message : 'Live chat could not be loaded.');
+      .catch(async (caught: unknown) => {
+        console.error('Unable to load live chat.', caught);
+        if (mounted) setMessageError(await getErrorMessage(caught, 'Live chat could not be loaded.'));
       });
     const messageChannel = subscribeToLiveMessages(streamId, (row, event) => {
+      if (!mounted) return;
       setMessages((current) => {
         if (event === 'UPDATE') return current.map((item) => item.id === row.id ? row : item);
         return current.some((item) => item.id === row.id) ? current : [...current, row];
@@ -323,6 +354,7 @@ export default function LiveStreamScreen() {
     const statusChannel = supabase
       .channel(`live-status:${streamId}`)
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'live_streams', filter: `id=eq.${streamId}` }, (payload) => {
+        if (!mounted) return;
         const updated = payload.new as LiveStreamRpcRow;
         if (updated.status === 'ended') setEnded(true);
       })
@@ -343,25 +375,35 @@ export default function LiveStreamScreen() {
     let mounted = true;
     void AudioSession.startAudioSession()
       .then(() => { if (mounted) setAudioReady(true); })
-      .catch((caught: unknown) => {
-        if (mounted) setError(caught instanceof Error ? caught.message : 'Could not start audio for the live stream.');
+      .catch(async (caught: unknown) => {
+        console.error('Unable to start live audio session.', caught);
+        if (mounted) setError(await getErrorMessage(caught, 'Could not start audio for the live stream.'));
       });
     return () => {
       mounted = false;
       setAudioReady(false);
-      void AudioSession.stopAudioSession();
+      void AudioSession.stopAudioSession().catch((caught: unknown) => {
+        console.error('Unable to stop the live audio session.', caught);
+      });
     };
   }, [appIsActive, focused, hasConnectionToken]);
 
   useEffect(() => {
     if (!streamId || !streamIsHost || !startConfirmed.current || ended) return undefined;
+    let mounted = true;
     const heartbeat = setInterval(() => {
-      void heartbeatLive(streamId).catch((caught: unknown) => {
-        setError(caught instanceof Error ? caught.message : 'The live connection was lost.');
+      void heartbeatLive(streamId).catch(async (caught: unknown) => {
+        console.error('Live heartbeat failed.', caught);
+        const message = await getErrorMessage(caught, 'The live connection was lost.');
+        if (!mounted) return;
+        setError(message);
         setEnded(true);
       });
     }, 30_000);
-    return () => clearInterval(heartbeat);
+    return () => {
+      mounted = false;
+      clearInterval(heartbeat);
+    };
   }, [ended, streamId, streamIsHost]);
 
   useEffect(() => {
@@ -375,9 +417,13 @@ export default function LiveStreamScreen() {
     startConfirmed.current = true;
     void markLiveStarted(streamId)
       .then(() => getLiveStream(streamId))
-      .then(setStream)
-      .catch((caught: unknown) => {
-        setError(caught instanceof Error ? caught.message : 'Could not begin live publishing.');
+      .then((updated) => {
+        if (mountedRef.current) setStream(updated);
+      })
+      .catch(async (caught: unknown) => {
+        console.error('Unable to confirm live publishing.', caught);
+        const message = await getErrorMessage(caught, 'Could not begin live publishing.');
+        if (mountedRef.current) setError(message);
         void endLive(streamId).catch((endError: unknown) => console.error('Could not stop a failed live startup.', endError));
       });
   }, [connection?.role, streamId]);
@@ -388,16 +434,15 @@ export default function LiveStreamScreen() {
     setError('The live connection was interrupted. Reconnecting…');
     void requestLiveConnection(streamId)
       .then((refreshed) => {
+        if (!mountedRef.current) return;
         setConnection(refreshed);
         setConnectionIssuedAt(Date.now());
         setError('');
       })
-      .catch((caught: unknown) => {
-        setError(
-          caught instanceof Error
-            ? `Could not reconnect to the live stream. ${caught.message}`
-            : 'Could not reconnect to the live stream.',
-        );
+      .catch(async (caught: unknown) => {
+        console.error('Unable to reconnect to live stream.', caught);
+        const message = await getErrorMessage(caught, 'Try again.');
+        if (mountedRef.current) setError(`Could not reconnect to the live stream. ${message}`);
       })
       .finally(() => {
         reconnecting.current = false;
@@ -409,11 +454,15 @@ export default function LiveStreamScreen() {
     ending.current = true;
     try {
       await endLive(streamId);
+      if (!mountedRef.current) return;
       setEnded(true);
       router.back();
     } catch (caught) {
       ending.current = false;
-      Alert.alert('Could not end live stream', caught instanceof Error ? caught.message : 'Try again.');
+      console.error('Unable to end live stream.', caught);
+      if (mountedRef.current) {
+        Alert.alert('Could not end live stream', await getErrorMessage(caught, 'Try again.'));
+      }
     }
   };
 
@@ -433,12 +482,14 @@ export default function LiveStreamScreen() {
     setSending(true);
     try {
       await sendLiveMessage(streamId, draft.trim());
+      if (!mountedRef.current) return;
       setDraft('');
       setMessageError('');
     } catch (caught) {
-      setMessageError(caught instanceof Error ? caught.message : 'Could not send live chat message.');
+      console.error('Unable to send live chat message.', caught);
+      if (mountedRef.current) setMessageError(await getErrorMessage(caught, 'Could not send live chat message.'));
     } finally {
-      setSending(false);
+      if (mountedRef.current) setSending(false);
     }
   };
 
@@ -460,8 +511,9 @@ export default function LiveStreamScreen() {
     ]);
   };
 
-  const showModerationError = (caught: unknown) => {
-    Alert.alert('Could not moderate viewer', caught instanceof Error ? caught.message : 'Try again.');
+  const showModerationError = async (caught: unknown) => {
+    console.error('Unable to moderate live viewer.', caught);
+    Alert.alert('Could not moderate viewer', await getErrorMessage(caught, 'Try again.'));
   };
 
   const room = connection && audioReady && focused && appIsActive && stream && !ended ? (

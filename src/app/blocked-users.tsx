@@ -1,3 +1,4 @@
+import { getErrorMessage } from '../lib/errorMessage';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import {
@@ -36,7 +37,7 @@ export default function BlockedUsersScreen() {
       if (queryError) throw queryError;
       setProfiles(data ?? []);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Unable to load blocked accounts.');
+      setError(await getErrorMessage(caught, 'Unable to load blocked accounts.'));
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -56,7 +57,7 @@ export default function BlockedUsersScreen() {
       if (unblockError) throw unblockError;
       setProfiles((current) => current.filter((item) => item.id !== profile.id));
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Unable to unblock this account.');
+      setError(await getErrorMessage(caught, 'Unable to unblock this account.'));
     } finally {
       setActingId(null);
     }

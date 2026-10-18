@@ -1,3 +1,4 @@
+import { getErrorMessage } from '../../lib/errorMessage';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useNetworkState } from 'expo-network';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -70,8 +71,8 @@ function initials(name: string) {
   return name.trim().split(/\s+/).slice(0, 2).map((part) => part[0]?.toUpperCase() ?? '').join('') || '?';
 }
 
-function readableError(error: unknown) {
-  return error instanceof Error ? error.message : 'Try again.';
+async function readableError(error: unknown) {
+  return getErrorMessage(error, 'Try again.');
 }
 
 export default function CommunityScreen() {
@@ -153,7 +154,7 @@ export default function CommunityScreen() {
       if (rpcError) throw rpcError;
       if (!controller.signal.aborted) setCommunity(data?.[0] ?? null);
     } catch (caught) {
-      if (!controller.signal.aborted) setError(readableError(caught));
+      if (!controller.signal.aborted) setError(await readableError(caught));
     } finally {
       if (detailController.current === controller) {
         detailController.current = null;
@@ -170,7 +171,7 @@ export default function CommunityScreen() {
     try {
       setCommunityPosts(await getCommunityPosts(communityId));
     } catch (caught) {
-      setPostsError(readableError(caught));
+      setPostsError(await readableError(caught));
     } finally {
       setPostsLoading(false);
     }
@@ -207,7 +208,7 @@ export default function CommunityScreen() {
       if (newestMessage) latestChatMessageIdRef.current = newestMessage.id;
       setChatMessages(nextMessages);
     } catch (caught) {
-      setChatError(readableError(caught));
+      setChatError(await readableError(caught));
     } finally {
       setChatLoading(false);
     }
@@ -298,7 +299,7 @@ export default function CommunityScreen() {
       memberCursor.current = last ? { joinedAt: last.joined_at, id: last.id, status: last.status } : null;
       setMembersMore(page.length === pageSize);
     } catch (caught) {
-      if (!controller.signal.aborted) setMembersError(readableError(caught));
+      if (!controller.signal.aborted) setMembersError(await readableError(caught));
     } finally {
       if (membersController.current === controller) {
         membersController.current = null;
@@ -340,8 +341,8 @@ export default function CommunityScreen() {
       }).abortSignal(controller.signal)).then(({ data, error: rpcError }) => {
         if (rpcError) throw rpcError;
         if (!controller.signal.aborted) setInviteResults(data ?? []);
-      }).catch((caught: unknown) => {
-        if (!controller.signal.aborted) setInviteError(readableError(caught));
+      }).catch(async (caught: unknown) => {
+        if (!controller.signal.aborted) setInviteError(await readableError(caught));
       }).finally(() => {
         if (inviteController.current === controller) {
           inviteController.current = null;
@@ -386,7 +387,7 @@ export default function CommunityScreen() {
       }
       await reload();
     } catch (caught) {
-      Alert.alert('Could not update membership', readableError(caught));
+      Alert.alert('Could not update membership', await readableError(caught));
     } finally {
       setMembershipBusy(false);
     }
@@ -428,7 +429,7 @@ export default function CommunityScreen() {
       setSelectedMember(null);
       await reload();
     } catch (caught) {
-      Alert.alert('Could not update member', readableError(caught));
+      Alert.alert('Could not update member', await readableError(caught));
     }
   };
 
@@ -464,7 +465,7 @@ export default function CommunityScreen() {
             void Promise.resolve(getSupabaseClient().rpc('leave_community', { p_community_id: community.id })).then(({ error: rpcError }) => {
               if (rpcError) throw rpcError;
               void reload();
-            }).catch((caught: unknown) => Alert.alert('Could not leave community', readableError(caught)));
+            }).catch(async (caught: unknown) => Alert.alert('Could not leave community', await readableError(caught)));
           },
         },
       ],
@@ -482,7 +483,7 @@ export default function CommunityScreen() {
           void Promise.resolve(getSupabaseClient().rpc('delete_community', { p_community_id: community.id })).then(({ error: rpcError }) => {
             if (rpcError) throw rpcError;
             router.replace('/(tabs)/groups');
-          }).catch((caught: unknown) => Alert.alert('Could not delete community', readableError(caught)));
+          }).catch(async (caught: unknown) => Alert.alert('Could not delete community', await readableError(caught)));
         },
       },
     ]);
@@ -503,7 +504,7 @@ export default function CommunityScreen() {
       setInviteResults((current) => current.filter((result) => result.id !== person.id));
       Alert.alert('Invite sent', `${person.display_name} was invited to ${community.name}.`);
     } catch (caught) {
-      Alert.alert('Could not invite this person', readableError(caught));
+      Alert.alert('Could not invite this person', await readableError(caught));
     }
   };
 
@@ -650,7 +651,7 @@ export default function CommunityScreen() {
       setChatDraft('');
       await loadChat();
     } catch (caught) {
-      setChatError(readableError(caught));
+      setChatError(await readableError(caught));
     } finally {
       setChatSending(false);
     }
@@ -661,7 +662,7 @@ export default function CommunityScreen() {
       await moderateCommunityPost(post.id, action);
       await loadPosts();
     } catch (caught) {
-      Alert.alert('Could not moderate post', readableError(caught));
+      Alert.alert('Could not moderate post', await readableError(caught));
     }
   };
 
@@ -672,7 +673,7 @@ export default function CommunityScreen() {
         onPress: () => {
           void reportCommunityPost(post.id, reason)
             .then(() => Alert.alert('Report received', 'A community moderator will review this post.'))
-            .catch((caught: unknown) => Alert.alert('Could not report post', readableError(caught)));
+            .catch(async (caught: unknown) => Alert.alert('Could not report post', await readableError(caught)));
         },
       })),
       { text: 'Cancel', style: 'cancel' as const },
@@ -709,7 +710,7 @@ export default function CommunityScreen() {
       setCommunityReports(await getCommunityPostReports(community.id));
       setReportsOpen(true);
     } catch (caught) {
-      Alert.alert('Could not load reports', readableError(caught));
+      Alert.alert('Could not load reports', await readableError(caught));
     } finally {
       setReportsLoading(false);
     }
@@ -720,7 +721,7 @@ export default function CommunityScreen() {
       await resolveCommunityPostReport(report.id);
       setCommunityReports((current) => current.filter((item) => item.id !== report.id));
     } catch (caught) {
-      Alert.alert('Could not resolve report', readableError(caught));
+      Alert.alert('Could not resolve report', await readableError(caught));
     }
   };
 

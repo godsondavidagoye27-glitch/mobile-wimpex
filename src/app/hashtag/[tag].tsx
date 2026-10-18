@@ -1,3 +1,4 @@
+import { getErrorMessage } from '../../lib/errorMessage';
 import { router, useLocalSearchParams } from 'expo-router';
 import { getSingleRouteParam } from '../../lib/routeParams';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -84,7 +85,7 @@ export default function HashtagScreen() {
       setHasMore(videoRows.length === pageSize && Boolean(last?.post.published_at));
     } catch (caught) {
       if (!controller.signal.aborted) {
-        setError(caught instanceof Error ? caught.message : 'Could not load this hashtag.');
+        setError(await getErrorMessage(caught, 'Could not load this hashtag.'));
       }
     } finally {
       if (!controller.signal.aborted) {
@@ -122,7 +123,7 @@ export default function HashtagScreen() {
       setPageError('');
     } catch (caught) {
       if (!controller.signal.aborted) {
-        setPageError(caught instanceof Error ? caught.message : 'Could not load more videos.');
+        setPageError(await getErrorMessage(caught, 'Could not load more videos.'));
       }
     } finally {
       if (!controller.signal.aborted) setLoadingMore(false);

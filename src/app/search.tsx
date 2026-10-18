@@ -1,3 +1,4 @@
+import { getErrorMessage } from '../lib/errorMessage';
 import { router } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -193,7 +194,7 @@ export default function SearchScreen() {
     } else {
       errors.push(
         trendingResult.status === 'rejected'
-          ? (trendingResult.reason instanceof Error ? trendingResult.reason.message : 'Trending tags could not be loaded.')
+          ? (await getErrorMessage(trendingResult.reason, 'Trending tags could not be loaded.'))
           : trendingResult.value.error?.message ?? 'Trending hashtags could not be loaded.',
       );
     }
@@ -202,7 +203,7 @@ export default function SearchScreen() {
     } else {
       errors.push(
         suggestedResult.status === 'rejected'
-          ? (suggestedResult.reason instanceof Error ? suggestedResult.reason.message : 'Suggested people could not be loaded.')
+          ? (await getErrorMessage(suggestedResult.reason, 'Suggested people could not be loaded.'))
           : suggestedResult.value.error?.message ?? 'Suggested people could not be loaded.',
       );
     }
@@ -218,12 +219,13 @@ export default function SearchScreen() {
         setRecentSearches(searches);
         setHistoryError('');
       }
-    }).catch((error: unknown) => {
-      if (mounted) setHistoryError(error instanceof Error ? error.message : 'Recent searches could not be read.');
+    }).catch(async (error: unknown) => {
+      if (mounted) setHistoryError(await getErrorMessage(error, 'Recent searches could not be read.'));
     });
-    void refreshDiscoverContent();
+    const refreshTimer = setTimeout(() => void refreshDiscoverContent(), 0);
     return () => {
       mounted = false;
+      clearTimeout(refreshTimer);
     };
   }, [refreshDiscoverContent]);
 
@@ -235,8 +237,9 @@ export default function SearchScreen() {
     const key = resultKey;
 
     if (activeTab === 'Communities' || query.length < 2) {
-      setResult(emptyPage(key));
+      const resetTimer = setTimeout(() => setResult(emptyPage(key)), 0);
       return () => {
+        clearTimeout(resetTimer);
         controller.abort();
         if (requests.get(activeTab) === controller) {
           requests.delete(activeTab);
@@ -244,7 +247,7 @@ export default function SearchScreen() {
       };
     }
 
-    setResult(emptyPage(key, true));
+    const loadingTimer = setTimeout(() => setResult(emptyPage(key, true)), 0);
     void loadSearchRows(activeTab, query, null, controller.signal).then(async (rows) => {
       if (controller.signal.aborted) return;
       const lastRow = rows.at(-1);
@@ -265,19 +268,20 @@ export default function SearchScreen() {
         await saveRecentSearches(nextRecent);
       } catch (error) {
         if (!controller.signal.aborted) {
-          setHistoryError(error instanceof Error ? error.message : 'Recent searches could not be saved.');
+          setHistoryError(await getErrorMessage(error, 'Recent searches could not be saved.'));
         }
       }
-    }).catch((error: unknown) => {
+    }).catch(async (error: unknown) => {
       if (!controller.signal.aborted) {
         setResult({
           ...emptyPage(key),
-          error: error instanceof Error ? error.message : 'Search failed.',
+          error: await getErrorMessage(error, 'Search failed.'),
         });
       }
     });
 
     return () => {
+      clearTimeout(loadingTimer);
       controller.abort();
       const request = requests.get(activeTab);
       request?.abort();
@@ -292,7 +296,7 @@ export default function SearchScreen() {
     try {
       await saveRecentSearches(searches);
     } catch (error) {
-      setHistoryError(error instanceof Error ? error.message : 'Recent searches could not be saved.');
+      setHistoryError(await getErrorMessage(error, 'Recent searches could not be saved.'));
     }
   };
 
@@ -321,8 +325,9 @@ export default function SearchScreen() {
       });
     } catch (error) {
       if (!controller.signal.aborted) {
+        const message = await getErrorMessage(error, 'Search failed.');
         setResult((current) => current.key === key
-          ? { ...current, loadingMore: false, error: error instanceof Error ? error.message : 'Search failed.' }
+          ? { ...current, loadingMore: false, error: message }
           : current);
       }
     } finally {
@@ -350,7 +355,7 @@ export default function SearchScreen() {
       if (error) throw error;
       updateFollowStatus(personId, data === 'pending' ? 'pending' : 'accepted', suggestedPerson);
     } catch (error) {
-      Alert.alert('Could not follow this person', error instanceof Error ? error.message : 'Check your connection and try again.');
+      Alert.alert('Could not follow this person', await getErrorMessage(error, 'Check your connection and try again.'));
     } finally {
       setFollowingBusy((current) => {
         const next = new Set(current);
@@ -392,7 +397,7 @@ export default function SearchScreen() {
         setCommunityStatuses((current) => ({ ...current, [community.id]: status }));
       }
     } catch (error) {
-      Alert.alert('Could not join this community', error instanceof Error ? error.message : 'Try again.');
+      Alert.alert('Could not join this community', await getErrorMessage(error, 'Try again.'));
     } finally {
       setCommunityBusy(null);
     }
@@ -581,8 +586,8 @@ export default function SearchScreen() {
             {historyError ? (
               <View style={styles.errorBox}>
                 <Text style={styles.errorText}>{historyError}</Text>
-                <Pressable onPress={() => void loadRecentSearches().then(updateRecentSearches).catch((error: unknown) => {
-                  setHistoryError(error instanceof Error ? error.message : 'Recent searches could not be read.');
+                <Pressable onPress={() => void loadRecentSearches().then(updateRecentSearches).catch(async (error: unknown) => {
+                  setHistoryError(await getErrorMessage(error, 'Recent searches could not be read.'));
                 })}>
                   <Text style={styles.retryText}>Retry</Text>
                 </Pressable>
@@ -596,7 +601,7 @@ export default function SearchScreen() {
                     recentSearchesRef.current = [];
                     setRecentSearches([]);
                     setHistoryError('');
-                  }).catch((error: unknown) => setHistoryError(error instanceof Error ? error.message : 'Recent searches could not be cleared.'))}>
+                  }).catch(async (error: unknown) => setHistoryError(await getErrorMessage(error, 'Recent searches could not be cleared.')))}>
                     <Text style={styles.clearText}>Clear</Text>
                   </Pressable>
                 </View>

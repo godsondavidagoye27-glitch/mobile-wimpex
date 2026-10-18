@@ -1,3 +1,4 @@
+import { getErrorMessage } from '../../lib/errorMessage';
 import { router } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -118,9 +119,9 @@ export default function GroupsScreen() {
       void Promise.all([
         loadSections(controller.signal),
         loadDiscovery(null, false, controller.signal),
-      ]).catch((caught: unknown) => {
+      ]).catch(async (caught: unknown) => {
         if (!controller.signal.aborted) {
-          setError(caught instanceof Error ? caught.message : 'Communities could not be loaded.');
+          setError(await getErrorMessage(caught, 'Communities could not be loaded.'));
         }
       }).finally(() => {
         if (request.current === controller) {
@@ -154,7 +155,7 @@ export default function GroupsScreen() {
       }
       await refresh(true);
     } catch (caught) {
-      Alert.alert('Could not update membership', caught instanceof Error ? caught.message : 'Try again.');
+      Alert.alert('Could not update membership', await getErrorMessage(caught, 'Try again.'));
     } finally {
       setActionBusy(null);
     }
@@ -171,7 +172,7 @@ export default function GroupsScreen() {
       await loadDiscovery(cursor, true, controller.signal);
     } catch (caught) {
       if (!controller.signal.aborted) {
-        setError(caught instanceof Error ? caught.message : 'More communities could not be loaded.');
+        setError(await getErrorMessage(caught, 'More communities could not be loaded.'));
       }
     } finally {
       if (request.current === controller) request.current = null;

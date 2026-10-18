@@ -1,3 +1,4 @@
+import { getErrorMessage } from '../../lib/errorMessage';
 import { useEvent } from 'expo';
 import type { VideoPlayer } from 'expo-video';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -29,7 +30,7 @@ function loadCaptionFile(path: string) {
     return cues;
   });
   captionFiles.set(path, request);
-  void request.catch(() => captionFiles.delete(path));
+  void request.catch(async () => captionFiles.delete(path));
   return request;
 }
 
@@ -95,7 +96,7 @@ export function CaptionOverlay({
       if (mounted && cachedPreference === null) {
         updateCaptionPreference(saved === 'true');
       }
-    }).catch(() => {
+    }).catch(async () => {
       if (mounted) {
         setMessage('Could not load your caption preference.');
         setPreferenceLoaded(true);
@@ -169,7 +170,7 @@ export function CaptionOverlay({
       if (error) throw error;
       setMessage('Captions are being generated.');
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Could not retry captions. Try again.');
+      setMessage(await getErrorMessage(error, 'Could not retry captions. Try again.'));
     } finally {
       setRetrying(false);
     }

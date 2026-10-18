@@ -1,3 +1,4 @@
+import { getErrorMessage } from '../../lib/errorMessage';
 import { useEvent } from 'expo';
 import * as Crypto from 'expo-crypto';
 import * as Linking from 'expo-linking';
@@ -315,7 +316,7 @@ export default function PostDetailScreen() {
       setCaptionCues(cues);
       setCaptionEditorOpen(true);
     } catch (error) {
-      setCaptionEditorError(error instanceof Error ? error.message : 'Could not load captions for editing.');
+      setCaptionEditorError(await getErrorMessage(error, 'Could not load captions for editing.'));
     }
   };
 
@@ -331,7 +332,7 @@ export default function PostDetailScreen() {
       setCaptionEditorOpen(false);
       await refreshPost();
     } catch (error) {
-      setCaptionEditorError(error instanceof Error ? error.message : 'Could not save captions.');
+      setCaptionEditorError(await getErrorMessage(error, 'Could not save captions.'));
     } finally {
       setSavingCaptions(false);
     }
@@ -347,7 +348,7 @@ export default function PostDetailScreen() {
       if (error) throw error;
       await refreshPost();
     } catch (error) {
-      Alert.alert('Could not update caption settings', error instanceof Error ? error.message : 'Try again.');
+      Alert.alert('Could not update caption settings', await getErrorMessage(error, 'Try again.'));
     }
   };
 
@@ -368,7 +369,7 @@ export default function PostDetailScreen() {
       setReplyTo(null);
       await refreshPost();
     } catch (error) {
-      setCommentError(error instanceof Error ? error.message : 'Could not send your comment. Try again.');
+      setCommentError(await getErrorMessage(error, 'Could not send your comment. Try again.'));
     } finally {
       setSending(false);
     }
@@ -390,10 +391,10 @@ export default function PostDetailScreen() {
               if (error) throw error;
               await refreshPost();
             })
-            .catch((caught: unknown) => {
+            .catch(async (caught: unknown) => {
               Alert.alert(
                 'Could not delete comment',
-                caught instanceof Error ? caught.message : 'Try again.',
+                await getErrorMessage(caught, 'Try again.'),
               );
             });
         },
@@ -415,7 +416,7 @@ export default function PostDetailScreen() {
         await refreshPost();
       }
     } catch (error) {
-      Alert.alert('Could not share this video', error instanceof Error ? error.message : 'Try again.');
+      Alert.alert('Could not share this video', await getErrorMessage(error, 'Try again.'));
     }
   };
 
@@ -530,7 +531,7 @@ export default function PostDetailScreen() {
               onPress={() => {
                 void setPostLiked(detail.post.id, detail.liked)
                   .then(refreshPost)
-                  .catch((error: unknown) => Alert.alert('Could not update like', error instanceof Error ? error.message : 'Try again.'));
+                  .catch(async (error: unknown) => Alert.alert('Could not update like', await getErrorMessage(error, 'Try again.')));
               }}
               style={styles.statButton}
               accessibilityRole="button"
@@ -547,7 +548,7 @@ export default function PostDetailScreen() {
               onPress={() => {
                 void setPostSaved(detail.post.id, detail.saved)
                   .then(refreshPost)
-                  .catch((error: unknown) => Alert.alert('Could not update saved videos', error instanceof Error ? error.message : 'Try again.'));
+                  .catch(async (error: unknown) => Alert.alert('Could not update saved videos', await getErrorMessage(error, 'Try again.')));
               }}
               style={styles.statButton}
               accessibilityRole="button"

@@ -1,3 +1,4 @@
+import { getErrorMessage } from '../lib/errorMessage';
 import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
@@ -31,8 +32,8 @@ function communitySlug(value: string) {
   return slug.slice(0, 40).replace(/-+$/g, '');
 }
 
-function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : 'Try again.';
+async function errorMessage(error: unknown) {
+  return getErrorMessage(error, 'Try again.');
 }
 
 export default function CreateCommunityScreen() {
@@ -69,9 +70,9 @@ export default function CreateCommunityScreen() {
         setCanCreateAdultsOnly(!!data);
         setLoading(false);
       }
-    }).catch((caught: unknown) => {
+    }).catch(async (caught: unknown) => {
       if (active) {
-        setError(errorMessage(caught));
+        setError(await errorMessage(caught));
         setLoading(false);
       }
     });
@@ -88,10 +89,10 @@ export default function CreateCommunityScreen() {
       void Promise.resolve(getSupabaseClient().rpc('community_name_available', { p_name: cleanedName })).then(({ data, error: rpcError }) => {
         if (rpcError) throw rpcError;
         if (active) setNameCheck(data ? 'available' : 'taken');
-      }).catch((caught: unknown) => {
+      }).catch(async (caught: unknown) => {
         if (active) {
           setNameCheck('error');
-          setError(errorMessage(caught));
+          setError(await errorMessage(caught));
         }
       });
     }, 300) : null;
@@ -118,7 +119,7 @@ export default function CreateCommunityScreen() {
       });
       if (!result.canceled) setIconUri(result.assets[0].uri);
     } catch (caught) {
-      setError(`Unable to select an icon. ${errorMessage(caught)}`);
+      setError(`Unable to select an icon. ${await errorMessage(caught)}`);
     }
   };
 
@@ -173,7 +174,7 @@ export default function CreateCommunityScreen() {
       }
       router.replace({ pathname: '/community/[slug]', params: { slug: communitySlug(cleanedName) } });
     } catch (caught) {
-      let detail = errorMessage(caught);
+      let detail = await errorMessage(caught);
       if (communityId) {
         if (iconUploaded) {
           const { error: cleanupError } = await getSupabaseClient()

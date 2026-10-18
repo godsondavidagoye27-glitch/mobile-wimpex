@@ -1,3 +1,4 @@
+import { getErrorMessage } from '../../lib/errorMessage';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useNetworkState } from 'expo-network';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
@@ -30,6 +31,7 @@ import { calculateChatComposerHeight } from '../../features/chats/chatLayout';
 import { getStoryReplyPreviewUrl } from '../../features/stories/storyService';
 import { ChatMediaComposer } from '../../features/chats/ChatMediaComposer';
 import { ChatMediaMessage } from '../../features/chats/ChatMediaMessage';
+import { deleteEditedVideo } from '../../features/video-editor/exportVideo';
 import {
   fetchConversationMessages,
   type ChatProfile,
@@ -336,8 +338,8 @@ export default function ChatThreadScreen() {
     if (messagesRef.current.length === 0) setLoading(true);
     setError('');
     void loadConversation(() => active)
-      .catch((loadError: unknown) => {
-        if (active) setError(loadError instanceof Error ? loadError.message : 'Could not load this conversation.');
+      .catch(async (loadError: unknown) => {
+        if (active) setError(await getErrorMessage(loadError, 'Could not load this conversation.'));
       })
       .finally(() => {
         if (active) setLoading(false);
@@ -408,7 +410,7 @@ export default function ChatThreadScreen() {
         if (typeof messageId !== 'string') return;
         const message = messagesRef.current.find((item) => item.id === messageId);
         if (message) {
-          void loadReactions([message]).catch((reactionError: unknown) => {
+          void loadReactions([message]).catch(async (reactionError: unknown) => {
             console.error('Unable to refresh reactions for a chat message.', reactionError);
           });
         }
@@ -470,7 +472,7 @@ export default function ChatThreadScreen() {
       ) {
         void channel.track({ user_id: userId }).then((trackStatus) => {
           if (active && trackStatus !== 'ok') console.error('Unable to publish online presence.', trackStatus);
-        }).catch((trackError: unknown) => {
+        }).catch(async (trackError: unknown) => {
           if (active) console.error('Unable to publish online presence.', trackError);
         });
       }
@@ -564,7 +566,7 @@ export default function ChatThreadScreen() {
       setHasMore(olderRows.length === 30);
       await loadReactions(olderRows);
     } catch (loadError) {
-      Alert.alert('Could not load older messages', loadError instanceof Error ? loadError.message : 'Try again.');
+      Alert.alert('Could not load older messages', await getErrorMessage(loadError, 'Try again.'));
     } finally {
       setLoadingOlder(false);
     }
@@ -583,7 +585,7 @@ export default function ChatThreadScreen() {
       .then((status) => {
         if (status !== 'ok') console.warn('Typing update was not delivered.', status);
       })
-      .catch((typingError: unknown) => {
+      .catch(async (typingError: unknown) => {
         console.error('Unable to send typing update.', typingError);
       });
   };
@@ -683,6 +685,11 @@ export default function ChatThreadScreen() {
         return next;
       });
       pendingMediaRef.current.delete(message.client_id);
+      try {
+        deleteEditedVideo(pending.attachment.uri);
+      } catch (cleanupError) {
+        console.error('Unable to remove the local edited chat video.', cleanupError);
+      }
       setReplyTo(null);
     } catch (sendError) {
       setMessages((current) => setMessageDeliveryState(current, message.client_id, 'failed'));
@@ -699,7 +706,7 @@ export default function ChatThreadScreen() {
           console.warn('Could not clean up an incomplete chat upload.', cleanupError);
         }
       }
-      const text = sendError instanceof Error ? sendError.message : 'Try sending the attachment again.';
+      const text = await getErrorMessage(sendError, 'Try sending the attachment again.');
       Alert.alert('Attachment not sent', text);
       console.error('Unable to send chat attachment.', sendError);
     } finally {
@@ -770,7 +777,7 @@ export default function ChatThreadScreen() {
     try {
       await loadReactions(messagesRef.current);
     } catch (reactionError) {
-      Alert.alert('Could not refresh reactions', reactionError instanceof Error ? reactionError.message : 'Try again.');
+      Alert.alert('Could not refresh reactions', await getErrorMessage(reactionError, 'Try again.'));
     }
   }, [loadReactions, reactions, supabase, userId]);
 
@@ -807,7 +814,7 @@ export default function ChatThreadScreen() {
       try {
         await Clipboard.setStringAsync(message.body);
       } catch (copyError) {
-        Alert.alert('Could not copy message', copyError instanceof Error ? copyError.message : 'Try again.');
+        Alert.alert('Could not copy message', await getErrorMessage(copyError, 'Try again.'));
       }
     }
   };
@@ -1046,7 +1053,7 @@ export default function ChatThreadScreen() {
           <Pressable onPress={() => {
             setLoading(true);
             setError('');
-            void loadConversation().catch((loadError: unknown) => setError(loadError instanceof Error ? loadError.message : 'Could not load this conversation.')).finally(() => setLoading(false));
+            void loadConversation().catch(async (loadError: unknown) => setError(await getErrorMessage(loadError, 'Could not load this conversation.'))).finally(() => setLoading(false));
           }} style={styles.retryButton} accessibilityRole="button">
             <Text style={styles.retryText}>Retry</Text>
           </Pressable>
@@ -1180,6 +1187,8 @@ export default function ChatThreadScreen() {
             <ChatMediaComposer
               attachment={attachment}
               disabled={sending}
+              caption={draft}
+              onCaptionChange={setDraft}
               showVoiceRecorder={!draft.trim() && !attachment}
               onAttachment={setAttachment}
               onClear={() => setAttachment(null)}

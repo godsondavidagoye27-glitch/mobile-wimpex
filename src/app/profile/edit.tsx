@@ -1,3 +1,4 @@
+import { getErrorMessage } from '../../lib/errorMessage';
 import * as ImagePicker from 'expo-image-picker';
 import { router, useNavigation } from 'expo-router';
 import { usePreventRemove } from 'expo-router/build/react-navigation/core/usePreventRemove';
@@ -40,8 +41,8 @@ function initials(name: string) {
   return name.trim().split(/\s+/).slice(0, 2).map((part) => part[0]?.toUpperCase() ?? '').join('') || '?';
 }
 
-function messageFor(error: unknown) {
-  return error instanceof Error ? error.message : 'Try again.';
+async function messageFor(error: unknown) {
+  return getErrorMessage(error, 'Try again.');
 }
 
 export default function EditProfileScreen() {
@@ -74,7 +75,7 @@ export default function EditProfileScreen() {
           avatarUri: null,
         });
       } catch (caught) {
-        if (active) setError(messageFor(caught));
+        if (active) setError(await messageFor(caught));
       } finally {
         if (active) setLoading(false);
       }
@@ -108,7 +109,7 @@ export default function EditProfileScreen() {
           if (active) setAvailability({
             username,
             status: 'error',
-            message: messageFor(caught),
+            message: await messageFor(caught),
           });
         }
       })();
@@ -164,7 +165,7 @@ export default function EditProfileScreen() {
       });
       if (!result.canceled) updateDraft({ avatarUri: result.assets[0].uri });
     } catch (caught) {
-      setError(`Unable to select a profile photo. ${messageFor(caught)}`);
+      setError(`Unable to select a profile photo. ${await messageFor(caught)}`);
     }
   };
 
@@ -203,11 +204,11 @@ export default function EditProfileScreen() {
       if (uploadedPath) {
         const { error: cleanupError } = await getSupabaseClient().storage.from('avatars').remove([uploadedPath]);
         if (cleanupError) {
-          setError(`Unable to save profile (${messageFor(caught)}). The uploaded photo could not be removed (${cleanupError.message}).`);
+          setError(`Unable to save profile (${await messageFor(caught)}). The uploaded photo could not be removed (${cleanupError.message}).`);
           return;
         }
       }
-      setError(messageFor(caught));
+      setError(await messageFor(caught));
     } finally {
       setSaving(false);
     }

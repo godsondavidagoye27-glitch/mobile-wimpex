@@ -1,6 +1,7 @@
 import { Platform } from 'react-native';
 import { Upload } from 'tus-js-client';
 import { getSupabaseClient } from '../../lib/supabase';
+import { getErrorMessage } from '../../lib/errorMessage';
 import type { Post } from '../../types/database';
 import { getVideoExtension } from '../media/videoExtension';
 import { isVideoDraft, isVideoUploadJob } from './uploadValidation';
@@ -353,17 +354,22 @@ function startTusUpload(
 
 async function performUpload(job: VideoUploadJob): Promise<void> {
   const uploading = { ...job, state: 'uploading' as const, error: null };
+  let uploadStage = 'prepare the upload';
   try {
     await saveJob(uploading);
+    uploadStage = 'create the post record';
     const postStatus = await upsertPostRecord(uploading);
     if (postStatus !== 'published') {
+      uploadStage = 'upload the video file';
       await startTusUpload(uploading, async (progress, uploadUrl) => {
         const current = jobs.get(uploading.id) ?? uploading;
         await saveJob({ ...current, progress, uploadUrl }, false);
       });
+      uploadStage = 'publish the post';
       const { error } = await getSupabaseClient().rpc('finalize_post', { post_id: uploading.postId });
       if (error) throw error;
     }
+    uploadStage = 'clean up the local upload';
     const { File: LocalFile } = await import('expo-file-system');
     const localFile = new LocalFile(uploading.uri);
     if (localFile.exists) localFile.delete();
@@ -371,6 +377,7 @@ async function performUpload(job: VideoUploadJob): Promise<void> {
     jobs.delete(uploading.id);
     publishJobs();
   } catch (error) {
+    console.error(`Video upload failed while attempting to ${uploadStage}.`, error);
     try {
       const { error: statusError } = await getSupabaseClient()
         .from('posts')
@@ -386,7 +393,7 @@ async function performUpload(job: VideoUploadJob): Promise<void> {
     await saveJob({
       ...current,
       state: 'failed',
-      error: error instanceof Error ? error.message : 'The video upload failed. Try again.',
+      error: await getErrorMessage(error, `The video upload failed while attempting to ${uploadStage}. Try again.`),
     });
     throw error;
   }

@@ -1,15 +1,23 @@
 import { File } from 'expo-file-system';
 import * as ImageManipulator from 'expo-image-manipulator';
 import type { ImagePickerAsset } from 'expo-image-picker';
-import { maxChatMediaSizeBytes, validateChatMedia, type ChatMediaAttachment } from './chatMediaValidation';
+import {
+  extensionFor,
+  maxChatMediaSizeBytes,
+  validateChatMedia,
+  type ChatMediaAttachment,
+} from './chatMediaValidation';
 
-export async function prepareChatPickerAsset(asset: ImagePickerAsset): Promise<ChatMediaAttachment> {
+export async function prepareChatPickerAsset(
+  asset: ImagePickerAsset,
+  options: { allowOverLimitVideo?: boolean } = {},
+): Promise<ChatMediaAttachment> {
   const originalFile = new File(asset.uri);
   const originalSize = asset.fileSize ?? originalFile.size;
   if (!Number.isFinite(originalSize) || originalSize <= 0) {
     throw new Error('Could not read the attachment size. Choose another file.');
   }
-  if (originalSize > maxChatMediaSizeBytes) {
+  if (asset.type !== 'video' && originalSize > maxChatMediaSizeBytes) {
     throw new Error('Chat attachments must be 25 MB or smaller.');
   }
 
@@ -42,7 +50,7 @@ export async function prepareChatPickerAsset(asset: ImagePickerAsset): Promise<C
         height: result.height,
       };
       const validationError = validateChatMedia(attachment);
-      if (validationError) throw new Error(validationError);
+      if (validationError && !options.allowOverLimitVideo) throw new Error(validationError);
       return attachment;
     } finally {
       image?.release();
@@ -73,10 +81,20 @@ export async function prepareChatPickerAsset(asset: ImagePickerAsset): Promise<C
 
 export function prepareRecordedVoice(uri: string, durationMs: number, contentType: string): ChatMediaAttachment {
   const file = new File(uri);
+  const extension = extensionFor({
+    kind: 'voice',
+    uri,
+    fileName: '',
+    contentType,
+    sizeBytes: file.size,
+    durationMs,
+    width: null,
+    height: null,
+  });
   const attachment: ChatMediaAttachment = {
     kind: 'voice',
     uri,
-    fileName: contentType === 'audio/webm' ? 'voice-message.webm' : 'voice-message.m4a',
+    fileName: `voice-message.${extension}`,
     contentType,
     sizeBytes: file.size,
     durationMs: Math.round(durationMs),

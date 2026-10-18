@@ -1,3 +1,4 @@
+import { getErrorMessage } from '../../lib/errorMessage';
 import { router, useFocusEffect } from 'expo-router';
 import { useNetworkState } from 'expo-network';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -75,7 +76,7 @@ export default function ChatsScreen() {
       setEntries(await fetchChatList(supabase, user.id));
       setError('');
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : 'Could not load your chats.');
+      setError(await getErrorMessage(loadError, 'Could not load your chats.'));
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -123,7 +124,7 @@ export default function ChatsScreen() {
             }
           });
       } catch (loadError) {
-        if (mounted) setError(loadError instanceof Error ? loadError.message : 'Could not load your chats.');
+        if (mounted) setError(await getErrorMessage(loadError, 'Could not load your chats.'));
       } finally {
         if (mounted) setLoading(false);
       }
@@ -182,8 +183,8 @@ export default function ChatsScreen() {
         .then((nextProfiles) => {
           if (active) setProfiles(nextProfiles);
         })
-        .catch((searchError: unknown) => {
-          if (active) setPeopleError(searchError instanceof Error ? searchError.message : 'Could not search people.');
+        .catch(async (searchError: unknown) => {
+          if (active) setPeopleError(await getErrorMessage(searchError, 'Could not search people.'));
         })
         .finally(() => {
           if (active) setPeopleLoading(false);
@@ -214,7 +215,7 @@ export default function ChatsScreen() {
       setComposerOpen(false);
       routerPushConversation(data);
     } catch (createError) {
-      Alert.alert('Could not start conversation', createError instanceof Error ? createError.message : 'Try again.');
+      Alert.alert('Could not start conversation', await getErrorMessage(createError, 'Try again.'));
     } finally {
       setCreating(false);
     }
@@ -232,7 +233,7 @@ export default function ChatsScreen() {
       setComposerOpen(false);
       routerPushConversation(data);
     } catch (createError) {
-      Alert.alert('Could not create group', createError instanceof Error ? createError.message : 'Try again.');
+      Alert.alert('Could not create group', await getErrorMessage(createError, 'Try again.'));
     } finally {
       setCreating(false);
     }

@@ -3,6 +3,7 @@ import {
   maxChatMediaSizeBytes,
   maxChatVideoDurationMs,
   maxChatVoiceDurationMs,
+  extensionFor,
   validateChatMedia,
   type ChatMediaAttachment,
 } from './chatMediaValidation';
@@ -36,6 +37,26 @@ describe('chat media validation', () => {
       width: null,
       height: null,
     }))).toBeNull();
+  });
+
+  it.each([
+    ['audio/mpeg', 'mp3'],
+    ['audio/aac', 'aac'],
+    ['audio/3gpp', '3gp'],
+    ['audio/ogg', 'ogg'],
+    ['audio/mp4', 'm4a'],
+    ['audio/webm', 'webm'],
+  ])('accepts %s and maps it to .%s', (contentType, extension) => {
+    const voice = attachment({
+      kind: 'voice',
+      fileName: 'voice',
+      contentType,
+      durationMs: 1000,
+      width: null,
+      height: null,
+    });
+    expect(validateChatMedia(voice)).toBeNull();
+    expect(extensionFor(voice)).toBe(extension);
   });
 
   it('rejects missing, non-finite, or oversized attachments', () => {

@@ -1,3 +1,4 @@
+import { getErrorMessage } from '../../lib/errorMessage';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import {
@@ -153,7 +154,7 @@ export function NotificationCenter() {
         actor: actorById.get(item.actor_id) ?? null,
       })));
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Unable to load notifications.');
+      setError(await getErrorMessage(caught, 'Unable to load notifications.'));
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -180,7 +181,7 @@ export function NotificationCenter() {
       if (updateError) throw updateError;
       setRows((current) => current.map((row) => ({ ...row, read_at: row.read_at ?? now })));
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Unable to mark notifications as read.');
+      setError(await getErrorMessage(caught, 'Unable to mark notifications as read.'));
     } finally {
       setMarkingRead(false);
     }
@@ -199,7 +200,7 @@ export function NotificationCenter() {
         if (updateError) throw updateError;
         setRows((current) => current.map((row) => row.id === notification.id ? { ...row, read_at: now } : row));
       } catch (caught) {
-        setError(caught instanceof Error ? caught.message : 'Unable to mark the notification as read.');
+        setError(await getErrorMessage(caught, 'Unable to mark the notification as read.'));
         return;
       }
     }
@@ -230,7 +231,7 @@ export function NotificationCenter() {
         }
         router.push({ pathname: '/live/[streamId]', params: { streamId: notification.live_stream_id } });
       } catch (caught) {
-        setError(caught instanceof Error ? caught.message : 'Unable to open this live stream.');
+        setError(await getErrorMessage(caught, 'Unable to open this live stream.'));
       }
       return;
     }
@@ -260,7 +261,7 @@ export function NotificationCenter() {
           },
         });
       } catch (caught) {
-        setError(caught instanceof Error ? caught.message : 'Unable to open this community.');
+        setError(await getErrorMessage(caught, 'Unable to open this community.'));
       }
       return;
     }

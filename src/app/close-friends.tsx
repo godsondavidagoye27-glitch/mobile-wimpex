@@ -1,3 +1,4 @@
+import { getErrorMessage } from '../lib/errorMessage';
 import { useCallback, useEffect, useState } from 'react';
 import { router } from 'expo-router';
 import {
@@ -78,7 +79,7 @@ export default function CloseFriendsScreen() {
       setFriendCursor(friends.length === pageSize ? friends[friends.length - 1].id : null);
       setCandidateCursor(candidates.length === pageSize ? candidates[candidates.length - 1].id : null);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Could not load close friends.');
+      setError(await getErrorMessage(caught, 'Could not load close friends.'));
     } finally {
       setLoading(false);
       setLoadingMore(false);
@@ -105,7 +106,7 @@ export default function CloseFriendsScreen() {
       setCandidateCursor(null);
       await loadRows(query.trim(), false);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Could not update close friends.');
+      setError(await getErrorMessage(caught, 'Could not update close friends.'));
     }
   };
 

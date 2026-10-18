@@ -1,3 +1,4 @@
+import { getErrorMessage } from '../../../lib/errorMessage';
 import { router, useLocalSearchParams } from 'expo-router';
 import { getSingleRouteParam } from '../../../lib/routeParams';
 import { useEffect, useMemo, useState } from 'react';
@@ -22,8 +23,8 @@ const categories: CommunityCategory[] = [
   'Tech', 'Fashion', 'Learning', 'Health', 'Comedy', 'Other',
 ];
 
-function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : 'Try again.';
+async function errorMessage(error: unknown) {
+  return getErrorMessage(error, 'Try again.');
 }
 
 export default function EditCommunityScreen() {
@@ -90,7 +91,7 @@ export default function EditCommunityScreen() {
           }
         }
       } catch (caught) {
-        if (active) setError(errorMessage(caught));
+        if (active) setError(await errorMessage(caught));
       } finally {
         if (active) setLoading(false);
       }
@@ -114,10 +115,10 @@ export default function EditCommunityScreen() {
           if (rpcError) throw rpcError;
           if (active) setNameAvailability(data ? 'available' : 'taken');
         })
-        .catch((caught: unknown) => {
+        .catch(async (caught: unknown) => {
           if (active) {
             setNameAvailability('error');
-            setError(errorMessage(caught));
+            setError(await errorMessage(caught));
           }
         });
     }, 300);
@@ -158,7 +159,7 @@ export default function EditCommunityScreen() {
       if (rulesError) throw rulesError;
       router.back();
     } catch (caught) {
-      setError(errorMessage(caught));
+      setError(await errorMessage(caught));
     } finally {
       setSaving(false);
     }

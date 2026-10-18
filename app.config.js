@@ -35,9 +35,14 @@ module.exports = ({ config }) => {
       ...config.android,
       ...(googleServicesFile ? { googleServicesFile } : {}),
     },
+    extra: {
+      ...config.extra,
+      appVariant: profile ?? 'development',
+    },
     plugins: [
       ...(config.plugins ?? []),
       'expo-video',
+      'expo-image',
       'expo-sqlite',
       [
         '@livekit/react-native-expo-plugin',

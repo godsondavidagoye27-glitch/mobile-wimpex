@@ -1,3 +1,4 @@
+import { getErrorMessage } from '../lib/errorMessage';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import {
@@ -36,7 +37,7 @@ export default function FollowRequestsScreen() {
       if (queryError) throw queryError;
       setRequests(data ?? []);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Unable to load follow requests.');
+      setError(await getErrorMessage(caught, 'Unable to load follow requests.'));
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -59,7 +60,7 @@ export default function FollowRequestsScreen() {
       if (responseError) throw responseError;
       setRequests((current) => current.filter((item) => item.id !== request.id));
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Unable to update this follow request.');
+      setError(await getErrorMessage(caught, 'Unable to update this follow request.'));
     } finally {
       setActingId(null);
     }

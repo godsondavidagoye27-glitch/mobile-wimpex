@@ -3,18 +3,13 @@ import { File } from 'expo-file-system';
 import { Upload } from 'tus-js-client';
 import type { Database } from '../../types/database';
 import {
+  extensionFor,
   validateChatMedia,
   type ChatMediaAttachment,
 } from './chatMediaValidation';
 
 type Client = SupabaseClient<Database>;
 const standardUploadLimitBytes = 6 * 1024 * 1024;
-
-function extensionFor(attachment: ChatMediaAttachment) {
-  if (attachment.kind === 'image') return 'jpg';
-  if (attachment.kind === 'video') return 'mp4';
-  return attachment.contentType === 'audio/webm' ? 'webm' : 'm4a';
-}
 
 function getStorageEndpoint() {
   const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
@@ -85,7 +80,8 @@ export async function uploadChatMedia(
   if (file.size > standardUploadLimitBytes) {
     await uploadResumable(client, file, path, attachment.contentType);
   } else {
-    const { error } = await client.storage.from('chat-media').upload(path, file, {
+    const bytes = await file.bytes();
+    const { error } = await client.storage.from('chat-media').upload(path, bytes, {
       cacheControl: '3600',
       contentType: attachment.contentType,
       upsert: true,

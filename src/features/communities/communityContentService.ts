@@ -14,6 +14,9 @@ export type CommunityMediaInput = {
   kind: 'image' | 'video';
   mimeType: string;
   sizeBytes: number;
+  durationMs?: number;
+  width?: number;
+  height?: number;
 };
 
 export async function getCommunityPosts(communityId: string): Promise<CommunityPost[]> {

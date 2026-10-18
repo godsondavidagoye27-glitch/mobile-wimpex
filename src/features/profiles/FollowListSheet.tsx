@@ -1,3 +1,4 @@
+import { getErrorMessage } from '../../lib/errorMessage';
 import { router } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import {
@@ -69,7 +70,7 @@ export function FollowListSheet({
           key,
           rows: [],
           cursor: null,
-          error: caught instanceof Error ? caught.message : 'Unable to load this list.',
+          error: await getErrorMessage(caught, 'Unable to load this list.'),
         });
       }
     })();
@@ -101,8 +102,9 @@ export function FollowListSheet({
         };
       });
     } catch (caught) {
+      const message = await getErrorMessage(caught, 'Unable to load more accounts.');
       setResult((current) => current?.key === key
-        ? { ...current, error: caught instanceof Error ? caught.message : 'Unable to load more accounts.' }
+        ? { ...current, error: message }
         : current);
     } finally {
       setLoadingMore(false);
@@ -135,8 +137,9 @@ export function FollowListSheet({
         : current);
       await onFollowChanged();
     } catch (caught) {
+      const message = await getErrorMessage(caught, 'Unable to update this follow.');
       setResult((current) => current?.key === key
-        ? { ...current, error: caught instanceof Error ? caught.message : 'Unable to update this follow.' }
+        ? { ...current, error: message }
         : current);
     }
   };

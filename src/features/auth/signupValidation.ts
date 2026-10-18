@@ -28,7 +28,7 @@ export function getSignupErrorMessage(error: unknown) {
     ? error as SignupErrorLike
     : {};
   const code = errorText(candidate.code);
-  const message = errorText(candidate.message) || (error instanceof Error ? error.message : '');
+  const message = errorText(candidate.message);
   const details = errorText(candidate.details);
   const hint = errorText(candidate.hint);
   const searchable = `${code} ${message} ${details} ${hint}`;

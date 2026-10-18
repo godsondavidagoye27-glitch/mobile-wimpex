@@ -1,3 +1,4 @@
+import { getErrorMessage } from '../../lib/errorMessage';
 import {
   AudioSession,
   isTrackReference,
@@ -147,8 +148,8 @@ function CallSessionScreen({
         }
         setCallState(latest);
       })
-      .catch((loadError: unknown) => {
-        if (active) setError(loadError instanceof Error ? loadError.message : 'Could not load this call.');
+      .catch(async (loadError: unknown) => {
+        if (active) setError(await getErrorMessage(loadError, 'Could not load this call.'));
       })
       .finally(() => {
         if (active) setLoading(false);
@@ -181,7 +182,7 @@ function CallSessionScreen({
           : ''),
       );
     } catch (callError) {
-      setError(callError instanceof Error ? callError.message : 'Could not start the call.');
+      setError(await getErrorMessage(callError, 'Could not start the call.'));
     } finally {
       setLoading(false);
     }
@@ -228,7 +229,7 @@ function CallSessionScreen({
         .then((result) => {
           if ('call' in result) setCallState(result.call);
         })
-        .catch(() => setNotice('No answer'))
+        .catch(async () => setNotice('No answer'))
         .finally(() => {
           setConnection(null);
           setNotice('No answer');
@@ -245,7 +246,7 @@ function CallSessionScreen({
         .then((result) => {
           if ('call' in result) setCallState(result.call);
         })
-        .catch((heartbeatError: unknown) => {
+        .catch(async (heartbeatError: unknown) => {
           console.warn('Could not refresh call activity.', heartbeatError);
         });
     }, 20_000);
@@ -272,9 +273,9 @@ function CallSessionScreen({
       .then(() => {
         if (mounted) setAudioReady(true);
       })
-      .catch((audioError: unknown) => {
+      .catch(async (audioError: unknown) => {
         if (mounted) {
-          setError(audioError instanceof Error ? audioError.message : 'Could not start the audio session.');
+          setError(await getErrorMessage(audioError, 'Could not start the audio session.'));
         }
       });
     return () => {
@@ -300,7 +301,7 @@ function CallSessionScreen({
       setCall(result.call);
       setConnection(result);
     } catch (callError) {
-      setError(callError instanceof Error ? callError.message : 'Could not answer the call.');
+      setError(await getErrorMessage(callError, 'Could not answer the call.'));
     } finally {
       setBusy(false);
     }
@@ -319,7 +320,7 @@ function CallSessionScreen({
       const result = await requestCallAction(action, { callId: currentCallId });
       if ('call' in result) setCallState(result.call);
     } catch (callError) {
-      setError(callError instanceof Error ? callError.message : 'Could not end the call.');
+      setError(await getErrorMessage(callError, 'Could not end the call.'));
     } finally {
       setConnection(null);
       setBusy(false);
@@ -347,7 +348,7 @@ function CallSessionScreen({
     if (!currentCallId || (currentCall && isTerminalCallStatus(currentCall.status)) || endingRef.current) return;
     endingRef.current = true;
     const action = (!currentCall || currentCall.status === 'ringing') && incoming ? 'decline' : 'end';
-    void requestCallAction(action, { callId: currentCallId }).catch((cleanupError: unknown) => {
+    void requestCallAction(action, { callId: currentCallId }).catch(async (cleanupError: unknown) => {
       console.error('Could not end the call while leaving the call screen.', cleanupError);
     });
   }, [callId, incoming]);
@@ -359,8 +360,8 @@ function CallSessionScreen({
       .then((result) => {
         if ('call' in result) setCallState(result.call);
       })
-      .catch((callError: unknown) => {
-        setError(callError instanceof Error ? callError.message : 'Could not confirm the call connection.');
+      .catch(async (callError: unknown) => {
+        setError(await getErrorMessage(callError, 'Could not confirm the call connection.'));
       });
   }, [call?.id, setCallState]);
 
@@ -431,7 +432,7 @@ function CallSessionScreen({
               error={error}
               permissionDenied={permissionDenied}
               onOpenSettings={() => {
-                void Linking.openSettings().catch((settingsError: unknown) => {
+                void Linking.openSettings().catch(async (settingsError: unknown) => {
                   console.error('Could not open device permission settings.', settingsError);
                 });
               }}
@@ -449,7 +450,7 @@ function CallSessionScreen({
                 <Pressable
                   accessibilityRole="button"
                   onPress={() => {
-                    void Linking.openSettings().catch((settingsError: unknown) => {
+                    void Linking.openSettings().catch(async (settingsError: unknown) => {
                       console.error('Could not open device permission settings.', settingsError);
                     });
                   }}
@@ -566,7 +567,7 @@ function CallRoom({
       setMicrophoneEnabled((enabled) => !enabled);
       setControlError('');
     } catch (toggleError) {
-      setControlError(toggleError instanceof Error ? toggleError.message : 'Could not change microphone settings.');
+      setControlError(await getErrorMessage(toggleError, 'Could not change microphone settings.'));
     } finally {
       setSwitching(false);
     }
@@ -579,7 +580,7 @@ function CallRoom({
       setCameraEnabled((enabled) => !enabled);
       setControlError('');
     } catch (toggleError) {
-      setControlError(toggleError instanceof Error ? toggleError.message : 'Could not change camera settings.');
+      setControlError(await getErrorMessage(toggleError, 'Could not change camera settings.'));
     } finally {
       setSwitching(false);
     }

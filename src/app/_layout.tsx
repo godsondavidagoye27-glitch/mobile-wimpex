@@ -4,7 +4,9 @@ import { router, Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { Component, useCallback, useEffect, useRef, useState, type ErrorInfo, type ReactNode } from 'react';
-import { AppState, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, AppState, Pressable, StyleSheet, Text, View } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
+import Constants from 'expo-constants';
 import { useNetworkState } from 'expo-network';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { OnlinePresence } from '../features/chats/OnlinePresence';
@@ -36,15 +38,31 @@ class AppErrorBoundary extends Component<
 
   render() {
     if (this.state.hasError) {
-      const details = this.state.error
-        ? `${this.state.error.message}${this.state.componentStack ? `\n\n${this.state.componentStack}` : ''}`
-        : '';
+      const stack = this.state.error?.stack?.split('\n').slice(0, 8).join('\n') ?? '';
+      const componentStack = this.state.componentStack.split('\n').slice(0, 8).join('\n');
+      const details = [this.state.error?.message, stack, componentStack].filter(Boolean).join('\n\n');
+      const showDetails = __DEV__ || Constants.expoConfig?.extra?.appVariant !== 'production';
       return (
         <View style={styles.errorScreen}>
           <Text style={styles.errorTitle}>Something went wrong</Text>
           <Text style={styles.errorMessage}>
-            {__DEV__ && details ? details : 'The app ran into a problem. Reload to continue.'}
+            {showDetails && details ? details : 'The app ran into a problem. Reload to continue.'}
           </Text>
+          {showDetails ? (
+            <Pressable
+              onPress={() => {
+                void Clipboard.setStringAsync(details).then(
+                  () => Alert.alert('Copied', 'Error details were copied to the clipboard.'),
+                  (error: unknown) => console.error('Unable to copy app error details.', error),
+                );
+              }}
+              style={styles.copyButton}
+              accessibilityRole="button"
+              accessibilityLabel="Copy error details"
+            >
+              <Text style={styles.copyButtonText}>Copy error details</Text>
+            </Pressable>
+          ) : null}
           <Pressable
             onPress={() => {
               this.setState({ hasError: false, error: null, componentStack: '' }, () => {
@@ -201,6 +219,18 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     marginTop: 10,
     textAlign: 'center',
+  },
+  copyButton: {
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 16,
+    paddingHorizontal: 18,
+  },
+  copyButtonText: {
+    color: theme.colors.primary,
+    fontSize: 14,
+    fontWeight: '700',
   },
   reloadButton: {
     minHeight: 46,

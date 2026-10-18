@@ -1,5 +1,6 @@
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
+import { File } from 'expo-file-system';
 import { router, useLocalSearchParams } from 'expo-router';
 import { getSingleRouteParam } from '../../lib/routeParams';
 import { useEffect, useState } from 'react';
@@ -15,6 +16,9 @@ import {
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { Icon } from '../../components/Icon';
 import { FocusableTextInput } from '../../components/AuthField';
+import { getErrorMessage } from '../../lib/errorMessage';
+import { deleteEditedVideo } from '../../features/video-editor/exportVideo';
+import { openVideoEditor } from '../../features/video-editor/videoEditorRequests';
 import {
   createCommunityPost,
   type CommunityMediaInput,
@@ -24,8 +28,9 @@ import { theme } from '../../theme/theme';
 import type { CommunityListRpcRow } from '../../types/database';
 import { KeyboardAwareScreen } from '../../hooks/useKeyboardInset';
 
-function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : 'Try again.';
+async function errorMessage(error: unknown) {
+  console.error('Community post operation failed.', error);
+  return getErrorMessage(error, 'Try again.');
 }
 
 function LocalCommunityVideo({ uri }: { uri: string }) {
@@ -45,6 +50,40 @@ export default function CommunityPostComposerScreen() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+
+  const setCommunityMedia = (next: CommunityMediaInput | null) => {
+    if (media && media.uri !== next?.uri) deleteEditedVideo(media.uri);
+    setMedia(next);
+  };
+
+  const editVideo = async (video: CommunityMediaInput) => {
+    const edited = await openVideoEditor({
+      uri: video.uri,
+      maxDurationMs: 60_000,
+      maxSizeBytes: 50 * 1024 * 1024,
+      durationMs: video.durationMs ?? 60_000,
+      sizeBytes: video.sizeBytes,
+      width: video.width ?? 0,
+      height: video.height ?? 0,
+      caption: body,
+    });
+    if (!edited) return;
+    if (edited.durationMs <= 0 || edited.durationMs > 60_000
+      || edited.sizeBytes <= 0 || edited.sizeBytes > 50 * 1024 * 1024) {
+      deleteEditedVideo(edited.uri);
+      throw new Error('Community videos must be 60 seconds or shorter and no larger than 50 MB.');
+    }
+    setBody(edited.caption);
+    setCommunityMedia({
+      uri: edited.uri,
+      kind: 'video',
+      mimeType: 'video/mp4',
+      sizeBytes: edited.sizeBytes,
+      durationMs: edited.durationMs,
+      width: edited.width,
+      height: edited.height,
+    });
+  };
 
   useEffect(() => {
     let active = true;
@@ -80,7 +119,7 @@ export default function CommunityPostComposerScreen() {
           });
         }
       } catch (caught) {
-        if (active) setError(errorMessage(caught));
+        if (active) setError(await errorMessage(caught));
       } finally {
         if (active) setLoading(false);
       }
@@ -102,24 +141,41 @@ export default function CommunityPostComposerScreen() {
         mediaTypes: kind === 'image' ? ['images'] : ['videos'],
         allowsEditing: false,
         quality: 0.85,
-        videoMaxDuration: 60,
       });
       if (result.canceled) return;
       const asset = result.assets[0];
       if (!asset) return;
+      if (kind === 'video') {
+        const sizeBytes = asset.fileSize ?? new File(asset.uri).size;
+        const mimeType = asset.mimeType?.toLowerCase() ?? 'video/mp4';
+        const video: CommunityMediaInput = {
+          uri: asset.uri,
+          kind: 'video',
+          mimeType,
+          sizeBytes,
+          durationMs: asset.duration ?? undefined,
+          width: asset.width,
+          height: asset.height,
+        };
+        if (!Number.isFinite(sizeBytes) || sizeBytes <= 0) {
+          throw new Error('Could not read the selected video size.');
+        }
+        if (!video.durationMs || video.durationMs > 60_000
+          || sizeBytes > 50 * 1024 * 1024
+          || (mimeType !== 'video/mp4' && mimeType !== 'video/quicktime')) {
+          await editVideo(video);
+          return;
+        }
+        setCommunityMedia(video);
+        return;
+      }
       const pickedMedia = kind === 'image'
         ? await ImageManipulator.manipulateAsync(asset.uri, [], {
             compress: 0.85,
             format: ImageManipulator.SaveFormat.JPEG,
           })
         : { uri: asset.uri };
-      const mimeType = kind === 'image'
-        ? 'image/jpeg'
-        : asset.mimeType ?? 'video/mp4';
-      if (kind === 'video' && asset.duration && asset.duration > 60_000) {
-        setError('Community videos must be 60 seconds or shorter.');
-        return;
-      }
+      const mimeType = 'image/jpeg';
       const sizeResponse = await fetch(pickedMedia.uri);
       if (!sizeResponse.ok) throw new Error('The selected media could not be read.');
       const blob = await sizeResponse.blob();
@@ -128,9 +184,9 @@ export default function CommunityPostComposerScreen() {
         setError('Community photos and videos must be smaller than 50 MB.');
         return;
       }
-      setMedia({ uri: pickedMedia.uri, kind, mimeType, sizeBytes: fileSize });
+      setCommunityMedia({ uri: pickedMedia.uri, kind, mimeType, sizeBytes: fileSize });
     } catch (caught) {
-      setError(`Could not select media. ${errorMessage(caught)}`);
+      setError(`Could not select media. ${await errorMessage(caught)}`);
     }
   };
 
@@ -144,12 +200,13 @@ export default function CommunityPostComposerScreen() {
         body,
         media,
       });
+      if (media?.kind === 'video') deleteEditedVideo(media.uri);
       router.replace({
         pathname: '/community/[slug]',
         params: { slug: selectedCommunity.slug, tab: 'Posts' },
       });
     } catch (caught) {
-      setError(errorMessage(caught));
+      setError(await errorMessage(caught));
     } finally {
       setSaving(false);
     }
@@ -230,9 +287,31 @@ export default function CommunityPostComposerScreen() {
                   {media.kind === 'image'
                     ? <Image source={{ uri: media.uri }} style={styles.preview} resizeMode="cover" />
                     : <LocalCommunityVideo uri={media.uri} />}
-                  <Pressable onPress={() => setMedia(null)} style={styles.removeMedia} accessibilityRole="button" accessibilityLabel="Remove attachment">
+                  <Pressable
+                    onPress={() => {
+                      deleteEditedVideo(media.uri);
+                      setCommunityMedia(null);
+                    }}
+                    style={styles.removeMedia}
+                    accessibilityRole="button"
+                    accessibilityLabel="Remove attachment"
+                  >
                     <Icon name="close" size={20} color={theme.colors.white} />
                   </Pressable>
+                  {media.kind === 'video' ? (
+                    <Pressable
+                      onPress={() => void editVideo(media).catch(async (editError: unknown) => {
+                        console.error('Unable to edit community video.', editError);
+                        setError(await errorMessage(editError));
+                      })}
+                      disabled={saving}
+                      style={styles.editMedia}
+                      accessibilityRole="button"
+                      accessibilityLabel="Trim or edit community video"
+                    >
+                      <Text style={styles.editMediaText}>Edit video</Text>
+                    </Pressable>
+                  ) : null}
                 </View>
               ) : (
                 <View style={styles.mediaButtons}>
@@ -344,6 +423,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: 'rgba(0,0,0,0.7)',
   },
+  editMedia: {
+    position: 'absolute',
+    left: 12,
+    bottom: 12,
+    borderRadius: 10,
+    backgroundColor: theme.colors.overlay,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  editMediaText: { color: theme.colors.gold, fontSize: 13, fontWeight: '700' },
   helper: { color: theme.colors.textMuted, lineHeight: 20 },
   error: { color: theme.colors.danger, marginTop: 16, lineHeight: 20 },
 });

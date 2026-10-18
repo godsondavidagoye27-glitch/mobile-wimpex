@@ -16,12 +16,15 @@ import {
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { Icon } from '../components/Icon';
 import { FocusableTextInput } from '../components/AuthField';
+import { getErrorMessage } from '../lib/errorMessage';
 import { createStory } from '../features/stories/storyService';
 import {
   fitStoryImageDimensions,
   validateStoryCaption,
   validateStoryVideo,
 } from '../features/stories/storyTimeline';
+import { deleteEditedVideo } from '../features/video-editor/exportVideo';
+import { openVideoEditor } from '../features/video-editor/videoEditorRequests';
 import { getSupabaseClient } from '../lib/supabase';
 import { theme } from '../theme/theme';
 import { KeyboardAwareScreen } from '../hooks/useKeyboardInset';
@@ -60,12 +63,48 @@ export default function CreateStoryScreen() {
     kind: 'image' | 'video';
     mimeType: 'image/jpeg' | 'video/mp4' | 'video/quicktime';
     durationMs: number;
+    sizeBytes: number;
     width: number;
     height: number;
   } | null>(null);
   const [closeFriendCount, setCloseFriendCount] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+
+  const setStoryMedia = (next: NonNullable<typeof media>) => {
+    if (media && media.uri !== next.uri) deleteEditedVideo(media.uri);
+    setMedia(next);
+  };
+
+  const editStoryVideo = async (video: NonNullable<typeof media>) => {
+    if (video.kind !== 'video') return;
+    const edited = await openVideoEditor({
+      uri: video.uri,
+      maxDurationMs: 15_000,
+      maxSizeBytes: 25 * 1024 * 1024,
+      durationMs: video.durationMs,
+      sizeBytes: video.sizeBytes,
+      width: video.width,
+      height: video.height,
+      caption,
+    });
+    if (!edited) return;
+    const validationMessage = validateStoryVideo(edited.durationMs, edited.sizeBytes);
+    if (validationMessage) {
+      deleteEditedVideo(edited.uri);
+      throw new Error(validationMessage);
+    }
+    setCaption(edited.caption.slice(0, 120));
+    setStoryMedia({
+      uri: edited.uri,
+      kind: 'video',
+      mimeType: 'video/mp4',
+      durationMs: edited.durationMs,
+      sizeBytes: edited.sizeBytes,
+      width: edited.width,
+      height: edited.height,
+    });
+  };
 
   useEffect(() => {
     let active = true;
@@ -75,7 +114,8 @@ export default function CreateStoryScreen() {
         if (queryError) throw queryError;
         if (active) setCloseFriendCount(data?.length ?? 0);
       } catch (caught) {
-        if (active) setError(caught instanceof Error ? caught.message : 'Could not load your close friends.');
+        console.error('Unable to load close friends for story audience.', caught);
+        if (active) void getErrorMessage(caught, 'Could not load your close friends.').then(setError);
       }
     })();
     return () => {
@@ -104,7 +144,6 @@ export default function CreateStoryScreen() {
         mediaTypes: ['images', 'videos'],
         allowsEditing: false,
         quality: 1,
-        videoMaxDuration: 15,
       };
       const result = useCamera
         ? await ImagePicker.launchCameraAsync(pickerOptions)
@@ -115,21 +154,48 @@ export default function CreateStoryScreen() {
 
       if (asset.type === 'video') {
         const size = asset.fileSize ?? new File(asset.uri).size;
+        const mimeType = asset.mimeType?.toLowerCase();
         const validationMessage = validateStoryVideo(asset.duration ?? 0, size);
-        if (validationMessage) {
-          setError(validationMessage);
+        const requiresMp4Export = mimeType !== 'video/mp4' && mimeType !== 'video/quicktime';
+        if (validationMessage || requiresMp4Export) {
+          const edited = await openVideoEditor({
+            uri: asset.uri,
+            maxDurationMs: 15_000,
+            maxSizeBytes: 25 * 1024 * 1024,
+            durationMs: asset.duration ?? 0,
+            sizeBytes: size,
+            width: asset.width,
+            height: asset.height,
+            caption,
+          });
+          if (!edited) return;
+          const editedValidation = validateStoryVideo(edited.durationMs, edited.sizeBytes);
+          if (editedValidation) {
+            deleteEditedVideo(edited.uri);
+            throw new Error(editedValidation);
+          }
+          setCaption(edited.caption.slice(0, 120));
+          setStoryMedia({
+            uri: edited.uri,
+            kind: 'video',
+            mimeType: 'video/mp4',
+            durationMs: edited.durationMs,
+            sizeBytes: edited.sizeBytes,
+            width: edited.width,
+            height: edited.height,
+          });
           return;
         }
-        const mimeType = asset.mimeType?.toLowerCase();
         if (mimeType !== 'video/mp4' && mimeType !== 'video/quicktime') {
           setError('Choose an MP4 or MOV video.');
           return;
         }
-        setMedia({
+        setStoryMedia({
           uri: asset.uri,
           kind: 'video',
           mimeType,
           durationMs: Math.round(asset.duration ?? 0),
+          sizeBytes: size,
           width: asset.width,
           height: asset.height,
         });
@@ -151,11 +217,12 @@ export default function CreateStoryScreen() {
         });
         const file = new File(resultImage.uri);
         if (!file.exists || file.size <= 0) throw new Error('The selected photo could not be prepared.');
-        setMedia({
+        setStoryMedia({
           uri: resultImage.uri,
           kind: 'image',
           mimeType: 'image/jpeg',
           durationMs: 5000,
+          sizeBytes: file.size,
           width: resultImage.width,
           height: resultImage.height,
         });
@@ -164,7 +231,8 @@ export default function CreateStoryScreen() {
         context.release();
       }
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Could not prepare the selected media.');
+      console.error('Unable to prepare story media.', caught);
+      setError(await getErrorMessage(caught, 'Could not prepare the selected media.'));
     }
   };
 
@@ -211,9 +279,11 @@ export default function CreateStoryScreen() {
         width: media.width,
         height: media.height,
       });
+      if (media.kind === 'video') deleteEditedVideo(media.uri);
       router.replace({ pathname: '/story/[authorId]', params: { authorId: created.authorId } });
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Could not share this story.');
+      console.error('Unable to share story.', caught);
+      setError(await getErrorMessage(caught, 'Could not share this story.'));
     } finally {
       setBusy(false);
     }
@@ -259,6 +329,19 @@ export default function CreateStoryScreen() {
           ) : (
             <Text style={styles.previewPlaceholder}>Choose a photo or video.</Text>
           )}
+          {media?.kind === 'video' ? (
+            <Pressable
+              onPress={() => void editStoryVideo(media).catch(async (editError: unknown) => {
+                console.error('Unable to edit story video.', editError);
+                setError(await getErrorMessage(editError, 'Could not edit this video.'));
+              })}
+              style={styles.editVideoButton}
+              accessibilityRole="button"
+              accessibilityLabel="Trim or edit story video"
+            >
+              <Text style={styles.editVideoText}>Edit video</Text>
+            </Pressable>
+          ) : null}
         </View>
 
         <View style={styles.card}>
@@ -336,6 +419,16 @@ const styles = StyleSheet.create({
   previewCard: { height: 360, borderRadius: 20, overflow: 'hidden', backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.line, alignItems: 'center', justifyContent: 'center' },
   preview: { width: '100%', height: '100%', backgroundColor: theme.colors.surface },
   previewPlaceholder: { color: theme.colors.textMuted, fontSize: 14 },
+  editVideoButton: {
+    position: 'absolute',
+    right: 12,
+    bottom: 12,
+    borderRadius: 10,
+    backgroundColor: theme.colors.overlay,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  editVideoText: { color: theme.colors.gold, fontSize: 13, fontWeight: '700' },
   card: { padding: 14, borderRadius: 18, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.line },
   captionHeader: { flexDirection: 'row', justifyContent: 'space-between' },
   label: { color: theme.colors.textMuted, fontSize: 12, fontWeight: '600' },
