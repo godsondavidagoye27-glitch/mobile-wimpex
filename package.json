@@ -7,6 +7,7 @@
     "@livekit/react-native": "^3.0.0",
     "@livekit/react-native-expo-plugin": "^1.0.3",
     "@livekit/react-native-webrtc": "^144.2.0",
+    "@react-native-community/datetimepicker": "9.1.0",
     "@react-native-google-signin/google-signin": "^16.1.5",
     "@react-native-picker/picker": "2.11.4",
     "@shopify/react-native-skia": "2.6.2",

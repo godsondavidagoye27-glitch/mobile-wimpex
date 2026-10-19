@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   parseChatNotificationRoute,
   parseIncomingCallNotificationRoute,
+  parsePublishedPostNotificationRoute,
 } from './chatNotificationRoute';
 
 const validRoute = {
@@ -44,5 +45,20 @@ describe('parseChatNotificationRoute', () => {
     });
     expect(parseIncomingCallNotificationRoute({ ...call, mode: 'screen' })).toBeNull();
     expect(parseIncomingCallNotificationRoute({ ...call, call_id: 'invalid' })).toBeNull();
+  });
+
+  it('parses go-live notifications only when both identifiers are valid', () => {
+    const post = {
+      type: 'post_published',
+      post_id: validRoute.message_id,
+      recipient_id: validRoute.recipient_id,
+    };
+    expect(parsePublishedPostNotificationRoute(post)).toEqual({
+      kind: 'published_post',
+      postId: post.post_id,
+      recipientId: post.recipient_id,
+    });
+    expect(parsePublishedPostNotificationRoute({ ...post, post_id: 'invalid' })).toBeNull();
+    expect(parsePublishedPostNotificationRoute({ ...post, recipient_id: 'invalid' })).toBeNull();
   });
 });

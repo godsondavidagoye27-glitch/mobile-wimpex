@@ -1,4 +1,5 @@
 import { getErrorMessage } from '../../lib/errorMessage';
+import { createProfileShareUrl } from '../sharing/shareLinks';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -25,6 +26,7 @@ import { getSignedUrls } from '../feed/useFeed';
 import { theme } from '../../theme/theme';
 import type { FeedPost, FeedRpcRow, ProfileRpcRow } from '../../types/database';
 import { FollowListSheet } from './FollowListSheet';
+import { ProfileHighlights } from './ProfileHighlights';
 import { followActionForStatus, followStatusAfterAction } from './followState';
 import { useFollowRequestCount } from './useFollowRequestCount';
 
@@ -362,8 +364,8 @@ export function ProfileScreen({ username }: { username: string | null }) {
     try {
       await Share.share({
         title: `@${shownProfile.username}`,
-        message: `wimpex://user/${shownProfile.username}`,
-        url: `wimpex://user/${shownProfile.username}`,
+        message: createProfileShareUrl(shownProfile.username),
+        url: createProfileShareUrl(shownProfile.username),
       });
     } catch (caught) {
       setScreenError(await getErrorMessage(caught, 'Unable to share this profile.'));
@@ -566,6 +568,13 @@ export function ProfileScreen({ username }: { username: string | null }) {
           <Icon name="chevronRight" size={20} color={theme.colors.textMuted} />
         </Pressable>
       ) : null}
+      {shownProfile.is_me ? (
+        <Pressable style={styles.requestLink} onPress={() => router.push('/creator-analytics')} accessibilityRole="button">
+          <Text style={styles.requestLinkText}>Creator dashboard</Text>
+          <Icon name="chevronRight" size={20} color={theme.colors.textMuted} />
+        </Pressable>
+      ) : null}
+      <ProfileHighlights ownerId={shownProfile.id} isOwner={shownProfile.is_me} />
       {isPrivateState ? (
         <View style={styles.privateState}>
           <Icon name="lock" size={24} color={theme.colors.primary} />

@@ -13,6 +13,7 @@ export const POST_INSERT_COLUMNS = [
   'audience',
   'allow_comments',
   'auto_captions',
+  'scheduled_at',
 ] as const satisfies readonly (keyof Post)[];
 
 export type PostInsertPayload = Pick<Post, (typeof POST_INSERT_COLUMNS)[number]>;
@@ -33,5 +34,6 @@ export function createPostInsertPayload(
     audience: input.audience,
     allow_comments: input.allow_comments,
     auto_captions: input.auto_captions,
+    scheduled_at: input.scheduled_at,
   };
 }

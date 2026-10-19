@@ -287,6 +287,8 @@ function VideoEditorContent() {
         ...result,
         caption,
         muted,
+        startMs: range.startMs,
+        endMs: range.endMs,
       };
       finishVideoEditorRequest(requestId, editorResult);
       router.back();

@@ -1,5 +1,6 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { constantTimeEquals } from '../_shared/constantTime.ts';
+import { parseOpenRouterTranscript } from '../_shared/openRouterCaptions.ts';
 
 const headers = { 'Content-Type': 'application/json' };
 const secretHeader = 'x-captions-webhook-secret';
@@ -74,23 +75,23 @@ Deno.serve(async (request: Request) => {
 
   const { data: currentJob, error: jobReadError } = await admin
     .from('caption_jobs')
-    .select('status,provider_job_id')
+    .select('status')
     .eq('post_id', post.id)
     .maybeSingle();
   if (jobReadError) {
     console.error('Unable to inspect the caption job.', { code: jobReadError.code });
     return respond(500, { error: 'Unable to start captions.' });
   }
-  if (currentJob?.status === 'processing' && currentJob.provider_job_id) {
+  if (currentJob?.status === 'processing') {
     return respond(200, { ignored: true });
   }
 
-  const assemblyKey = Deno.env.get('ASSEMBLYAI_API_KEY');
+  const openRouterKey = Deno.env.get('OPENROUTER_API_KEY');
   const globalDailyCap = Number(Deno.env.get('AI_CAPTIONS_GLOBAL_DAILY_CAP'));
   if (
     Deno.env.get('AI_ENABLED') !== 'true'
     || Deno.env.get('AI_CAPTIONS_ENABLED') !== 'true'
-    || !assemblyKey
+    || !openRouterKey
     || !Number.isSafeInteger(globalDailyCap)
     || globalDailyCap < 1
   ) {
@@ -152,7 +153,7 @@ Deno.serve(async (request: Request) => {
   const now = new Date().toISOString();
   const { error: jobWriteError } = await admin.from('caption_jobs').upsert({
     post_id: post.id,
-    provider: 'assemblyai',
+    provider: 'openrouter',
     provider_job_id: null,
     status: 'processing',
     attempts: attempt,
@@ -182,53 +183,81 @@ Deno.serve(async (request: Request) => {
       return respond(200, { failed: true });
     }
 
-    const callbackUrl = `${supabaseUrl.replace(/\/+$/, '')}/functions/v1/captions-callback`;
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15_000);
-    let providerResponse: Response;
+    const timeout = setTimeout(() => controller.abort(), 90_000);
+    let transcriptionResponse: Response;
     try {
-      providerResponse = await fetch('https://api.assemblyai.com/v2/transcript', {
+      transcriptionResponse = await fetch('https://openrouter.ai/api/v1/audio/transcriptions', {
         method: 'POST',
-        headers: { authorization: assemblyKey, 'content-type': 'application/json' },
+        headers: {
+          Authorization: `Bearer ${openRouterKey}`,
+          'Content-Type': 'application/json',
+        },
         signal: controller.signal,
         body: JSON.stringify({
-          audio_url: signedVideo.signedUrl,
-          speech_models: ['universal-3-5-pro', 'universal-2'],
-          language_detection: true,
-          webhook_url: callbackUrl,
-          webhook_auth_header_name: secretHeader,
-          webhook_auth_header_value: secret,
+          model: 'openai/whisper-large-v3',
+          input_audio: { source_url: signedVideo.signedUrl },
+          response_format: 'verbose_json',
+          timestamp_granularities: ['segment'],
+          temperature: 0,
+          provider: { zdr: true },
         }),
       });
     } finally {
       clearTimeout(timeout);
     }
-    if (!providerResponse.ok) {
-      await setPostState(admin, post.id, 'failed', `assemblyai_http_${providerResponse.status}`);
-      console.error('The captions provider rejected a transcription request.', {
-        status: providerResponse.status,
+    if (!transcriptionResponse.ok) {
+      await setPostState(admin, post.id, 'failed', `openrouter_http_${transcriptionResponse.status}`);
+      console.error('OpenRouter rejected a caption transcription request.', {
+        status: transcriptionResponse.status,
       });
       return respond(200, { failed: true });
     }
 
-    const providerJob = await providerResponse.json() as { id?: unknown };
-    if (typeof providerJob.id !== 'string' || !providerJob.id) {
-      await setPostState(admin, post.id, 'failed', 'assemblyai_invalid_response');
-      console.error('The captions provider returned an invalid job response.');
-      return respond(200, { failed: true });
+    const transcript = parseOpenRouterTranscript(await transcriptionResponse.json());
+    if (transcript.status === 'no_speech') {
+      await setPostState(admin, post.id, 'no_speech', null);
+      return respond(200, { noSpeech: true });
     }
-    const { error: providerIdError } = await admin.from('caption_jobs').update({
-      provider_job_id: providerJob.id,
-      updated_at: new Date().toISOString(),
-    }).eq('post_id', post.id);
-    if (providerIdError) throw providerIdError;
-    return respond(200, { started: true });
+
+    const { data: postOwner, error: ownerError } = await admin.from('posts')
+      .select('author_id')
+      .eq('id', post.id)
+      .maybeSingle();
+    if (ownerError) throw ownerError;
+    if (!postOwner) return respond(200, { deleted: true });
+
+    const captionsPath = `${postOwner.author_id}/${post.id}.vtt`;
+    const { error: uploadError } = await admin.storage.from('captions').upload(
+      captionsPath,
+      new Blob([transcript.captions], { type: 'text/vtt' }),
+      { contentType: 'text/vtt', upsert: true },
+    );
+    if (uploadError) throw uploadError;
+
+    const completedAt = new Date().toISOString();
+    const [{ error: postUpdateError }, { error: jobUpdateError }] = await Promise.all([
+      admin.from('posts').update({
+        captions_path: captionsPath,
+        captions_language: transcript.language,
+        captions_status: 'ready',
+        captions_updated_at: completedAt,
+      }).eq('id', post.id).eq('captions_status', 'processing'),
+      admin.from('caption_jobs').update({
+        status: 'ready',
+        last_error: null,
+        updated_at: completedAt,
+      }).eq('post_id', post.id).eq('status', 'processing'),
+    ]);
+    if (postUpdateError) throw postUpdateError;
+    if (jobUpdateError) throw jobUpdateError;
+    return respond(200, { ready: true });
   } catch (error) {
-    console.error('Unable to submit a caption transcription.', {
+    console.error('Unable to process an OpenRouter caption transcription.', {
       errorName: error instanceof Error ? error.name : 'unknown',
     });
     try {
-      await setPostState(admin, post.id, 'failed', 'provider_request_failed');
+      await setPostState(admin, post.id, 'failed', 'openrouter_request_failed');
     } catch (updateError) {
       console.error('Unable to mark the caption submission failure.', {
         errorName: updateError instanceof Error ? updateError.name : 'unknown',

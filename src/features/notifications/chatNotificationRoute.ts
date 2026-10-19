@@ -15,7 +15,32 @@ export type IncomingCallNotificationRoute = {
   mode: 'audio' | 'video';
 };
 
-export type NotificationRoute = ChatNotificationRoute | IncomingCallNotificationRoute;
+export type PublishedPostNotificationRoute = {
+  kind: 'published_post';
+  postId: string;
+  recipientId: string;
+};
+
+export type NotificationRoute = ChatNotificationRoute | IncomingCallNotificationRoute | PublishedPostNotificationRoute;
+
+export function parsePublishedPostNotificationRoute(data: unknown): PublishedPostNotificationRoute | null {
+  if (!data || typeof data !== 'object') return null;
+  const candidate = data as Record<string, unknown>;
+  if (
+    candidate.type !== 'post_published'
+    || typeof candidate.post_id !== 'string'
+    || !uuidPattern.test(candidate.post_id)
+    || typeof candidate.recipient_id !== 'string'
+    || !uuidPattern.test(candidate.recipient_id)
+  ) {
+    return null;
+  }
+  return {
+    kind: 'published_post',
+    postId: candidate.post_id,
+    recipientId: candidate.recipient_id,
+  };
+}
 
 export function parseChatNotificationRoute(data: unknown): ChatNotificationRoute | null {
   if (!data || typeof data !== 'object') return null;

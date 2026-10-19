@@ -12,6 +12,7 @@ import {
   Keyboard,
   Modal,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -34,9 +35,15 @@ import { ChatMediaMessage } from '../../features/chats/ChatMediaMessage';
 import { SectionErrorBoundary } from '../../components/SectionErrorBoundary';
 import { deleteEditedVideo } from '../../features/video-editor/exportVideo';
 import {
+  fetchChatList,
   fetchConversationMessages,
+  fetchConversationPins,
+  forwardChatMessage,
+  setConversationPin,
   type ChatProfile,
+  type ChatListEntry,
 } from '../../features/chats/chatService';
+import { canPinMessage } from '../../features/chats/chatSearch';
 import {
   createChatMediaSignedUrl,
   removeChatMedia,
@@ -146,8 +153,9 @@ function TypingDots() {
 }
 
 export default function ChatThreadScreen() {
-  const params = useLocalSearchParams<{ id: string }>();
+  const params = useLocalSearchParams<{ id: string; messageId?: string | string[] }>();
   const routeId = getSingleRouteParam(params.id);
+  const jumpMessageId = getSingleRouteParam(params.messageId);
   const conversationId = isUuidRouteParam(routeId) ? routeId : '';
   const networkState = useNetworkState();
   const supabase = useMemo(() => getSupabaseClient(), []);
@@ -171,6 +179,7 @@ export default function ChatThreadScreen() {
   const [members, setMembers] = useState<Member[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [pinnedMessages, setPinnedMessages] = useState<Awaited<ReturnType<typeof fetchConversationPins>>>([]);
   const [reactions, setReactions] = useState<Record<string, ReactionGroup[]>>({});
   const [loading, setLoading] = useState(true);
   const [loadingOlder, setLoadingOlder] = useState(false);
@@ -183,6 +192,10 @@ export default function ChatThreadScreen() {
   const [remoteTyping, setRemoteTyping] = useState(false);
   const [onlineUserIds, setOnlineUserIds] = useState<Set<string>>(new Set());
   const [menuMessage, setMenuMessage] = useState<ChatMessage | null>(null);
+  const [forwardingMessage, setForwardingMessage] = useState<ChatMessage | null>(null);
+  const [forwardChoices, setForwardChoices] = useState<ChatListEntry[]>([]);
+  const [selectedForwardIds, setSelectedForwardIds] = useState<Set<string>>(new Set());
+  const [forwardLoading, setForwardLoading] = useState(false);
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
   const [reportReason, setReportReason] = useState('');
@@ -196,6 +209,7 @@ export default function ChatThreadScreen() {
   const [composerInputHeight, setComposerInputHeight] = useState(44);
   const latestMessageIdRef = useRef<string | null>(null);
   const showScrollButtonRef = useRef(false);
+  const jumpHandledRef = useRef('');
 
   useEffect(() => {
     messagesRef.current = messages;
@@ -283,6 +297,63 @@ export default function ChatThreadScreen() {
     });
   }, [supabase]);
 
+  const togglePin = async (message: ChatMessage) => {
+    if (!userId) return;
+    const isPinned = pinnedMessages.some((pin) => pin.message_id === message.id);
+    if (!canPinMessage(pinnedMessages.length, isPinned)) {
+      Alert.alert('Pin limit reached', 'A conversation can have up to three pinned messages.');
+      return;
+    }
+    try {
+      await setConversationPin(supabase, conversationId, message.id, userId, !isPinned);
+      setPinnedMessages(await fetchConversationPins(supabase, conversationId));
+    } catch (caught) {
+      Alert.alert('Could not update pinned messages', await getErrorMessage(caught, 'Try again.'));
+    }
+  };
+
+  const beginForward = async (message: ChatMessage) => {
+    if (!userId) return;
+    setForwardLoading(true);
+    try {
+      const entries = await fetchChatList(supabase, userId);
+      setForwardChoices(entries.filter((entry) => entry.conversation.id !== conversationId));
+      setSelectedForwardIds(new Set());
+      setForwardingMessage(message);
+    } catch (caught) {
+      Alert.alert('Could not load conversations', await getErrorMessage(caught, 'Try again.'));
+    } finally {
+      setForwardLoading(false);
+    }
+  };
+
+  const sendForward = async () => {
+    if (!forwardingMessage || !userId || !selectedForwardIds.size || forwardLoading) return;
+    setForwardLoading(true);
+    const selected = forwardChoices.filter((entry) => selectedForwardIds.has(entry.conversation.id));
+    const failed: string[] = [];
+    let sent = 0;
+    for (const target of selected) {
+      try {
+        await forwardChatMessage(
+          supabase,
+          forwardingMessage,
+          target.conversation.id,
+          userId,
+          Crypto.randomUUID(),
+          Crypto.randomUUID(),
+        );
+        sent += 1;
+      } catch (caught) {
+        failed.push(`${target.peer?.display_name ?? target.conversation.title ?? 'Conversation'}: ${await getErrorMessage(caught, 'Could not forward.')}`);
+      }
+    }
+    setForwardLoading(false);
+    setForwardingMessage(null);
+    if (failed.length) Alert.alert('Some forwards failed', `${sent} sent.\n${failed.join('\n')}`);
+    else Alert.alert('Message forwarded', `Sent to ${sent} conversations.`);
+  };
+
   const refreshSignedMedia = useCallback(async (path: string) => {
     if (mediaRequestsRef.current.has(path)) return;
     mediaRequestsRef.current.add(path);
@@ -347,7 +418,10 @@ export default function ChatThreadScreen() {
     if (profilesError) throw profilesError;
     if (!isActive()) return;
 
-    const rows = await fetchConversationMessages(supabase, conversationId, undefined, 30);
+    const [rows, pins] = await Promise.all([
+      fetchConversationMessages(supabase, conversationId, undefined, 30),
+      fetchConversationPins(supabase, conversationId),
+    ]);
     if (!isActive()) return;
     const nextSettings = await supabase
       .from('user_settings')
@@ -363,6 +437,7 @@ export default function ChatThreadScreen() {
     setConversation(nextConversation);
     setMembers(nextMembers);
     setProfiles(nextProfiles);
+    setPinnedMessages(pins);
     setMessages((current) => mergeChatMessages(
       current,
       rows.map((message) => ({ ...message, deliveryState: 'sent' as const })),
@@ -394,6 +469,37 @@ export default function ChatThreadScreen() {
       if (typingTimer.current) clearTimeout(typingTimer.current);
     };
   }, [loadConversation]));
+
+  useEffect(() => {
+    if (!jumpMessageId || !userId || !conversation || jumpHandledRef.current === jumpMessageId) return;
+    let active = true;
+    const jump = async () => {
+      const loadedIndex = messagesRef.current.findIndex((message) => message.id === jumpMessageId);
+      if (loadedIndex >= 0) {
+        jumpHandledRef.current = jumpMessageId;
+        setTimeout(() => listRef.current?.scrollToIndex({ index: loadedIndex, animated: true, viewPosition: 0.5 }), 100);
+        return;
+      }
+      const { data, error: messageError } = await supabase.from('messages')
+        .select('id,conversation_id,sender_id,client_id,kind,body,media_path,media_duration_ms,width,height,reply_to_id,forwarded_from_id,story_reply_preview_path,story_reply_caption,created_at,deleted_at')
+        .eq('id', jumpMessageId)
+        .eq('conversation_id', conversationId)
+        .maybeSingle();
+      if (messageError) throw messageError;
+      if (!data || !isMessageRow(data)) throw new Error('The selected message is unavailable.');
+      if (!active) return;
+      jumpHandledRef.current = jumpMessageId;
+      setMessages((current) => mergeChatMessages(current, [{ ...data, deliveryState: 'sent' }]));
+      setTimeout(() => {
+        const index = messagesRef.current.findIndex((message) => message.id === jumpMessageId);
+        if (index >= 0) listRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0.5 });
+      }, 160);
+    };
+    void jump().catch(async (caught: unknown) => {
+      if (active) setError(await getErrorMessage(caught, 'Could not open the selected message.'));
+    });
+    return () => { active = false; };
+  }, [conversation, conversationId, jumpMessageId, supabase, userId]);
 
   useEffect(() => {
     if (!conversationId || !userId) return undefined;
@@ -647,12 +753,12 @@ export default function ChatThreadScreen() {
       const { data, error: sendError } = await supabase
         .from('messages')
         .insert(insert)
-        .select('id,conversation_id,sender_id,client_id,kind,body,media_path,media_duration_ms,width,height,reply_to_id,story_reply_preview_path,story_reply_caption,created_at,deleted_at')
+        .select('id,conversation_id,sender_id,client_id,kind,body,media_path,media_duration_ms,width,height,reply_to_id,forwarded_from_id,story_reply_preview_path,story_reply_caption,created_at,deleted_at')
         .single();
       if (sendError) {
         const { data: existing, error: lookupError } = await supabase
           .from('messages')
-          .select('id,conversation_id,sender_id,client_id,kind,body,media_path,media_duration_ms,width,height,reply_to_id,story_reply_preview_path,story_reply_caption,created_at,deleted_at')
+          .select('id,conversation_id,sender_id,client_id,kind,body,media_path,media_duration_ms,width,height,reply_to_id,forwarded_from_id,story_reply_preview_path,story_reply_caption,created_at,deleted_at')
           .eq('sender_id', userId)
           .eq('client_id', message.client_id)
           .maybeSingle();
@@ -703,13 +809,13 @@ export default function ChatThreadScreen() {
       const { data, error: sendError } = await supabase
         .from('messages')
         .insert(insert)
-        .select('id,conversation_id,sender_id,client_id,kind,body,media_path,media_duration_ms,width,height,reply_to_id,story_reply_preview_path,story_reply_caption,created_at,deleted_at')
+        .select('id,conversation_id,sender_id,client_id,kind,body,media_path,media_duration_ms,width,height,reply_to_id,forwarded_from_id,story_reply_preview_path,story_reply_caption,created_at,deleted_at')
         .single();
       let savedMessage: MessageRow;
       if (sendError) {
         const { data: existing, error: lookupError } = await supabase
           .from('messages')
-          .select('id,conversation_id,sender_id,client_id,kind,body,media_path,media_duration_ms,width,height,reply_to_id,story_reply_preview_path,story_reply_caption,created_at,deleted_at')
+          .select('id,conversation_id,sender_id,client_id,kind,body,media_path,media_duration_ms,width,height,reply_to_id,forwarded_from_id,story_reply_preview_path,story_reply_caption,created_at,deleted_at')
           .eq('sender_id', userId)
           .eq('client_id', message.client_id)
           .maybeSingle();
@@ -946,6 +1052,7 @@ export default function ChatThreadScreen() {
                 </Text>
               </View>
             ) : null}
+            {item.forwarded_from_id ? <Text style={styles.forwardedLabel}>Forwarded</Text> : null}
             {item.story_reply_preview_path && !item.deleted_at ? (
               <View style={styles.storyReplyCard}>
                 {signedMediaUrls[item.story_reply_preview_path] ? (
@@ -1111,6 +1218,7 @@ export default function ChatThreadScreen() {
       <ChatScreenLayout
         style={styles.screen}
         header={(
+          <View>
           <View style={styles.header}>
             <Pressable onPress={() => router.back()} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Go back">
               <Icon name="back" size={20} color={theme.colors.white} />
@@ -1131,6 +1239,14 @@ export default function ChatThreadScreen() {
               {statusLine ? <Text style={styles.statusText}>{statusLine}</Text> : null}
             </View>
             <View style={styles.callButtons}>
+              <Pressable
+                onPress={() => router.push({ pathname: '/chat-search', params: { conversationId } })}
+                style={styles.headerButton}
+                accessibilityRole="button"
+                accessibilityLabel="Search conversation"
+              >
+                <Icon name="search" size={20} color={theme.colors.white} />
+              </Pressable>
               {conversation.type === 'direct' && !conversation.read_only ? (
                 <>
                   <Pressable
@@ -1161,6 +1277,35 @@ export default function ChatThreadScreen() {
                 <Icon name="more" size={20} color={theme.colors.white} />
               </Pressable>
             </View>
+          </View>
+          {pinnedMessages.length ? (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pinnedBar}>
+              {pinnedMessages.map((pin) => (
+                <Pressable
+                  key={pin.message_id}
+                  onPress={() => {
+                    const index = messages.findIndex((message) => message.id === pin.message_id);
+                    if (index >= 0) listRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0.5 });
+                  }}
+                  style={styles.pinnedChip}
+                  accessibilityRole="button"
+                  accessibilityLabel="Jump to pinned message"
+                >
+                  <Icon name="pin" size={20} color={theme.colors.primary} />
+                  <Text numberOfLines={1} style={styles.pinnedChipText}>
+                    {pin.message.body || ({
+                      image: 'Photo',
+                      video: 'Video',
+                      voice: 'Voice message',
+                      call: 'Call',
+                      system: 'Pinned message',
+                      text: 'Pinned message',
+                    }[pin.message.kind] ?? 'Pinned message')}
+                  </Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+          ) : null}
           </View>
         )}
         notice={networkState.isConnected === false || networkState.isInternetReachable === false
@@ -1295,6 +1440,11 @@ export default function ChatThreadScreen() {
             {[
               { label: 'Reply', action: () => setReplyTo(menuMessage) },
               { label: 'Copy', action: () => { if (menuMessage) void copyMessage(menuMessage); } },
+              { label: 'Forward', action: () => { if (menuMessage) void beginForward(menuMessage); } },
+              ...(menuMessage ? [{
+                label: pinnedMessages.some((pin) => pin.message_id === menuMessage.id) ? 'Unpin' : 'Pin',
+                action: () => { if (menuMessage) void togglePin(menuMessage); },
+              }] : []),
               ...(menuMessage?.sender_id === userId ? [{ label: 'Delete', action: () => { if (menuMessage) void deleteMessage(menuMessage); } }] : []),
               { label: 'Report', action: () => {
                 if (menuMessage) setReportTarget({ type: 'message', id: menuMessage.id });
@@ -1310,6 +1460,48 @@ export default function ChatThreadScreen() {
             ))}
           </View>
         </Pressable>
+      </Modal>
+
+      <Modal transparent visible={forwardingMessage !== null} animationType="slide" onRequestClose={() => setForwardingMessage(null)}>
+        <View style={styles.forwardBackdrop}>
+          <View style={styles.forwardSheet}>
+            <Text style={styles.forwardTitle}>Forward to</Text>
+            {forwardLoading && !forwardChoices.length ? <ActivityIndicator color={theme.colors.primary} /> : (
+              <ScrollView style={styles.forwardList}>
+                {forwardChoices.map((entry) => {
+                  const id = entry.conversation.id;
+                  const selected = selectedForwardIds.has(id);
+                  const name = entry.peer?.display_name ?? entry.conversation.title ?? 'Conversation';
+                  return (
+                    <Pressable
+                      key={id}
+                      onPress={() => setSelectedForwardIds((current) => {
+                        const next = new Set(current);
+                        if (next.has(id)) next.delete(id);
+                        else next.add(id);
+                        return next;
+                      })}
+                      style={styles.forwardChoice}
+                      accessibilityRole="checkbox"
+                      accessibilityState={{ checked: selected }}
+                    >
+                      <Text style={styles.forwardName}>{name}</Text>
+                      <Text style={styles.forwardCheck}>{selected ? 'Selected' : 'Select'}</Text>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            )}
+            <View style={styles.forwardActions}>
+              <Pressable onPress={() => setForwardingMessage(null)} style={styles.forwardCancel}>
+                <Text style={styles.forwardCancelText}>Cancel</Text>
+              </Pressable>
+              <Pressable onPress={() => void sendForward()} disabled={!selectedForwardIds.size || forwardLoading} style={styles.forwardSend}>
+                {forwardLoading ? <ActivityIndicator color={theme.colors.black} /> : <Text style={styles.forwardSendText}>Send ({selectedForwardIds.size})</Text>}
+              </Pressable>
+            </View>
+          </View>
+        </View>
       </Modal>
 
       <Modal transparent visible={headerMenuOpen} animationType="fade" onRequestClose={() => setHeaderMenuOpen(false)}>
@@ -1391,6 +1583,9 @@ const styles = StyleSheet.create({
   headerTitle: { color: theme.colors.white, fontSize: 16, fontWeight: '800' },
   statusText: { color: theme.colors.primary, fontSize: 11, marginTop: 2 },
   callButtons: { flexDirection: 'row', alignItems: 'center' },
+  pinnedBar: { flexDirection: 'row', paddingHorizontal: 12, paddingBottom: 8, gap: 8 },
+  pinnedChip: { maxWidth: 220, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 7, borderRadius: 16, backgroundColor: theme.colors.surface },
+  pinnedChipText: { color: theme.colors.white, fontSize: 11, maxWidth: 180 },
   offlineBanner: { backgroundColor: '#36230D', paddingVertical: 7 },
   offlineText: { color: '#FBBF24', textAlign: 'center', fontSize: 12, fontWeight: '700' },
   listRegion: { flex: 1, minHeight: 120, position: 'relative' },
@@ -1412,6 +1607,7 @@ const styles = StyleSheet.create({
   deletedText: { fontStyle: 'italic', opacity: 0.7 },
   replyQuote: { borderLeftWidth: 2, borderLeftColor: theme.colors.primary, paddingLeft: 8, marginBottom: 6 },
   replyQuoteText: { color: theme.colors.textMuted, fontSize: 12 },
+  forwardedLabel: { color: theme.colors.textMuted, fontSize: 10, fontStyle: 'italic', marginBottom: 4 },
   storyReplyCard: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 7, padding: 6, borderRadius: 10, backgroundColor: 'rgba(15,23,42,0.12)' },
   storyReplyImage: { width: 44, height: 54, borderRadius: 6, backgroundColor: theme.colors.surface },
   storyReplyImagePlaceholder: { width: 44, height: 54, alignItems: 'center', justifyContent: 'center', borderRadius: 6, backgroundColor: theme.colors.surface },
@@ -1452,6 +1648,18 @@ const styles = StyleSheet.create({
   emojiText: { fontSize: 23 },
   menuItem: { minHeight: 46, justifyContent: 'center', paddingHorizontal: 8, borderBottomWidth: 1, borderBottomColor: theme.colors.line },
   menuItemText: { color: theme.colors.white, fontSize: 15 },
+  forwardBackdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.58)' },
+  forwardSheet: { maxHeight: '75%', padding: 18, paddingBottom: 28, borderTopLeftRadius: 22, borderTopRightRadius: 22, backgroundColor: theme.colors.surface },
+  forwardTitle: { color: theme.colors.white, fontSize: 18, fontWeight: '800', marginBottom: 12 },
+  forwardList: { minHeight: 80, maxHeight: 400 },
+  forwardChoice: { minHeight: 50, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.line },
+  forwardName: { color: theme.colors.white },
+  forwardCheck: { color: theme.colors.primary, fontSize: 12, fontWeight: '700' },
+  forwardActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 10, marginTop: 14 },
+  forwardCancel: { minHeight: 42, justifyContent: 'center', paddingHorizontal: 14 },
+  forwardCancelText: { color: theme.colors.textMuted, fontWeight: '700' },
+  forwardSend: { minWidth: 88, minHeight: 42, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14, borderRadius: 21, backgroundColor: theme.colors.primary },
+  forwardSendText: { color: theme.colors.black, fontWeight: '800' },
   dangerMenuText: { color: theme.colors.danger, fontSize: 15, fontWeight: '700' },
   reportBackdrop: { flex: 1, justifyContent: 'center', padding: 22, backgroundColor: 'rgba(0,0,0,0.65)' },
   reportCard: { padding: 18, borderRadius: 20, backgroundColor: '#111418', borderWidth: 1, borderColor: theme.colors.line },

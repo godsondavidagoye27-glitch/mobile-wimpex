@@ -58,6 +58,7 @@ describe('video upload validation', () => {
       audience: 'everyone',
       allowComments: true,
       autoCaptions: false,
+      scheduledAt: null,
       progress: 0,
       uploadUrl: null,
       state: 'queued',

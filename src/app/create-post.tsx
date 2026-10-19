@@ -2,10 +2,13 @@ import * as Crypto from 'expo-crypto';
 import * as ImagePicker from 'expo-image-picker';
 import { Directory, File, Paths } from 'expo-file-system';
 import { router } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useEvent } from 'expo';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Image } from 'expo-image';
 import {
   ActivityIndicator,
   Alert,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -13,7 +16,7 @@ import {
   Text,
   View,
 } from 'react-native';
-import { VideoView, useVideoPlayer } from 'expo-video';
+import { VideoView, useVideoPlayer, type VideoThumbnail } from 'expo-video';
 import { Icon } from '../components/Icon';
 import { SectionErrorBoundary } from '../components/SectionErrorBoundary';
 import { FocusableTextInput } from '../components/AuthField';
@@ -23,17 +26,18 @@ import { preferenceStorage } from '../lib/storage';
 import { theme } from '../theme/theme';
 import { KeyboardAwareScreen } from '../hooks/useKeyboardInset';
 import {
-  clearVideoDraft,
+  deletePostDraft,
   enqueueVideoUpload,
   loadUploadJobs,
-  loadVideoDraft,
+  loadPostDrafts,
   removeUploadJob,
   resumeVideoUpload,
-  saveVideoDraft,
+  savePostDraft,
   subscribeToUploadJobs,
   type VideoDraft,
   type VideoUploadJob,
 } from '../features/feed/uploadManager';
+import type { SavedPostDraft } from '../features/feed/postDraftModel';
 import {
   extractHashtags,
   maxVideoDurationMs,
@@ -41,6 +45,8 @@ import {
   validateVideo,
 } from '../features/feed/uploadValidation';
 import { getVideoExtension } from '../features/media/videoExtension';
+import { localDateTimeParts, parseLocalSchedule } from '../features/feed/scheduledPosts';
+import { ScheduledDateTimePicker } from '../features/feed/ScheduledDateTimePicker';
 import { deleteEditedVideo } from '../features/video-editor/exportVideo';
 import { openVideoEditor } from '../features/video-editor/videoEditorRequests';
 export { RouteErrorFallback as ErrorBoundary } from '../components/RouteErrorFallback';
@@ -70,15 +76,63 @@ function LocalVideoPreview({ uri }: { uri: string }) {
   return <VideoView player={player} style={styles.previewVideo} nativeControls />;
 }
 
+function DraftThumbnail({ uri }: { uri: string }) {
+  const player = useVideoPlayer(uri, (videoPlayer) => {
+    videoPlayer.pause();
+  });
+  const { status } = useEvent(player, 'statusChange', { status: player.status, error: undefined });
+  const [thumbnail, setThumbnail] = useState<VideoThumbnail | null>(null);
+  const thumbnailRef = useRef<VideoThumbnail | null>(null);
+
+  useEffect(() => {
+    if (status !== 'readyToPlay' || thumbnailRef.current) return undefined;
+    let active = true;
+    void player.generateThumbnailsAsync([0], { maxWidth: 160, maxHeight: 120 })
+      .then((thumbnails) => {
+        const first = thumbnails[0];
+        if (!first) return;
+        if (active) {
+          thumbnailRef.current = first;
+          setThumbnail(first);
+        } else {
+          first.release();
+        }
+        thumbnails.slice(1).forEach((item) => item.release());
+      })
+      .catch((thumbnailError: unknown) => {
+        console.error('Unable to create a post draft thumbnail.', thumbnailError);
+      });
+    return () => {
+      active = false;
+      thumbnailRef.current?.release();
+      thumbnailRef.current = null;
+    };
+  }, [player, status]);
+
+  if (thumbnail) return <Image source={thumbnail} contentFit="cover" style={styles.draftThumbnail} />;
+  return (
+    <View style={[styles.draftThumbnail, styles.draftThumbnailFallback]}>
+      <Icon name="video" size={24} color={theme.colors.primary} />
+    </View>
+  );
+}
+
 export default function CreatePostScreen() {
   const [draft, setDraft] = useState<VideoDraft>(emptyDraft);
   const [draftReady, setDraftReady] = useState(false);
+  const [draftId, setDraftId] = useState('');
+  const [savedDrafts, setSavedDrafts] = useState<SavedPostDraft[]>([]);
+  const [draftsOpen, setDraftsOpen] = useState(false);
   const [jobs, setJobs] = useState<VideoUploadJob[]>([]);
   const [ownerId, setOwnerId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [schedulePost, setSchedulePost] = useState(false);
+  const [scheduleDate, setScheduleDate] = useState(() => localDateTimeParts(new Date(Date.now() + 60 * 60 * 1000).toISOString()).date);
+  const [scheduleTime, setScheduleTime] = useState(() => localDateTimeParts(new Date(Date.now() + 60 * 60 * 1000).toISOString()).time);
   const [error, setError] = useState<string | null>(null);
   const [captionsNoticeSeen, setCaptionsNoticeSeen] = useState<boolean | null>(null);
   const [showCaptionsNoticeAfterToggle, setShowCaptionsNoticeAfterToggle] = useState(false);
+  const savedDraftSignature = useRef('');
 
   const draftError = useMemo(
     () => draft.uri ? validateVideo({ durationMs: draft.durationMs, sizeBytes: draft.fileSize }) : null,
@@ -89,12 +143,28 @@ export default function CreatePostScreen() {
   useEffect(() => {
     let mounted = true;
     const client = getSupabaseClient();
-    void Promise.all([client.auth.getSession(), loadVideoDraft()]).then(async ([userResult, savedDraft]) => {
+    void client.auth.getSession().then(async (userResult) => {
       if (userResult.error) throw userResult.error;
       if (!mounted) return;
       const user = userResult.data.session?.user;
       setOwnerId(user?.id ?? null);
-      if (savedDraft) setDraft(savedDraft);
+      if (user) {
+        const drafts = await loadPostDrafts(user.id);
+        if (!mounted) return;
+        setSavedDrafts(drafts);
+        const latest = drafts[0];
+        if (latest) {
+          setDraftId(latest.id);
+          setDraft(latest.video);
+          savedDraftSignature.current = JSON.stringify({ id: latest.id, video: latest.video });
+        } else {
+          const freshId = Crypto.randomUUID();
+          setDraftId(freshId);
+          savedDraftSignature.current = JSON.stringify({ id: freshId, video: emptyDraft });
+        }
+      } else {
+        setDraftId(Crypto.randomUUID());
+      }
       setDraftReady(true);
       if (user) {
         const pendingJobs = await loadUploadJobs(user.id);
@@ -145,19 +215,28 @@ export default function CreatePostScreen() {
   }, [ownerId]);
 
   useEffect(() => {
-    if (!draftReady) return;
+    if (!draftReady || !ownerId || !draftId) return;
+    const signature = JSON.stringify({ id: draftId, video: draft });
+    if (signature === savedDraftSignature.current || (!draft.uri && !draft.caption.trim())) return;
     let active = true;
     const save = setTimeout(() => {
-      void saveVideoDraft(draft).catch((saveError: unknown) => {
+      void savePostDraft(draftId, ownerId, draft).then((saved) => {
+        if (!active) return;
+        savedDraftSignature.current = JSON.stringify({ id: draftId, video: draft });
+        setSavedDrafts((current) => [
+          saved,
+          ...current.filter((item) => item.id !== saved.id),
+        ].sort((first, second) => second.updatedAt.localeCompare(first.updatedAt)));
+      }).catch((saveError: unknown) => {
         console.error('Unable to save the video draft.', saveError);
         if (active) void getErrorMessage(saveError, 'Could not save your draft.').then(setError);
       });
-    }, 250);
+    }, 2500);
     return () => {
       active = false;
       clearTimeout(save);
     };
-  }, [draft, draftReady]);
+  }, [draft, draftId, draftReady, ownerId]);
 
   const pickVideo = async () => {
     setError(null);
@@ -209,13 +288,18 @@ export default function CreatePostScreen() {
           durationMs: edited.durationMs,
           width: edited.width,
           height: edited.height,
+          editSettings: {
+            startMs: edited.startMs,
+            endMs: edited.endMs,
+            muted: edited.muted,
+          },
         }));
         return;
       }
       const extension = getVideoExtension(fileName, asset.mimeType);
-      const uploadDirectory = new Directory(Paths.document, 'wimpex-uploads');
-      uploadDirectory.create({ intermediates: true, idempotent: true });
-      const durableFile = new File(uploadDirectory, `${Crypto.randomUUID()}.${extension}`);
+      const draftsDirectory = new Directory(Paths.document, 'wimpex-drafts');
+      draftsDirectory.create({ intermediates: true, idempotent: true });
+      const durableFile = new File(draftsDirectory, `${Crypto.randomUUID()}.${extension}`);
       await new File(asset.uri).copy(durableFile);
       if (draft.uri) {
         const previousFile = new File(draft.uri);
@@ -230,6 +314,7 @@ export default function CreatePostScreen() {
         durationMs,
         width: asset.width,
         height: asset.height,
+        editSettings: undefined,
       }));
     } catch (pickError) {
       console.error('Unable to pick a video for the post.', pickError);
@@ -270,6 +355,11 @@ export default function CreatePostScreen() {
         width: edited.width,
         height: edited.height,
         caption: edited.caption,
+        editSettings: {
+          startMs: edited.startMs,
+          endMs: edited.endMs,
+          muted: edited.muted,
+        },
       }));
     } catch (editError) {
       console.error('Unable to open the video editor for the post.', editError);
@@ -291,12 +381,19 @@ export default function CreatePostScreen() {
       setError(draftError);
       return;
     }
+    const scheduleResult = schedulePost ? parseLocalSchedule(scheduleDate, scheduleTime) : null;
+    const scheduledAt = scheduleResult?.scheduledAt ?? null;
+    if (schedulePost && !scheduledAt) {
+      setError(scheduleResult?.error ?? 'Choose a valid date and time.');
+      return;
+    }
 
     setBusy(true);
     const postId = Crypto.randomUUID();
     const extension = getVideoExtension(draft.fileName, draft.contentType);
     const job: VideoUploadJob = {
       ...draft,
+      scheduledAt,
       id: postId,
       ownerId,
       postId,
@@ -309,10 +406,18 @@ export default function CreatePostScreen() {
     };
     try {
       await enqueueVideoUpload(job);
-      await clearVideoDraft();
+      await deletePostDraft(draftId, ownerId);
+      setSavedDrafts((current) => current.filter((item) => item.id !== draftId));
+      savedDraftSignature.current = '';
       setDraft(emptyDraft);
-      Alert.alert('Video posted', 'Your video is now available in the feed.');
-      router.replace({ pathname: '/post/[id]', params: { id: postId } });
+      setDraftId(Crypto.randomUUID());
+      if (scheduledAt) {
+        Alert.alert('Video scheduled', `Your video will go live ${new Date(scheduledAt).toLocaleString()}.`);
+        router.replace('/scheduled-posts');
+      } else {
+        Alert.alert('Video posted', 'Your video is now available in the feed.');
+        router.replace({ pathname: '/post/[id]', params: { id: postId } });
+      }
     } catch (uploadError) {
       console.error('Unable to enqueue the video post.', uploadError);
       setError(await getErrorMessage(uploadError, 'The video upload failed. Try again.'));
@@ -327,8 +432,11 @@ export default function CreatePostScreen() {
     try {
       await resumeVideoUpload(job.id);
       if (job.uri === draft.uri) {
-        await clearVideoDraft();
+        if (ownerId) await deletePostDraft(draftId, ownerId);
+        setSavedDrafts((current) => current.filter((item) => item.id !== draftId));
+        savedDraftSignature.current = '';
         setDraft(emptyDraft);
+        setDraftId(Crypto.randomUUID());
         router.replace({ pathname: '/post/[id]', params: { id: job.postId } });
       }
     } catch (uploadError) {
@@ -351,18 +459,104 @@ export default function CreatePostScreen() {
   const clearSelectedVideo = () => {
     const selectedFile = new File(draft.uri);
     if (selectedFile.exists && !draftHasUpload) selectedFile.delete();
-    setDraft(emptyDraft);
-    void clearVideoDraft().catch((clearError: unknown) => {
-      console.error('Unable to discard the saved video draft.', clearError);
-      void getErrorMessage(clearError, 'Could not clear the saved draft.').then(setError);
-    });
+    setDraft((current) => ({
+      ...current,
+      uri: '',
+      fileName: '',
+      fileSize: 0,
+      durationMs: 0,
+      width: 0,
+      height: 0,
+      editSettings: undefined,
+    }));
+  };
+
+  const flushActiveDraft = async () => {
+    if (!ownerId || !draftId || (!draft.uri && !draft.caption.trim())) return true;
+    const signature = JSON.stringify({ id: draftId, video: draft });
+    if (signature === savedDraftSignature.current) return true;
+    try {
+      const saved = await savePostDraft(draftId, ownerId, draft);
+      savedDraftSignature.current = signature;
+      setSavedDrafts((current) => [
+        saved,
+        ...current.filter((item) => item.id !== saved.id),
+      ].sort((first, second) => second.updatedAt.localeCompare(first.updatedAt)));
+      return true;
+    } catch (saveError) {
+      console.error('Unable to save the post draft before leaving the composer.', saveError);
+      setError(await getErrorMessage(saveError, 'Could not save your draft.'));
+      return false;
+    }
+  };
+
+  const chooseDraft = async (saved: SavedPostDraft) => {
+    if (!(await flushActiveDraft())) return;
+    setDraftId(saved.id);
+    setDraft(saved.video);
+    savedDraftSignature.current = JSON.stringify({ id: saved.id, video: saved.video });
+    setDraftsOpen(false);
+    setError(null);
+  };
+
+  const discardDraft = async (id: string): Promise<boolean> => {
+    if (!ownerId) return false;
+    try {
+      const removed = await deletePostDraft(id, ownerId);
+      setSavedDrafts((current) => current.filter((item) => item.id !== id));
+      if (removed?.video.uri && !jobs.some((job) => job.uri === removed.video.uri)) {
+        const file = new File(removed.video.uri);
+        if (file.exists) file.delete();
+      }
+      if (draftId === id) {
+        setDraft(emptyDraft);
+        setDraftId(Crypto.randomUUID());
+        savedDraftSignature.current = '';
+      }
+      return true;
+    } catch (discardError) {
+      console.error('Unable to discard a saved post draft.', discardError);
+      setError(await getErrorMessage(discardError, 'Could not discard this draft.'));
+      return false;
+    }
+  };
+
+  const leaveComposer = () => {
+    if (!draft.uri && !draft.caption.trim()) {
+      router.back();
+      return;
+    }
+    Alert.alert(
+      'Save this draft?',
+      'Your draft is saved on this device only.',
+      [
+        {
+          text: 'Keep draft',
+          onPress: () => {
+            void flushActiveDraft().then((saved) => {
+              if (saved) router.back();
+            });
+          },
+        },
+        {
+          text: 'Discard',
+          style: 'destructive',
+          onPress: () => {
+            void (async () => {
+              if (await discardDraft(draftId)) router.back();
+            })();
+          },
+        },
+        { text: 'Cancel', style: 'cancel' },
+      ],
+    );
   };
 
   return (
     <KeyboardAwareScreen style={styles.screen}>
       <View style={styles.header}>
         <Pressable
-          onPress={() => router.back()}
+          onPress={leaveComposer}
           style={styles.iconButton}
           accessibilityRole="button"
           accessibilityLabel="Go back"
@@ -376,11 +570,29 @@ export default function CreatePostScreen() {
           style={[styles.postButton, (busy || !draft.uri || Boolean(draftError) || draftHasUpload) && styles.disabledButton]}
           accessibilityRole="button"
         >
-          {busy ? <ActivityIndicator color={theme.colors.black} /> : <Text style={styles.postButtonText}>Post</Text>}
+          {busy
+            ? <ActivityIndicator color={theme.colors.black} />
+            : <Text style={styles.postButtonText}>{schedulePost ? 'Schedule' : 'Post'}</Text>}
         </Pressable>
       </View>
 
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+        <View style={styles.draftsRow}>
+          <Text style={styles.localDraftNotice}>Drafts are stored on this device only.</Text>
+          <View style={styles.draftActions}>
+            <Pressable
+              onPress={() => setDraftsOpen(true)}
+              style={styles.draftsButton}
+              accessibilityRole="button"
+              accessibilityLabel={`Open ${savedDrafts.length} saved drafts`}
+            >
+              <Text style={styles.draftsButtonText}>Drafts ({savedDrafts.length})</Text>
+            </Pressable>
+            <Pressable onPress={() => router.push('/scheduled-posts')} style={styles.draftsButton} accessibilityRole="link">
+              <Text style={styles.draftsButtonText}>Scheduled</Text>
+            </Pressable>
+          </View>
+        </View>
         <Text style={styles.sectionTitle}>Video</Text>
         {draft.uri ? (
           <View style={styles.preview}>
@@ -445,6 +657,35 @@ export default function CreatePostScreen() {
         </View>
 
         <View style={styles.settingsCard}>
+          <View style={styles.settingRow}>
+            <Text style={styles.fieldLabel}>Publish time</Text>
+            <View style={styles.audienceChoices}>
+              {([false, true] as const).map((scheduled) => (
+                <Pressable
+                  key={String(scheduled)}
+                  onPress={() => setSchedulePost(scheduled)}
+                  style={[styles.audienceButton, schedulePost === scheduled && styles.audienceButtonActive]}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: schedulePost === scheduled }}
+                >
+                  <Text style={[styles.audienceText, schedulePost === scheduled && styles.audienceTextActive]}>
+                    {scheduled ? 'Schedule' : 'Now'}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+          {schedulePost ? (
+            <>
+              <Text style={styles.scheduleHint}>Date and time use your device’s local time (10 minutes to 30 days ahead).</Text>
+              <ScheduledDateTimePicker
+                date={scheduleDate}
+                time={scheduleTime}
+                onDateChange={setScheduleDate}
+                onTimeChange={setScheduleTime}
+              />
+            </>
+          ) : null}
           <View style={styles.settingRow}>
             <Text style={styles.fieldLabel}>Audience</Text>
             <View style={styles.audienceChoices}>
@@ -525,6 +766,66 @@ export default function CreatePostScreen() {
           </View>
         ))}
       </ScrollView>
+
+      <Modal
+        transparent
+        animationType="slide"
+        visible={draftsOpen}
+        onRequestClose={() => setDraftsOpen(false)}
+      >
+        <View style={styles.draftsModal}>
+          <Pressable
+            style={styles.draftsScrim}
+            onPress={() => setDraftsOpen(false)}
+            accessibilityRole="button"
+            accessibilityLabel="Close saved drafts"
+          />
+          <View style={styles.draftsSheet}>
+            <View style={styles.draftsHeader}>
+              <View>
+                <Text style={styles.draftsTitle}>Saved drafts</Text>
+                <Text style={styles.helper}>Stored on this device only</Text>
+              </View>
+              <Pressable onPress={() => setDraftsOpen(false)} accessibilityRole="button" accessibilityLabel="Close">
+                <Icon name="close" size={20} color={theme.colors.white} />
+              </Pressable>
+            </View>
+            <ScrollView contentContainerStyle={styles.draftsList}>
+              {savedDrafts.length ? savedDrafts.map((saved) => (
+                <View key={saved.id} style={styles.draftCard}>
+                  {saved.video.uri
+                    ? <DraftThumbnail uri={saved.video.uri} />
+                    : <View style={[styles.draftThumbnail, styles.draftThumbnailFallback]}><Icon name="video" size={24} color={theme.colors.primary} /></View>}
+                  <Pressable
+                    onPress={() => chooseDraft(saved)}
+                    style={styles.draftDescription}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Resume draft, ${Math.ceil(saved.video.durationMs / 1000)} seconds, edited ${new Date(saved.updatedAt).toLocaleString()}`}
+                  >
+                    <Text style={styles.draftCaption} numberOfLines={2}>
+                      {saved.video.caption.trim() || 'Untitled post'}
+                    </Text>
+                    <Text style={styles.helper}>
+                      {saved.video.uri ? `${Math.ceil(saved.video.durationMs / 1000)} seconds · ` : ''}
+                      Edited {new Date(saved.updatedAt).toLocaleString()}
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => void discardDraft(saved.id)}
+                    style={styles.discardDraftButton}
+                    accessibilityRole="button"
+                    accessibilityLabel="Discard draft"
+                  >
+                    <Icon name="trash" size={20} color={theme.colors.danger} />
+                  </Pressable>
+                </View>
+              )) : (
+                <Text style={styles.emptyDrafts}>No saved drafts yet.</Text>
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </KeyboardAwareScreen>
   );
 }
@@ -562,6 +863,25 @@ const styles = StyleSheet.create({
   postButtonText: { color: theme.colors.black, fontWeight: '800' },
   disabledButton: { opacity: 0.45 },
   content: { paddingHorizontal: 18, paddingBottom: 36, gap: 14 },
+  draftsRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  draftActions: { flexDirection: 'row', gap: 6 },
+  localDraftNotice: { flex: 1, color: theme.colors.textMuted, fontSize: 11 },
+  draftsButton: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 12, backgroundColor: theme.colors.surface },
+  draftsButtonText: { color: theme.colors.primary, fontSize: 13, fontWeight: '700' },
+  scheduleHint: { color: theme.colors.textMuted, fontSize: 12, paddingBottom: 8 },
+  draftsModal: { flex: 1, justifyContent: 'flex-end' },
+  draftsScrim: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(0,0,0,0.7)' },
+  draftsSheet: { maxHeight: '78%', backgroundColor: theme.colors.surface, borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: 18 },
+  draftsHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingBottom: 16 },
+  draftsTitle: { color: theme.colors.white, fontSize: 19, fontWeight: '800' },
+  draftsList: { gap: 10, paddingBottom: 20 },
+  draftCard: { minHeight: 82, flexDirection: 'row', alignItems: 'center', gap: 12, borderRadius: 14, backgroundColor: theme.colors.black, padding: 9 },
+  draftThumbnail: { width: 58, height: 64, borderRadius: 9 },
+  draftThumbnailFallback: { alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.surface },
+  draftDescription: { flex: 1, gap: 5 },
+  draftCaption: { color: theme.colors.white, fontSize: 14, fontWeight: '700' },
+  discardDraftButton: { width: 38, height: 42, alignItems: 'center', justifyContent: 'center' },
+  emptyDrafts: { color: theme.colors.textMuted, paddingVertical: 24, textAlign: 'center' },
   sectionTitle: { color: theme.colors.white, fontSize: 16, fontWeight: '700' },
   preview: {
     height: 240,

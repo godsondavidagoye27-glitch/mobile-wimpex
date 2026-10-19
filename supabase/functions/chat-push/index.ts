@@ -256,13 +256,28 @@ Deno.serve(async (request) => {
     if (settingsError) throw settingsError;
     if (tokensError) throw tokensError;
     const settingsByUser = new Map((settings ?? []).map((setting) => [setting.user_id, setting]));
-    const eligibleRecipients = new Set(recipientIds.filter((userId) => {
+    const eligibleRecipients = recipientIds.filter((userId) => {
       const setting = settingsByUser.get(userId);
       return setting ? setting.push_enabled && setting.notify_messages : true;
+    });
+    const quietHoursResults = await Promise.all(eligibleRecipients.map(async (userId) => {
+      const { data: suppress, error: quietHoursError } = await serviceClient
+        .rpc('teen_should_suppress_push', { p_user_id: userId });
+      if (quietHoursError) {
+        console.error('Could not evaluate notification quiet hours; skipping push.', {
+          recipientId: userId,
+          code: quietHoursError.code,
+        });
+        return { userId, suppress: true };
+      }
+      return { userId, suppress: suppress === true };
     }));
+    const recipientsWithinQuietHours = new Set(
+      quietHoursResults.filter((result) => result.suppress).map((result) => result.userId),
+    );
     const title = `New message from ${sender.display_name || 'Wimpex user'}`;
     let delivered = 0;
-    for (const recipientId of eligibleRecipients) {
+    for (const recipientId of eligibleRecipients.filter((userId) => !recipientsWithinQuietHours.has(userId))) {
       const recipientTokens = (tokens ?? []).filter((token) => token.user_id === recipientId);
       delivered += await deliverToRecipient(
         serviceClient,

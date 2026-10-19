@@ -380,9 +380,16 @@ export default function SettingsScreen() {
           () => setStoryRepliesOpen(true),
         )}
         {renderRow('Show my online status', 'eye', renderSwitch(settings.show_online_status, (value) => void persistNotification('show_online_status', value), isMinor), undefined, isMinor)}
+        {isMinor
+          ? renderRow('Teen safety', 'shield', <Icon name="chevronRight" size={20} color={theme.colors.textMuted} />, () => router.push('/teen-safety'))
+          : null}
         {renderRow('Show my liked videos', 'heart', renderSwitch(settings.show_liked_videos, (value) => void persistPreference('show_liked_videos', value)))}
         {renderRow('Follow requests', 'user', <View style={styles.valueWrap}>{followRequestCount > 0 ? <Text style={styles.badgeText}>{followRequestCount}</Text> : null}<Icon name="chevronRight" size={20} color={theme.colors.textMuted} /></View>, () => router.push('/follow-requests'))}
         {renderRow('Blocked users', 'ban', <Icon name="chevronRight" size={20} color={theme.colors.textMuted} />, () => router.push('/blocked-users'))}
+        {renderRow('Comment controls', 'message', <Icon name="chevronRight" size={20} color={theme.colors.textMuted} />, () => router.push('/comment-controls'))}
+        {renderRow('Hidden comments', 'eye', <Icon name="chevronRight" size={20} color={theme.colors.textMuted} />, () => router.push('/hidden-comments'))}
+        {renderRow('Content review and appeals', 'shield', <Icon name="chevronRight" size={20} color={theme.colors.textMuted} />, () => router.push('/moderation-review'))}
+        <Text style={styles.disclosure}>Comment text, post captions, and available thumbnails may be sent to OpenRouter and routed model providers for automated safety review. If you enable automatic captions, your video is also sent for transcription. Provider processing and retention are subject to their policies.</Text>
         {renderRow('Personalized recommendations', 'sparkles', renderSwitch(settings.personalized_recommendations, (value) => void persistPreference('personalized_recommendations', value)))}
 
         <Text style={styles.sectionTitle}>Notifications</Text>
@@ -394,7 +401,7 @@ export default function SettingsScreen() {
         {renderRow('Live from people I follow', 'live', renderSwitch(settings.notify_live, (value) => void persistNotification('notify_live', value)))}
 
         <Text style={styles.sectionTitle}>About</Text>
-        {renderRow('App version', 'info', <Text style={styles.valueText}>1.0.0</Text>)}
+        {renderRow('App version', 'info', <Text style={styles.valueText}>1.0.2</Text>)}
 
         <Pressable style={styles.signoutRow} onPress={() => setDialog('logout')} accessibilityRole="button">
           <View style={styles.rowMain}><View style={styles.iconWrap}><Icon name="logOut" size={20} color={theme.colors.white} /></View><Text style={styles.logoutText}>Log out</Text></View>
@@ -482,6 +489,7 @@ const styles = StyleSheet.create({
   title: { color: theme.colors.white, fontSize: 20, fontWeight: '800' },
   content: { paddingHorizontal: 16, paddingBottom: 40 },
   sectionTitle: { color: theme.colors.textMuted, fontSize: 12, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.7, marginTop: 22, marginBottom: 10, marginLeft: 5 },
+  disclosure: { color: theme.colors.textMuted, fontSize: 12, lineHeight: 18, marginHorizontal: 5, marginBottom: 8 },
   row: { minHeight: 62, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, backgroundColor: theme.colors.surface, borderRadius: 15, borderWidth: 1, borderColor: theme.colors.line, paddingHorizontal: 12, paddingVertical: 9, marginBottom: 8 },
   disabledRow: { opacity: 0.72 },
   rowMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 },

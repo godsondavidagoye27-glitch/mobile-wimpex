@@ -64,6 +64,7 @@ export function isVideoUploadJob(value: unknown): value is VideoUploadJob {
     && (value.audience === 'everyone' || value.audience === 'followers')
     && typeof value.allowComments === 'boolean'
     && typeof value.autoCaptions === 'boolean'
+    && (value.scheduledAt === undefined || value.scheduledAt === null || typeof value.scheduledAt === 'string')
     && typeof value.progress === 'number'
     && Number.isFinite(value.progress)
     && (value.uploadUrl === null || typeof value.uploadUrl === 'string')
@@ -81,8 +82,21 @@ export function isVideoDraft(value: unknown): value is VideoDraft {
     && value.width === 0
     && value.height === 0;
   if (!isEmptyDraft && !hasValidVideoMetadata(value)) return false;
+  const editSettings = value.editSettings;
+  const hasValidEditSettings = editSettings === undefined
+    || (
+      isRecord(editSettings)
+      && typeof editSettings.startMs === 'number'
+      && Number.isFinite(editSettings.startMs)
+      && editSettings.startMs >= 0
+      && typeof editSettings.endMs === 'number'
+      && Number.isFinite(editSettings.endMs)
+      && editSettings.endMs > editSettings.startMs
+      && typeof editSettings.muted === 'boolean'
+    );
   return typeof value.caption === 'string'
     && (value.audience === 'everyone' || value.audience === 'followers')
     && typeof value.allowComments === 'boolean'
-    && typeof value.autoCaptions === 'boolean';
+    && typeof value.autoCaptions === 'boolean'
+    && hasValidEditSettings;
 }

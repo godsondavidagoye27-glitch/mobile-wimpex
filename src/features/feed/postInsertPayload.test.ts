@@ -16,6 +16,7 @@ describe('feed post insert payload', () => {
       'audience',
       'allow_comments',
       'auto_captions',
+      'scheduled_at',
     ]);
   });
 
@@ -33,6 +34,7 @@ describe('feed post insert payload', () => {
       audience: 'everyone',
       allow_comments: true,
       auto_captions: true,
+      scheduled_at: null,
     });
 
     expect(Object.keys(payload)).toEqual(POST_INSERT_COLUMNS);

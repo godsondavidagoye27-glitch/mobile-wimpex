@@ -17,7 +17,7 @@ export type MessageRow = Pick<
   | 'story_reply_caption'
   | 'created_at'
   | 'deleted_at'
->;
+> & { forwarded_from_id?: string | null };
 export type MessageDeliveryState = 'sending' | 'sent' | 'failed';
 export type ChatMessage = MessageRow & {
   deliveryState: MessageDeliveryState;
@@ -39,6 +39,7 @@ export function isMessageRow(value: unknown): value is MessageRow {
     && (typeof row.width === 'number' || row.width === null)
     && (typeof row.height === 'number' || row.height === null)
     && (typeof row.reply_to_id === 'string' || row.reply_to_id === null)
+    && (row.forwarded_from_id === undefined || typeof row.forwarded_from_id === 'string' || row.forwarded_from_id === null)
     && (typeof row.story_reply_preview_path === 'string' || row.story_reply_preview_path === null)
     && (typeof row.story_reply_caption === 'string' || row.story_reply_caption === null)
     && typeof row.created_at === 'string'

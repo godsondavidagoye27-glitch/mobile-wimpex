@@ -6,6 +6,16 @@ import type { Post } from '../../types/database';
 import { getVideoExtension } from '../media/videoExtension';
 import { isVideoDraft, isVideoUploadJob } from './uploadValidation';
 import { createPostInsertPayload } from './postInsertPayload';
+import { requestPendingModeration } from '../moderation/requestModeration';
+import {
+  cleanupPostDraft,
+  cleanupUploadedPostDraft,
+  createPostDraft,
+  restorePostDraft,
+  sortPostDrafts,
+  updatePostDraft,
+  type SavedPostDraft,
+} from './postDraftModel';
 
 export type VideoUploadJob = {
   id: string;
@@ -23,6 +33,7 @@ export type VideoUploadJob = {
   audience: 'everyone' | 'followers';
   allowComments: boolean;
   autoCaptions: boolean;
+  scheduledAt: string | null;
   progress: number;
   uploadUrl: string | null;
   state: 'queued' | 'uploading' | 'failed';
@@ -41,6 +52,11 @@ export type VideoDraft = {
   audience: 'everyone' | 'followers';
   allowComments: boolean;
   autoCaptions: boolean;
+  editSettings?: {
+    startMs: number;
+    endMs: number;
+    muted: boolean;
+  };
 };
 
 type UploadListener = (jobs: VideoUploadJob[]) => void;
@@ -49,12 +65,14 @@ type StoredTusUpload = NonNullable<Parameters<Upload['resumeFromPreviousUpload']
 const jobsKey = 'wimpex:feed:upload-job:';
 const tusKey = 'wimpex:feed:tus:';
 const draftKey = 'wimpex:feed:create-post-draft';
+const draftsKey = 'wimpex:feed:create-post-drafts';
 const listeners = new Set<UploadListener>();
 const activeUploads = new Map<string, Promise<void>>();
 const jobs = new Map<string, VideoUploadJob>();
 const progressWriteAt = new Map<string, number>();
 let hydrated = false;
 let hydration: Promise<void> | null = null;
+let draftWriteQueue: Promise<void> = Promise.resolve();
 
 function getAllKeys(): Promise<string[]> {
   if (Platform.OS === 'web') {
@@ -244,6 +262,7 @@ async function upsertPostRecord(job: VideoUploadJob): Promise<Post['status']> {
     audience: job.audience,
     allow_comments: job.allowComments,
     auto_captions: job.autoCaptions,
+    scheduled_at: job.scheduledAt ?? null,
   });
   const { error } = await client.from('posts').insert(post);
   if (error) throw error;
@@ -350,7 +369,7 @@ async function performUpload(job: VideoUploadJob): Promise<void> {
     await saveJob(uploading);
     uploadStage = 'create the post record';
     const postStatus = await upsertPostRecord(uploading);
-    if (postStatus !== 'published') {
+    if (postStatus !== 'published' && postStatus !== 'scheduled') {
       uploadStage = 'upload the video file';
       await startTusUpload(uploading, async (progress, uploadUrl) => {
         const current = jobs.get(uploading.id) ?? uploading;
@@ -359,11 +378,17 @@ async function performUpload(job: VideoUploadJob): Promise<void> {
       uploadStage = 'publish the post';
       const { error } = await getSupabaseClient().rpc('finalize_post', { post_id: uploading.postId });
       if (error) throw error;
+      requestPendingModeration('post');
     }
     uploadStage = 'clean up the local upload';
     const { File: LocalFile } = await import('expo-file-system');
     const localFile = new LocalFile(uploading.uri);
     if (localFile.exists) localFile.delete();
+    try {
+      await removeUploadedPostDraft(uploading.ownerId, uploading.uri);
+    } catch (draftCleanupError) {
+      console.error('Unable to remove the saved draft record after its video was posted.', draftCleanupError);
+    }
     await removeItem(`${jobsKey}${uploading.id}`);
     jobs.delete(uploading.id);
     publishJobs();
@@ -391,26 +416,94 @@ export async function loadUploadJobs(ownerId: string): Promise<VideoUploadJob[]>
   return [...jobs.values()].filter((job) => job.ownerId === ownerId);
 }
 
-export async function loadVideoDraft(): Promise<VideoDraft | null> {
-  const saved = await getItem(draftKey);
-  if (!saved) return null;
+function isSavedPostDraft(value: unknown): value is SavedPostDraft {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  return typeof record.id === 'string'
+    && typeof record.ownerId === 'string'
+    && typeof record.createdAt === 'string'
+    && typeof record.updatedAt === 'string'
+    && isVideoDraft(record.video);
+}
+
+async function readPostDrafts(): Promise<SavedPostDraft[]> {
+  const saved = await getItem(draftsKey);
+  if (!saved) return [];
   try {
-    const draft: unknown = JSON.parse(saved);
-    if (!isVideoDraft(draft)) throw new Error('The saved video draft has an invalid shape.');
-    return draft;
+    const parsed: unknown = JSON.parse(saved);
+    if (!Array.isArray(parsed) || !parsed.every(isSavedPostDraft)) {
+      throw new Error('The saved post drafts have an invalid shape.');
+    }
+    return sortPostDrafts(parsed);
   } catch (error) {
-    console.error('Removing an unreadable saved video draft.', error);
-    await removeItem(draftKey);
-    throw new Error('The saved video draft could not be read. Create a new draft and try again.');
+    console.error('Unable to read saved post drafts.', error);
+    throw new Error('The saved post drafts could not be read. Try again or discard them from this device.');
   }
 }
 
-export function saveVideoDraft(draft: VideoDraft): Promise<void> {
-  return setItem(draftKey, JSON.stringify(draft));
+function persistPostDrafts(drafts: SavedPostDraft[]): Promise<void> {
+  const write = draftWriteQueue.then(() => setItem(draftsKey, JSON.stringify(sortPostDrafts(drafts))));
+  draftWriteQueue = write.catch(() => undefined);
+  return write;
 }
 
-export function clearVideoDraft(): Promise<void> {
-  return removeItem(draftKey);
+async function removeUploadedPostDraft(ownerId: string, videoUri: string): Promise<void> {
+  const drafts = await readPostDrafts();
+  const remaining = cleanupUploadedPostDraft(drafts, ownerId, videoUri);
+  if (remaining.length !== drafts.length) await persistPostDrafts(remaining);
+}
+
+export async function loadPostDrafts(ownerId: string): Promise<SavedPostDraft[]> {
+  let drafts = await readPostDrafts();
+  const legacy = await getItem(draftKey);
+  if (legacy) {
+    const parsed: unknown = JSON.parse(legacy);
+    if (!isVideoDraft(parsed)) throw new Error('The saved video draft has an invalid shape.');
+    if (parsed.uri || parsed.caption.trim()) {
+      const alreadyListed = parsed.uri && drafts.some((draft) => draft.video.uri === parsed.uri);
+      if (!alreadyListed) {
+        const timestamp = new Date().toISOString();
+        drafts = sortPostDrafts([
+          ...drafts,
+          createPostDraft(`legacy-${Date.now()}-${Math.random().toString(36).slice(2)}`, ownerId, parsed, timestamp),
+        ]);
+      }
+    }
+    await persistPostDrafts(drafts);
+    await removeItem(draftKey);
+  }
+  return sortPostDrafts(drafts.filter((draft) => draft.ownerId === ownerId));
+}
+
+export async function savePostDraft(
+  id: string,
+  ownerId: string,
+  video: VideoDraft,
+): Promise<SavedPostDraft> {
+  await loadPostDrafts(ownerId);
+  const drafts = await readPostDrafts();
+  const current = restorePostDraft(drafts, id);
+  if (current && current.ownerId !== ownerId) {
+    throw new Error('This draft belongs to a different account.');
+  }
+  const timestamp = new Date().toISOString();
+  const saved = current
+    ? updatePostDraft(current, video, timestamp)
+    : createPostDraft(id, ownerId, video, timestamp);
+  await persistPostDrafts(current
+    ? drafts.map((draft) => draft.id === id ? saved : draft)
+    : [...drafts, saved]);
+  return saved;
+}
+
+export async function deletePostDraft(id: string, ownerId: string): Promise<SavedPostDraft | null> {
+  const drafts = await readPostDrafts();
+  const current = restorePostDraft(drafts, id);
+  if (!current) return null;
+  if (current.ownerId !== ownerId) throw new Error('This draft belongs to a different account.');
+  const result = cleanupPostDraft(drafts, id);
+  await persistPostDrafts(result.drafts);
+  return result.removed;
 }
 
 export function subscribeToUploadJobs(listener: UploadListener) {

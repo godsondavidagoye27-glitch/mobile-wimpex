@@ -1,7 +1,6 @@
 import { getErrorMessage } from '../../lib/errorMessage';
 import { useEvent } from 'expo';
 import * as Crypto from 'expo-crypto';
-import * as Linking from 'expo-linking';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -33,6 +32,8 @@ import { getSingleRouteParam, isUuidRouteParam } from '../../lib/routeParams';
 import type { Post } from '../../types/database';
 import { theme } from '../../theme/theme';
 import { calculateChatComposerHeight } from '../../features/chats/chatLayout';
+import { requestPendingModeration } from '../../features/moderation/requestModeration';
+import { createPostShareUrl } from '../../features/sharing/shareLinks';
 export { RouteErrorFallback as ErrorBoundary } from '../../components/RouteErrorFallback';
 
 type PostDetail = {
@@ -46,6 +47,7 @@ type PostDetail = {
     | 'captions_language'
     | 'video_path'
     | 'created_at'
+    | 'edited_at'
     | 'caption'
     | 'hashtags'
     | 'like_count'
@@ -96,7 +98,7 @@ async function loadPost(postId: string): Promise<PostDetail> {
   const client = getSupabaseClient();
   const { data: post, error: postError } = await client
     .from('posts')
-    .select('id,author_id,captions_path,auto_captions,captions_status,captions_language,video_path,created_at,caption,hashtags,like_count,comment_count,save_count,allow_comments')
+    .select('id,author_id,captions_path,auto_captions,captions_status,captions_language,video_path,created_at,edited_at,caption,hashtags,like_count,comment_count,save_count,allow_comments')
     .eq('id', postId)
     .maybeSingle();
   if (postError) throw postError;
@@ -365,6 +367,7 @@ export default function PostDetailScreen() {
         body,
       });
       if (insertError) throw insertError;
+      requestPendingModeration('comment');
       setCommentText('');
       setReplyTo(null);
       await refreshPost();
@@ -404,7 +407,7 @@ export default function PostDetailScreen() {
 
   const sharePost = async () => {
     if (!detail) return;
-    const postUrl = Linking.createURL(`/post/${detail.post.id}`);
+    const postUrl = createPostShareUrl(detail.post.id);
     const shareId = Crypto.randomUUID();
     try {
       const result = await Share.share({
@@ -519,6 +522,16 @@ export default function PostDetailScreen() {
               </Link>
             </View>
             <Text style={styles.postDate}>{formatCommentDate(detail.post.created_at)}</Text>
+            {detail.post.edited_at ? <Text style={styles.postDate}>Edited</Text> : null}
+            {detail.post.author_id === detail.currentUserId ? (
+              <Pressable
+                onPress={() => router.push({ pathname: '/post/edit/[id]', params: { id: detail.post.id } })}
+                accessibilityRole="button"
+                style={styles.editPostButton}
+              >
+                <Text style={styles.editPostText}>Edit</Text>
+              </Pressable>
+            ) : null}
           </View>
 
           <HashtagText text={detail.post.caption} style={styles.caption} />
@@ -803,6 +816,8 @@ const styles = StyleSheet.create({
   authorName: { color: theme.colors.white, fontWeight: '700', fontSize: 15 },
   handle: { color: theme.colors.textMuted, fontSize: 12, marginTop: 2 },
   postDate: { color: theme.colors.textMuted, fontSize: 12 },
+  editPostButton: { paddingHorizontal: 8, paddingVertical: 5 },
+  editPostText: { color: theme.colors.primary, fontSize: 12, fontWeight: '700' },
   caption: { color: theme.colors.white, fontSize: 16, paddingHorizontal: 18, marginTop: 14 },
   hashtags: { color: theme.colors.primary, fontSize: 14, paddingHorizontal: 18, marginTop: 8 },
   actionRow: { flexDirection: 'row', gap: 24, paddingHorizontal: 18, paddingVertical: 16 },

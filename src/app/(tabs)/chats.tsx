@@ -321,9 +321,14 @@ export default function ChatsScreen() {
     <KeyboardAwareScreen style={styles.screen}>
       <View style={styles.header}>
         <Text style={styles.title}>Chats</Text>
-        <Pressable onPress={openComposer} style={styles.iconButton} accessibilityRole="button" accessibilityLabel="Compose chat">
-          <Icon name="plus" size={20} color={theme.colors.white} />
-        </Pressable>
+        <View style={styles.headerActions}>
+          <Pressable onPress={() => router.push('/message-requests')} style={styles.requestButton} accessibilityRole="button">
+            <Text style={styles.requestText}>Requests</Text>
+          </Pressable>
+          <Pressable onPress={openComposer} style={styles.iconButton} accessibilityRole="button" accessibilityLabel="Compose chat">
+            <Icon name="plus" size={20} color={theme.colors.white} />
+          </Pressable>
+        </View>
       </View>
       {networkState.isConnected === false || networkState.isInternetReachable === false ? (
         <View style={styles.offlineBanner}><Text style={styles.offlineText}>You are offline</Text></View>
@@ -458,6 +463,9 @@ const styles = StyleSheet.create({
     paddingTop: 16,
     paddingBottom: 12,
   },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  requestButton: { minHeight: 36, justifyContent: 'center', paddingHorizontal: 10, borderWidth: 1, borderColor: theme.colors.line, borderRadius: 18 },
+  requestText: { color: theme.colors.white, fontWeight: '700', fontSize: 12 },
   title: { color: theme.colors.white, fontSize: 28, fontWeight: '800' },
   iconButton: {
     width: 42,

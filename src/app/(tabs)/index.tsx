@@ -41,6 +41,7 @@ import { useFeed } from '../../features/feed/useFeed';
 import { queryKeys } from '../../features/feed/queryKeys';
 import { getSupabaseClient } from '../../lib/supabase';
 import { CaptionOverlay } from '../../features/captions/CaptionOverlay';
+import { enqueuePostWatchEvent, flushPostWatchEvents } from '../../features/analytics/watchTracking';
 import { theme } from '../../theme/theme';
 export { RouteErrorFallback as ErrorBoundary } from '../../components/RouteErrorFallback';
 
@@ -88,13 +89,44 @@ function PlayingVideo({
   const [pausedByUser, setPausedByUser] = useState(false);
   const player = useVideoPlayer(uri, (videoPlayer) => {
     videoPlayer.loop = true;
+    videoPlayer.timeUpdateEventInterval = 5;
   });
   const { isPlaying } = useEvent(player, 'playingChange', { isPlaying: player.playing });
+  const { currentTime } = useEvent(player, 'timeUpdate', {
+    currentTime: player.currentTime,
+    currentLiveTimestamp: null,
+    currentOffsetFromLive: null,
+    bufferedPosition: 0,
+  });
+  const watchSessionId = useRef<string | null>(null);
+  const previousTime = useRef<number | null>(null);
 
   useEffect(() => {
     if (active && !pausedByUser) player.play();
     else player.pause();
   }, [active, pausedByUser, player]);
+
+  useEffect(() => {
+    if (!active || !isPlaying) {
+      previousTime.current = null;
+      return;
+    }
+    const previous = previousTime.current;
+    previousTime.current = currentTime;
+    if (previous === null || currentTime <= previous) return;
+    const watchedMs = Math.round((currentTime - previous) * 1000);
+    if (watchedMs < 250 || watchedMs > 10_000) return;
+    enqueuePostWatchEvent({
+      post_id: post.id,
+      session_id: watchSessionId.current ?? (watchSessionId.current = Crypto.randomUUID()),
+      watch_ms: watchedMs,
+      completed: player.duration > 0 && currentTime >= player.duration - 0.5,
+    });
+  }, [active, currentTime, isPlaying, player, post.id]);
+
+  useEffect(() => () => {
+    void flushPostWatchEvents();
+  }, []);
 
   return (
     <View style={styles.videoSurface}>

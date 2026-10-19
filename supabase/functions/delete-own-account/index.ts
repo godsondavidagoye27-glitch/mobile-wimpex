@@ -87,7 +87,7 @@ async function removeOwnedMedia(
   adminClient: ReturnType<typeof createClient>,
   userId: string,
 ) {
-  for (const bucket of ['avatars', 'videos', 'thumbnails', 'captions', 'stories', 'chat-media']) {
+  for (const bucket of ['avatars', 'videos', 'thumbnails', 'captions', 'stories', 'highlights', 'chat-media']) {
     const paths = await listFolderPaths(adminClient, bucket, userId);
     await removeStoragePaths(adminClient, bucket, paths);
   }

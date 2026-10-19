@@ -7,6 +7,7 @@ import { getSupabaseClient } from '../../lib/supabase';
 import {
   parseChatNotificationRoute,
   parseIncomingCallNotificationRoute,
+  parsePublishedPostNotificationRoute,
   type NotificationRoute,
 } from './chatNotificationRoute';
 import {
@@ -28,6 +29,24 @@ export function NotificationLifecycle() {
     const routeIfAuthorized = async (intent: NotificationRoute, userId: string) => {
       if (intent.recipientId !== userId) {
         console.warn('Ignoring a notification intended for a different signed-in account.');
+        return;
+      }
+      if (intent.kind === 'published_post') {
+        const { data, error } = await client
+          .from('posts')
+          .select('id')
+          .eq('id', intent.postId)
+          .eq('status', 'published')
+          .maybeSingle();
+        if (error) {
+          console.error('Could not verify access to the published-post notification.', error);
+          return;
+        }
+        if (!data) {
+          console.warn('Ignoring a published-post notification for a post this account cannot view.');
+          return;
+        }
+        router.push({ pathname: '/post/[id]', params: { id: intent.postId } });
         return;
       }
       if (intent.kind === 'incoming_call') {
@@ -86,7 +105,9 @@ export function NotificationLifecycle() {
       if (handledResponsesRef.current.has(responseId)) return;
       handledResponsesRef.current.add(responseId);
       const data = response.notification.request.content.data;
-      const intent = parseIncomingCallNotificationRoute(data) ?? parseChatNotificationRoute(data);
+      const intent = parseIncomingCallNotificationRoute(data)
+        ?? parseChatNotificationRoute(data)
+        ?? parsePublishedPostNotificationRoute(data);
       if (!intent) {
         console.warn('Ignoring an unsupported or malformed notification tap.');
         return;

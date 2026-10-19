@@ -373,6 +373,25 @@ async function sendIncomingCallPush(
   recipientId: string,
   callerName: string,
 ): Promise<{ warning?: string; warningCode?: 'push_unavailable' | 'push_partial' }> {
+  try {
+    const { data: suppress, error: quietHoursError } = await admin.rpc('teen_should_suppress_push', {
+      p_user_id: recipientId,
+    });
+    if (quietHoursError) {
+      console.error('Could not evaluate call notification quiet hours.', {
+        recipientId,
+        code: quietHoursError.code,
+      });
+      return { warningCode: 'push_unavailable', warning: 'They may not be notified unless Wimpex is open.' };
+    }
+    if (suppress) {
+      return { warningCode: 'push_unavailable', warning: 'They may not be notified unless Wimpex is open.' };
+    }
+  } catch (error) {
+    console.error('Could not evaluate call notification quiet hours.', error);
+    return { warningCode: 'push_unavailable', warning: 'They may not be notified unless Wimpex is open.' };
+  }
+
   let pushEnabled: boolean | null | undefined;
   try {
     const { data: settings, error: settingsError } = await admin.from('user_settings')

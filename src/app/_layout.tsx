@@ -11,6 +11,7 @@ import { useNetworkState } from 'expo-network';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { OnlinePresence } from '../features/chats/OnlinePresence';
 import { NotificationLifecycle } from '../features/notifications/NotificationLifecycle';
+import { TeenUsageReminder } from '../features/privacy/TeenUsageReminder';
 import { KeyboardInsetProvider } from '../hooks/useKeyboardInset';
 import { getSupabaseClient } from '../lib/supabase';
 import { persistAppError } from '../lib/appErrorTelemetry';
@@ -250,6 +251,7 @@ export default function RootLayout() {
               <StatusBar style="light" />
               <OnlinePresence />
               <NotificationLifecycle />
+              <TeenUsageReminder />
               <View style={styles.rootContent} onLayout={hideSplash}>
                 <Stack screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
                   <Stack.Screen name="create" options={{ presentation: 'transparentModal', animation: 'slide_from_bottom', contentStyle: { backgroundColor: 'transparent' } }} />

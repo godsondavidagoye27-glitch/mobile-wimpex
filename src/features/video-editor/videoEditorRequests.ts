@@ -9,6 +9,8 @@ export type VideoEditorResult = {
   height: number;
   caption: string;
   muted: boolean;
+  startMs: number;
+  endMs: number;
 };
 
 export type VideoEditorRequest = {

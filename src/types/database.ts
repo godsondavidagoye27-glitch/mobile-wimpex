@@ -31,7 +31,8 @@ export type FeedPost = {
   audience: 'everyone' | 'followers';
   allow_comments: boolean;
   auto_captions: boolean;
-  status: 'uploading' | 'published' | 'failed';
+  status: 'uploading' | 'scheduled' | 'published' | 'failed' | 'cancelled';
+  moderation_status: 'clear' | 'hidden';
   like_count: number;
   comment_count: number;
   save_count: number;
@@ -41,6 +42,8 @@ export type FeedPost = {
   is_demo: boolean;
   created_at: string;
   published_at: string | null;
+  scheduled_at: string | null;
+  edited_at: string | null;
 };
 
 export type FeedRpcRow = {
@@ -72,6 +75,15 @@ export type ProfileRpcRow = {
   has_blocked_me: boolean;
   can_view_posts: boolean;
   can_view_liked: boolean;
+};
+
+export type TeenSafetySettingsRpcRow = {
+  quiet_hours_enabled: boolean;
+  quiet_hours_start: string;
+  quiet_hours_end: string;
+  daily_reminder_minutes: number | null;
+  hide_restricted_content: boolean;
+  time_zone: string;
 };
 
 export type ProfileListRpcRow = {
@@ -227,6 +239,32 @@ export type AuthorStoryRpcRow = {
   expires_at: string;
   has_viewed: boolean;
   view_count: number | null;
+};
+
+export type StoryHighlightAudience = 'everyone' | 'followers' | 'close_friends';
+
+export type StoryHighlightRpcRow = {
+  id: string;
+  owner_id: string;
+  title: string;
+  audience: StoryHighlightAudience;
+  sort_order: number;
+  item_count: number;
+  cover_path: string | null;
+  created_at: string;
+};
+
+export type StoryHighlightItemRpcRow = {
+  id: string;
+  media_path: string;
+  kind: 'image' | 'video';
+  source_audience: StoryHighlightAudience;
+  caption: string | null;
+  duration_ms: number;
+  width: number;
+  height: number;
+  source_created_at: string;
+  added_at: string;
 };
 
 export type LiveStreamRpcRow = {
@@ -400,6 +438,80 @@ export type Database = {
         };
         Relationships: Relationships;
       };
+      story_highlights: {
+        Row: {
+          id: string;
+          owner_id: string;
+          title: string;
+          audience: StoryHighlightAudience;
+          sort_order: number;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          owner_id: string;
+          title: string;
+          audience?: StoryHighlightAudience;
+          sort_order?: number;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          owner_id?: string;
+          title?: string;
+          audience?: StoryHighlightAudience;
+          sort_order?: number;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: Relationships;
+      };
+      story_highlight_items: {
+        Row: {
+          id: string;
+          highlight_id: string;
+          source_story_id: string;
+          media_path: string;
+          kind: 'image' | 'video';
+          caption: string | null;
+          duration_ms: number;
+          width: number;
+          height: number;
+          source_created_at: string;
+          added_at: string;
+        };
+        Insert: {
+          id: string;
+          highlight_id: string;
+          source_story_id: string;
+          media_path: string;
+          kind: 'image' | 'video';
+          source_audience: StoryHighlightAudience;
+          caption?: string | null;
+          duration_ms: number;
+          width: number;
+          height: number;
+          source_created_at: string;
+          added_at?: string;
+        };
+        Update: {
+          id?: string;
+          highlight_id?: string;
+          source_story_id?: string;
+          media_path?: string;
+          kind?: 'image' | 'video';
+          source_audience?: StoryHighlightAudience;
+          caption?: string | null;
+          duration_ms?: number;
+          width?: number;
+          height?: number;
+          source_created_at?: string;
+          added_at?: string;
+        };
+        Relationships: Relationships;
+      };
       story_views: {
         Row: { story_id: string; viewer_id: string; viewed_at: string };
         Insert: { story_id: string; viewer_id: string; viewed_at?: string };
@@ -491,6 +603,7 @@ export type Database = {
           is_demo?: boolean;
           created_at?: string;
           published_at?: string | null;
+          scheduled_at?: string | null;
         };
         Update: {
           id?: string;
@@ -536,6 +649,21 @@ export type Database = {
         Update: { post_id?: string; user_id?: string; created_at?: string };
         Relationships: Relationships;
       };
+      post_watch_samples: {
+        Row: {
+          user_id: string;
+          post_id: string;
+          session_id: string;
+          sampled_at: string;
+          watch_ms: number;
+          duration_ms: number;
+          completed: boolean;
+          created_at: string;
+        };
+        Insert: never;
+        Update: never;
+        Relationships: Relationships;
+      };
       comments: {
         Row: {
           id: string;
@@ -546,6 +674,9 @@ export type Database = {
           like_count: number;
           created_at: string;
           deleted_at: string | null;
+          visibility_state: 'visible' | 'hidden_word' | 'restricted_pending';
+          moderation_status: 'pending' | 'clear' | 'hidden';
+          moderation_category: string | null;
         };
         Insert: {
           id?: string;
@@ -567,6 +698,23 @@ export type Database = {
           created_at?: string;
           deleted_at?: string | null;
         };
+        Relationships: Relationships;
+      };
+      moderation_flags: {
+        Row: {
+          id: string;
+          content_type: 'post' | 'comment';
+          content_id: string;
+          author_id: string;
+          category: 'nudity' | 'violence' | 'spam' | 'abuse';
+          score: number;
+          status: 'review' | 'approved' | 'removed' | 'warned' | 'appealed';
+          decision_note: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: never;
+        Update: never;
         Relationships: Relationships;
       };
       comment_likes: {
@@ -928,6 +1076,8 @@ export type Database = {
           width: number | null;
           height: number | null;
           reply_to_id: string | null;
+          forwarded_from_id: string | null;
+          search_vector: unknown;
           story_reply_story_id: string | null;
           story_reply_preview_path: string | null;
           story_reply_caption: string | null;
@@ -947,6 +1097,7 @@ export type Database = {
           width?: number | null;
           height?: number | null;
           reply_to_id?: string | null;
+          forwarded_from_id?: string | null;
           story_reply_story_id?: string | null;
           story_reply_preview_path?: string | null;
           story_reply_caption?: string | null;
@@ -972,6 +1123,25 @@ export type Database = {
           created_at?: string;
           deleted_at?: string | null;
         };
+        Relationships: Relationships;
+      };
+      conversation_pins: {
+        Row: { conversation_id: string; message_id: string; pinned_by: string; pinned_at: string };
+        Insert: { conversation_id: string; message_id: string; pinned_by: string; pinned_at?: string };
+        Update: never;
+        Relationships: Relationships;
+      };
+      message_requests: {
+        Row: {
+          conversation_id: string;
+          requester_id: string;
+          recipient_id: string;
+          status: 'pending' | 'accepted' | 'declined';
+          created_at: string;
+          responded_at: string | null;
+        };
+        Insert: never;
+        Update: never;
         Relationships: Relationships;
       };
       message_reactions: {
@@ -1043,6 +1213,39 @@ export type Database = {
           show_liked_videos?: boolean;
           personalized_recommendations?: boolean;
           story_replies?: 'everyone' | 'followers' | 'off';
+        };
+        Relationships: Relationships;
+      };
+      teen_safety_settings: {
+        Row: {
+          user_id: string;
+          quiet_hours_enabled: boolean;
+          quiet_hours_start: string;
+          quiet_hours_end: string;
+          daily_reminder_minutes: number | null;
+          hide_restricted_content: boolean;
+          time_zone: string;
+          updated_at: string;
+        };
+        Insert: {
+          user_id: string;
+          quiet_hours_enabled?: boolean;
+          quiet_hours_start?: string;
+          quiet_hours_end?: string;
+          daily_reminder_minutes?: number | null;
+          hide_restricted_content?: boolean;
+          time_zone?: string;
+          updated_at?: string;
+        };
+        Update: {
+          user_id?: string;
+          quiet_hours_enabled?: boolean;
+          quiet_hours_start?: string;
+          quiet_hours_end?: string;
+          daily_reminder_minutes?: number | null;
+          hide_restricted_content?: boolean;
+          time_zone?: string;
+          updated_at?: string;
         };
         Relationships: Relationships;
       };
@@ -1122,6 +1325,14 @@ export type Database = {
     Views: Record<string, never>;
     Functions: {
       can_view_story: { Args: { p_story_id: string; p_viewer_id?: string }; Returns: boolean };
+      can_view_story_highlight: { Args: { p_highlight_id: string; p_viewer_id?: string }; Returns: boolean };
+      get_profile_story_highlights: { Args: { p_owner_id: string }; Returns: StoryHighlightRpcRow[] };
+      get_story_highlight_items: { Args: { p_highlight_id: string }; Returns: StoryHighlightItemRpcRow[] };
+      create_story_highlight: { Args: { p_title: string; p_audience?: StoryHighlightAudience }; Returns: string };
+      rename_story_highlight: { Args: { p_highlight_id: string; p_title: string }; Returns: undefined };
+      reorder_story_highlight: { Args: { p_highlight_id: string; p_new_order: number }; Returns: undefined };
+      add_story_to_highlight: { Args: { p_highlight_id: string; p_story_id: string; p_item_id: string }; Returns: string };
+      delete_story_highlight: { Args: { p_highlight_id: string }; Returns: undefined };
       can_reply_to_story: { Args: { p_story_id: string }; Returns: boolean };
       send_story_reply: { Args: { p_story_id: string; p_body: string }; Returns: string };
       story_reply_media_is_referenced: { Args: { p_path: string }; Returns: boolean };
@@ -1162,6 +1373,59 @@ export type Database = {
       can_view_post: { Args: { p_post_id: string; p_viewer_id: string }; Returns: boolean };
       finalize_post: { Args: { post_id: string }; Returns: undefined };
       fail_post_upload: { Args: { p_post_id: string }; Returns: undefined };
+      reschedule_post: { Args: { p_post_id: string; p_scheduled_at: string }; Returns: undefined };
+      publish_scheduled_post_now: { Args: { p_post_id: string }; Returns: string };
+      cancel_scheduled_post: { Args: { p_post_id: string }; Returns: string };
+      get_my_hidden_comment_words: { Args: Record<string, never>; Returns: { phrase: string }[] };
+      add_my_hidden_comment_word: { Args: { p_phrase: string }; Returns: undefined };
+      remove_my_hidden_comment_word: { Args: { p_phrase: string }; Returns: undefined };
+      get_my_hidden_comments: {
+        Args: Record<string, never>;
+        Returns: {
+          id: string;
+          post_id: string;
+          author_id: string;
+          body: string;
+          created_at: string;
+          visibility_state: 'hidden_word' | 'restricted_pending';
+          author_username: string;
+          author_display_name: string;
+        }[];
+      };
+      set_comment_restriction: { Args: { p_user_id: string; p_restrict: boolean }; Returns: undefined };
+      review_hidden_comment: { Args: { p_comment_id: string; p_unhide: boolean }; Returns: undefined };
+      review_moderation_flag: { Args: { p_flag_id: string; p_action: string; p_note?: string | null }; Returns: undefined };
+      appeal_moderation_flag: { Args: { p_flag_id: string; p_note: string }; Returns: undefined };
+      search_chat_messages: {
+        Args: {
+          p_query: string;
+          p_conversation_id?: string | null;
+          p_cursor_created_at?: string | null;
+          p_cursor_id?: string | null;
+          p_page_size?: number;
+        };
+        Returns: {
+          message_id: string;
+          conversation_id: string;
+          sender_id: string;
+          body: string | null;
+          created_at: string;
+          highlighted: string;
+        }[];
+      };
+      get_my_message_requests: {
+        Args: Record<string, never>;
+        Returns: {
+          conversation_id: string;
+          requester_id: string;
+          username: string;
+          display_name: string;
+          avatar_url: string | null;
+          body: string | null;
+          created_at: string;
+        }[];
+      };
+      respond_message_request: { Args: { p_conversation_id: string; p_accept: boolean }; Returns: undefined };
       request_captions: { Args: { post_id: string }; Returns: undefined };
       set_post_captions_enabled: { Args: { post_id: string; enabled: boolean }; Returns: undefined };
       get_follow_counts: {
@@ -1176,6 +1440,21 @@ export type Database = {
           page_size?: number;
         };
         Returns: FeedRpcRow[];
+      };
+      get_my_teen_safety_settings: {
+        Args: Record<string, never>;
+        Returns: TeenSafetySettingsRpcRow[];
+      };
+      update_my_teen_safety_settings: {
+        Args: {
+          p_quiet_hours_enabled: boolean;
+          p_quiet_hours_start: string;
+          p_quiet_hours_end: string;
+          p_daily_reminder_minutes: number | null;
+          p_hide_restricted_content: boolean;
+          p_time_zone: string;
+        };
+        Returns: TeenSafetySettingsRpcRow[];
       };
       get_profile: {
         Args: { p_username: string | null };
@@ -1349,6 +1628,8 @@ export type Database = {
       community_notification_route: { Args: { p_community_id: string }; Returns: string | null };
       pin_post: { Args: { p_post_id: string; p_pinned: boolean }; Returns: undefined };
       increment_share: { Args: { post_id: string }; Returns: undefined };
+      record_post_watch_batch: { Args: { p_events: Json }; Returns: undefined };
+      get_creator_analytics: { Args: { p_period_days: number }; Returns: Json };
       is_username_available: { Args: { name: string }; Returns: boolean };
       start_direct_conversation: { Args: { other_user: string }; Returns: string };
       create_group: { Args: { group_title: string; member_ids: string[] }; Returns: string };

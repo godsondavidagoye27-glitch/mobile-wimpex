@@ -15,6 +15,7 @@ import {
   Pressable,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import Animated, {
@@ -42,6 +43,17 @@ import {
   type StoryWithUrl,
 } from '../../features/stories/storyService';
 import { formatStoryExpiry } from '../../features/stories/storyTimeline';
+import {
+  addStoryToHighlight,
+  createStoryHighlight,
+  getProfileStoryHighlights,
+} from '../../features/stories/storyHighlightsService';
+import {
+  canAddStoryToHighlight,
+  canCreateStoryHighlight,
+  validateStoryHighlightTitle,
+  type HighlightAudience,
+} from '../../features/stories/highlightLogic';
 import type { StoryRailRow } from '../../types/database';
 import { getSingleRouteParam, isUuidRouteParam } from '../../lib/routeParams';
 import { theme } from '../../theme/theme';
@@ -157,6 +169,10 @@ export default function StoryViewerScreen() {
   const [replyPolicyState, setReplyPolicyState] = useState({ storyId: '', allowed: false, error: '' });
   const [replyDraft, setReplyDraft] = useState('');
   const [replySending, setReplySending] = useState(false);
+  const [highlightPickerOpen, setHighlightPickerOpen] = useState(false);
+  const [highlightTitle, setHighlightTitle] = useState('');
+  const [highlightAudience, setHighlightAudience] = useState<HighlightAudience>('everyone');
+  const [savingHighlight, setSavingHighlight] = useState(false);
   const viewedStories = useRef(new Set<string>());
   const startX = useRef(0);
   const queryClient = useQueryClient();
@@ -185,6 +201,11 @@ export default function StoryViewerScreen() {
   const activeStory = stories[storyIndex] ?? null;
   const paused = holding || !screenFocused || !appIsActive;
   const canReply = Boolean(activeStory && replyPolicyState.storyId === activeStory.id && replyPolicyState.allowed);
+  const highlightsQuery = useQuery({
+    queryKey: ['profile-story-highlights', authorId],
+    queryFn: () => getProfileStoryHighlights(authorId),
+    enabled: Boolean(highlightPickerOpen && author?.is_owner),
+  });
 
   const loadStoryViewers = useCallback(async (storyId: string, reset: boolean) => {
     if (storyViewerLoading) return;
@@ -353,6 +374,48 @@ export default function StoryViewerScreen() {
     }
   };
 
+  const addActiveStoryToHighlight = async (highlightId: string) => {
+    if (!activeStory || !author?.is_owner || savingHighlight) return;
+    setSavingHighlight(true);
+    try {
+      await addStoryToHighlight(highlightId, activeStory);
+      await queryClient.invalidateQueries({ queryKey: ['profile-story-highlights', authorId] });
+      await queryClient.invalidateQueries({ queryKey: ['story-highlight-items', highlightId] });
+      setHighlightPickerOpen(false);
+      Alert.alert('Added to highlight', 'A copy of this story is saved to your profile.');
+    } catch (caught) {
+      Alert.alert('Could not add story to highlight', await getErrorMessage(caught, 'Try again.'));
+    } finally {
+      setSavingHighlight(false);
+    }
+  };
+
+  const createHighlightAndAddStory = async () => {
+    const validationError = validateStoryHighlightTitle(highlightTitle);
+    if (validationError) {
+      Alert.alert('Highlight name', validationError);
+      return;
+    }
+    if (!activeStory || !author?.is_owner || savingHighlight) return;
+    if (!canCreateStoryHighlight(highlightsQuery.data?.length ?? 0)) {
+      Alert.alert('Highlight limit reached', 'You can create up to 20 highlights.');
+      return;
+    }
+    setSavingHighlight(true);
+    try {
+      const highlightId = await createStoryHighlight(highlightTitle, highlightAudience);
+      await addStoryToHighlight(highlightId, activeStory);
+      await queryClient.invalidateQueries({ queryKey: ['profile-story-highlights', authorId] });
+      setHighlightPickerOpen(false);
+      setHighlightTitle('');
+      Alert.alert('Added to highlight', 'A copy of this story is saved to your profile.');
+    } catch (caught) {
+      Alert.alert('Could not add story to highlight', await getErrorMessage(caught, 'Try again.'));
+    } finally {
+      setSavingHighlight(false);
+    }
+  };
+
   const showMoreActions = () => {
     if (author?.is_owner) {
       deleteActiveStory();
@@ -476,6 +539,14 @@ export default function StoryViewerScreen() {
                   accessibilityLabel={`${activeStory.view_count ?? 0} story views. Open viewers.`}
                 >
                   <Text style={styles.viewerCountText}>{activeStory.view_count ?? 0} views</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => setHighlightPickerOpen(true)}
+                  style={styles.highlightAction}
+                  accessibilityRole="button"
+                  accessibilityLabel="Add story to a highlight"
+                >
+                  <Text style={styles.viewerCountText}>Add to highlight</Text>
                 </Pressable>
               </View>
             ) : null}
@@ -620,6 +691,93 @@ export default function StoryViewerScreen() {
           </View>
         </View>
       </Modal>
+      <Modal
+        visible={highlightPickerOpen}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setHighlightPickerOpen(false)}
+      >
+        <View style={styles.viewerSheetBackdrop}>
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            onPress={() => setHighlightPickerOpen(false)}
+            accessibilityRole="button"
+            accessibilityLabel="Close add to highlight"
+          />
+          <View style={styles.viewerSheet}>
+            <View style={styles.viewerSheetHeader}>
+              <Text style={styles.viewerSheetTitle}>Add to highlight</Text>
+              <Pressable onPress={() => setHighlightPickerOpen(false)} accessibilityRole="button" accessibilityLabel="Close">
+                <Text style={styles.viewerSheetClose}>Close</Text>
+              </Pressable>
+            </View>
+            {highlightsQuery.isPending ? <ActivityIndicator color={theme.colors.primary} style={styles.viewerLoading} /> : null}
+            {highlightsQuery.isError ? (
+              <View style={styles.viewerSheetError}>
+                <Text style={styles.viewerErrorText}>Highlights could not be loaded.</Text>
+                <Pressable onPress={() => void highlightsQuery.refetch()}><Text style={styles.viewerSheetClose}>Retry</Text></Pressable>
+              </View>
+            ) : (
+              <FlatList
+                data={highlightsQuery.data ?? []}
+                keyExtractor={(item) => item.id}
+                renderItem={({ item }) => (
+                  <Pressable
+                    onPress={() => void addActiveStoryToHighlight(item.id)}
+                    disabled={savingHighlight || !canAddStoryToHighlight(item.item_count)}
+                    style={styles.highlightPickerRow}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Add story to ${item.title}`}
+                  >
+                    {item.cover_url
+                      ? <Image source={{ uri: item.cover_url }} style={styles.highlightPickerCover} />
+                      : <View style={styles.highlightPickerCover} />}
+                    <Text style={styles.viewerName}>{item.title}</Text>
+                    <Text style={styles.viewerUsername}>{item.item_count}/100</Text>
+                  </Pressable>
+                )}
+                ListEmptyComponent={<Text style={styles.viewerEmpty}>Create your first highlight below.</Text>}
+              />
+            )}
+            <View style={styles.highlightCreate}>
+              <TextInput
+                value={highlightTitle}
+                onChangeText={setHighlightTitle}
+                placeholder="New highlight name"
+                placeholderTextColor={theme.colors.textMuted}
+                maxLength={40}
+                style={styles.highlightTitleInput}
+                accessibilityLabel="New highlight name"
+              />
+              <View style={styles.highlightAudienceRow}>
+                {(['everyone', 'followers', 'close_friends'] as const).map((option) => (
+                  <Pressable
+                    key={option}
+                    onPress={() => setHighlightAudience(option)}
+                    style={[styles.highlightAudience, highlightAudience === option && styles.highlightAudienceSelected]}
+                  >
+                    <Text style={[styles.highlightAudienceText, highlightAudience === option && styles.highlightAudienceTextSelected]}>
+                      {option === 'close_friends' ? 'Close friends' : option[0].toUpperCase() + option.slice(1)}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+              {(highlightsQuery.data?.length ?? 0) < 20 ? (
+                <Pressable
+                  onPress={() => void createHighlightAndAddStory()}
+                  disabled={savingHighlight}
+                  style={styles.highlightCreateButton}
+                  accessibilityRole="button"
+                >
+                  {savingHighlight
+                    ? <ActivityIndicator color={theme.colors.black} />
+                    : <Text style={styles.highlightCreateText}>Create and add story</Text>}
+                </Pressable>
+              ) : <Text style={styles.viewerEmpty}>You have reached the 20-highlight limit.</Text>}
+            </View>
+          </View>
+        </View>
+      </Modal>
     </KeyboardAwareScreen>
   );
 }
@@ -649,6 +807,7 @@ const styles = StyleSheet.create({
   age: { color: '#CBD5E1', fontSize: 12, marginTop: 2 },
   expiry: { color: '#CBD5E1', fontSize: 11, marginLeft: 6 },
   ownerStoryActions: { alignItems: 'flex-end', gap: 2 },
+  highlightAction: { minHeight: 32, justifyContent: 'center', paddingHorizontal: 8 },
   viewerCountButton: { minHeight: 32, justifyContent: 'center', paddingHorizontal: 8 },
   viewerCountText: { color: '#FFFFFF', fontSize: 11, fontWeight: '700' },
   moreButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
@@ -684,6 +843,17 @@ const styles = StyleSheet.create({
   viewerTime: { color: theme.colors.textMuted, fontSize: 11 },
   viewerEmpty: { padding: 24, color: theme.colors.textMuted, textAlign: 'center' },
   viewerLoading: { padding: 16 },
+  highlightPickerRow: { minHeight: 54, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 18, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.line },
+  highlightPickerCover: { width: 40, height: 40, borderRadius: 8, backgroundColor: theme.colors.surface },
+  highlightCreate: { gap: 10, padding: 14, borderTopWidth: 1, borderTopColor: theme.colors.line },
+  highlightTitleInput: { minHeight: 44, borderWidth: 1, borderColor: theme.colors.line, borderRadius: 10, paddingHorizontal: 12, color: theme.colors.white, fontSize: 14 },
+  highlightAudienceRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  highlightAudience: { minHeight: 34, paddingHorizontal: 10, borderRadius: 18, borderWidth: 1, borderColor: theme.colors.line, justifyContent: 'center' },
+  highlightAudienceSelected: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
+  highlightAudienceText: { color: theme.colors.white, fontSize: 11 },
+  highlightAudienceTextSelected: { color: theme.colors.black, fontWeight: '800' },
+  highlightCreateButton: { minHeight: 44, borderRadius: 10, backgroundColor: theme.colors.primary, alignItems: 'center', justifyContent: 'center' },
+  highlightCreateText: { color: theme.colors.black, fontWeight: '800' },
   replyBar: { minHeight: 56, flexDirection: 'row', alignItems: 'center', gap: 9, paddingHorizontal: 14, paddingVertical: 8, backgroundColor: '#000000' },
   replyInput: { flex: 1, minHeight: 42, paddingHorizontal: 15, borderRadius: 21, backgroundColor: '#1F2937', color: theme.colors.white, fontSize: 13 },
   replySendButton: { width: 42, height: 42, alignItems: 'center', justifyContent: 'center', borderRadius: 21, backgroundColor: theme.colors.primary },
