@@ -2,6 +2,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { AccessToken } from 'npm:livekit-server-sdk@2';
 import { sendExpoPushMessages } from '../_shared/expoPush.ts';
 import { getStaleCallTerminalStatus } from '../_shared/callLifecycle.ts';
+import { getCallErrorDetails, mapCallFailure } from '../_shared/callErrors.ts';
 
 type Action = 'start' | 'accept' | 'connected' | 'heartbeat' | 'end' | 'decline' | 'expire';
 type CallSession = {
@@ -63,14 +64,11 @@ function isTerminal(status: CallSession['status']) {
   return status === 'ended' || status === 'declined' || status === 'missed';
 }
 
-function livekitHost(url: string) {
-  return url.replace(/^wss:/i, 'https:').replace(/^ws:/i, 'http:');
-}
-
 Deno.serve(async (request) => {
   if (request.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   if (request.method !== 'POST') return jsonResponse(405, { error: 'Method not allowed.' });
 
+  const requestId = crypto.randomUUID();
   const supabaseUrl = Deno.env.get('SUPABASE_URL');
   const anonKey = Deno.env.get('SUPABASE_ANON_KEY');
   const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
@@ -82,30 +80,34 @@ Deno.serve(async (request) => {
     return jsonResponse(503, { error: 'Calling is not configured on the server.' });
   }
 
-  const authorization = request.headers.get('Authorization');
-  if (!authorization?.startsWith('Bearer ')) {
-    return jsonResponse(401, { error: 'Sign in to use calling.' });
-  }
-
-  const authClient = createClient(supabaseUrl, anonKey, {
-    global: { headers: { Authorization: authorization } },
-    auth: { autoRefreshToken: false, persistSession: false },
-  });
-  const { data: authData, error: authError } = await authClient.auth.getUser();
-  if (authError || !authData.user) return jsonResponse(401, { error: 'Your session is invalid or expired.' });
-
-  const userId = authData.user.id;
-  const admin = createClient(supabaseUrl, serviceRoleKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  });
-
   let createdCallId: string | undefined;
+  let action = 'unknown';
+  let stage = 'auth';
+  let adminClient: ReturnType<typeof createClient> | undefined;
   try {
+    const authorization = request.headers.get('Authorization');
+    if (!authorization?.startsWith('Bearer ')) {
+      return jsonResponse(401, { error: 'Sign in to use calling.' });
+    }
+
+    const authClient = createClient(supabaseUrl, anonKey, {
+      global: { headers: { Authorization: authorization } },
+      auth: { autoRefreshToken: false, persistSession: false },
+    });
+    const { data: authData, error: authError } = await authClient.auth.getUser();
+    if (authError || !authData.user) return jsonResponse(401, { error: 'Your session is invalid or expired.' });
+    const userId = authData.user.id;
+    const admin = createClient(supabaseUrl, serviceRoleKey, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    });
+    adminClient = admin;
+
     let pushWarning: string | undefined;
     let pushWarningCode: 'push_unavailable' | 'push_partial' | undefined;
     let ringReachability: 'push_sent' | 'push_partial' | 'push_unavailable' = 'push_sent';
+    stage = 'parse_request';
     const payload = await request.json();
-    const action = payload?.action as Action;
+    action = payload?.action as Action;
     if (!['start', 'accept', 'connected', 'heartbeat', 'end', 'decline', 'expire'].includes(action)) {
       return jsonResponse(400, { error: 'Unknown call action.' });
     }
@@ -116,9 +118,11 @@ Deno.serve(async (request) => {
       if (payload?.mediaType !== 'audio' && payload?.mediaType !== 'video') {
         return jsonResponse(400, { error: 'Choose audio or video calling.' });
       }
+      stage = 'eligibility';
       const eligibility = await checkEligibility(admin, payload.conversationId, userId);
       if (eligibility.error) return jsonResponse(eligibility.status, { error: eligibility.error });
 
+      stage = 'load_stale_calls';
       const { data: staleCalls, error: staleError } = await admin
         .from('call_sessions')
         .select('id,status,created_at,expires_at,last_activity_at')
@@ -139,6 +143,7 @@ Deno.serve(async (request) => {
       }
 
       const peer = eligibility.profiles.find((profile) => profile.id !== userId)!;
+      stage = 'insert_session';
       const { data, error } = await admin.from('call_sessions').insert({
         conversation_id: payload.conversationId,
         caller_id: userId,
@@ -155,12 +160,22 @@ Deno.serve(async (request) => {
       createdCallId = session.id;
 
       const caller = eligibility.profiles.find((profile) => profile.id === userId)!;
-      const delivery = await sendIncomingCallPush(admin, session, peer.id, caller.display_name || caller.username);
+      stage = 'send_push';
+      let delivery: Awaited<ReturnType<typeof sendIncomingCallPush>> = {
+        warningCode: 'push_unavailable',
+        warning: 'They may not be notified unless Wimpex is open.',
+      };
+      try {
+        delivery = await sendIncomingCallPush(admin, session, peer.id, caller.display_name || caller.username);
+      } catch (pushError) {
+        console.error('Could not send the incoming call notification.', pushError);
+      }
       pushWarning = delivery.warning;
       pushWarningCode = delivery.warningCode;
       ringReachability = delivery.warningCode ?? 'push_sent';
     } else {
       if (!isUuid(payload?.callId)) return jsonResponse(400, { error: 'A valid call is required.' });
+      stage = 'load_session';
       const { data, error } = await admin.from('call_sessions')
         .select('*')
         .eq('id', payload.callId)
@@ -177,6 +192,7 @@ Deno.serve(async (request) => {
           return jsonResponse(409, { error: 'This call can no longer be answered.' });
         }
         if (new Date(session.expires_at).getTime() <= Date.now()) {
+          stage = 'update_session';
           const { error: expireError } = await admin.from('call_sessions').update({
             status: 'missed',
             ended_at: new Date().toISOString(),
@@ -184,8 +200,10 @@ Deno.serve(async (request) => {
           if (expireError) throw expireError;
           return jsonResponse(410, { error: 'This call has expired.' });
         }
+        stage = 'eligibility';
         const eligibility = await checkEligibility(admin, session.conversation_id, userId);
         if (eligibility.error) return jsonResponse(eligibility.status, { error: eligibility.error });
+        stage = 'update_session';
         const { data: updated, error: updateError } = await admin.from('call_sessions')
           .update({ status: 'connecting', last_activity_at: new Date().toISOString() })
           .eq('id', session.id)
@@ -203,6 +221,7 @@ Deno.serve(async (request) => {
         if (new Date(session.expires_at).getTime() <= Date.now() && session.status === 'ringing') {
           return jsonResponse(410, { error: 'This call has expired.' });
         }
+        stage = 'eligibility';
         const eligibility = await checkEligibility(admin, session.conversation_id, userId);
         if (eligibility.error) return jsonResponse(eligibility.status, { error: eligibility.error });
         const now = new Date().toISOString();
@@ -211,6 +230,7 @@ Deno.serve(async (request) => {
         const patch = userId === session.caller_id
           ? { caller_connected_at: now }
           : { callee_connected_at: now };
+        stage = 'update_session';
         const { data: updated, error: updateError } = await admin.from('call_sessions')
           .update({
             ...patch,
@@ -232,6 +252,7 @@ Deno.serve(async (request) => {
         if (session.status !== 'active') {
           return jsonResponse(409, { error: 'This call is no longer active.' });
         }
+        stage = 'update_session';
         const { data: updated, error: heartbeatError } = await admin.from('call_sessions')
           .update({ last_activity_at: new Date().toISOString() })
           .eq('id', session.id)
@@ -257,6 +278,7 @@ Deno.serve(async (request) => {
             return jsonResponse(409, { error: 'This call has not expired yet.' });
           }
         }
+        stage = 'update_session';
         const update = admin.from('call_sessions')
           .update({
             status: action === 'decline' ? 'declined' : action === 'expire' ? 'missed' : 'ended',
@@ -273,6 +295,7 @@ Deno.serve(async (request) => {
     }
 
     const peerId = userId === session.caller_id ? session.callee_id : session.caller_id;
+    stage = 'load_profiles';
     const { data: peer, error: peerError } = await admin.from('profiles')
       .select('id,display_name,username')
       .eq('id', peerId)
@@ -284,6 +307,7 @@ Deno.serve(async (request) => {
       .eq('id', userId)
       .single();
     if (currentProfileError) throw currentProfileError;
+    stage = 'mint_token';
     const token = new AccessToken(livekitApiKey, livekitApiSecret, {
       identity: userId,
       name: currentProfile.display_name || currentProfile.username,
@@ -307,15 +331,39 @@ Deno.serve(async (request) => {
       ...(pushWarning ? { warning: pushWarning } : {}),
     });
   } catch (error) {
-    console.error('LiveKit call request failed.', error);
-    if (createdCallId) {
-      const { error: closeError } = await admin.from('call_sessions')
-        .update({ status: 'ended', ended_at: new Date().toISOString() })
-        .eq('id', createdCallId)
-        .in('status', ['ringing', 'connecting']);
-      if (closeError) console.error('Could not close the call after a server failure.', closeError);
+    const details = getCallErrorDetails(error);
+    const failure = mapCallFailure(error);
+    console.error('LiveKit call request failed.', {
+      requestId,
+      action,
+      stage,
+      code: details.code,
+      message: details.message,
+    });
+    if (createdCallId && adminClient) {
+      try {
+        const { error: closeError } = await adminClient.from('call_sessions')
+          .update({ status: 'ended', ended_at: new Date().toISOString() })
+          .eq('id', createdCallId)
+          .in('status', ['ringing', 'connecting']);
+        if (closeError) throw closeError;
+      } catch (closeError) {
+        const closeDetails = getCallErrorDetails(closeError);
+        console.error('Could not close the call after a server failure.', {
+          requestId,
+          action,
+          stage: 'cleanup_session',
+          code: closeDetails.code,
+          message: closeDetails.message,
+        });
+      }
     }
-    return jsonResponse(500, { error: 'Could not process this call request.' });
+    return jsonResponse(failure.status, {
+      error: failure.message,
+      code: failure.code,
+      stage,
+      requestId,
+    });
   }
 });
 
@@ -353,7 +401,7 @@ async function sendIncomingCallPush(
       console.error('Could not read callee push destinations.', error);
       return { warningCode: 'push_unavailable', warning: 'They may not be notified unless Wimpex is open.' };
     }
-    devices = data;
+    devices = data ?? [];
   } catch (error) {
     console.error('Could not read callee push destinations.', error);
     return { warningCode: 'push_unavailable', warning: 'They may not be notified unless Wimpex is open.' };

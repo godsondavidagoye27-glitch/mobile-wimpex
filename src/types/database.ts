@@ -1161,6 +1161,7 @@ export type Database = {
       apply_profile_age_defaults: { Args: Record<string, never>; Returns: unknown };
       can_view_post: { Args: { p_post_id: string; p_viewer_id: string }; Returns: boolean };
       finalize_post: { Args: { post_id: string }; Returns: undefined };
+      fail_post_upload: { Args: { p_post_id: string }; Returns: undefined };
       request_captions: { Args: { post_id: string }; Returns: undefined };
       set_post_captions_enabled: { Args: { post_id: string; enabled: boolean }; Returns: undefined };
       get_follow_counts: {

@@ -1,8 +1,10 @@
 import { router } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { theme } from '../../theme/theme';
+import { SectionErrorBoundary } from '../../components/SectionErrorBoundary';
+export { RouteErrorFallback as ErrorBoundary } from '../../components/RouteErrorFallback';
 
-export default function CallUnavailableScreen() {
+function CallUnavailableContent() {
   return (
     <View style={styles.screen}>
       <Text style={styles.title}>Calling is unavailable on web</Text>
@@ -17,6 +19,14 @@ export default function CallUnavailableScreen() {
         <Text style={styles.buttonText}>Go back</Text>
       </Pressable>
     </View>
+  );
+}
+
+export default function CallUnavailableScreen() {
+  return (
+    <SectionErrorBoundary title="Calling needs to restart">
+      <CallUnavailableContent />
+    </SectionErrorBoundary>
   );
 }
 

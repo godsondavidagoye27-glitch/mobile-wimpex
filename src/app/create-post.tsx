@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { Icon } from '../components/Icon';
+import { SectionErrorBoundary } from '../components/SectionErrorBoundary';
 import { FocusableTextInput } from '../components/AuthField';
 import { getErrorMessage } from '../lib/errorMessage';
 import { getSupabaseClient } from '../lib/supabase';
@@ -42,6 +43,7 @@ import {
 import { getVideoExtension } from '../features/media/videoExtension';
 import { deleteEditedVideo } from '../features/video-editor/exportVideo';
 import { openVideoEditor } from '../features/video-editor/videoEditorRequests';
+export { RouteErrorFallback as ErrorBoundary } from '../components/RouteErrorFallback';
 
 const emptyDraft: VideoDraft = {
   uri: '',
@@ -349,7 +351,11 @@ export default function CreatePostScreen() {
   const clearSelectedVideo = () => {
     const selectedFile = new File(draft.uri);
     if (selectedFile.exists && !draftHasUpload) selectedFile.delete();
-    setDraft((current) => ({ ...current, uri: '' }));
+    setDraft(emptyDraft);
+    void clearVideoDraft().catch((clearError: unknown) => {
+      console.error('Unable to discard the saved video draft.', clearError);
+      void getErrorMessage(clearError, 'Could not clear the saved draft.').then(setError);
+    });
   };
 
   return (
@@ -378,7 +384,9 @@ export default function CreatePostScreen() {
         <Text style={styles.sectionTitle}>Video</Text>
         {draft.uri ? (
           <View style={styles.preview}>
-            <LocalVideoPreview uri={draft.uri} />
+            <SectionErrorBoundary title="Video preview needs to restart">
+              <LocalVideoPreview uri={draft.uri} />
+            </SectionErrorBoundary>
             <Pressable
               onPress={clearSelectedVideo}
               style={styles.removeMedia}

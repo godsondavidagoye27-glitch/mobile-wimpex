@@ -6,7 +6,7 @@ import {
   useAudioRecorder,
   useAudioRecorderState,
 } from 'expo-audio';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -264,16 +264,27 @@ export function ChatMediaComposer({
     }
   };
 
-  useEffect(() => () => {
-    if (recorder.isRecording) {
-      void recorder.stop().catch((error: unknown) => {
-        console.error('Unable to stop voice recording after closing the composer.', error);
-      });
+  // useAudioRecorder releases the native recorder in a passive (useEffect) cleanup that runs
+  // before any useEffect declared after it. Touching `recorder` there throws "Cannot use shared
+  // object that was already released". Layout-effect cleanups run before passive ones, so the
+  // recorder is still alive here.
+  useLayoutEffect(() => () => {
+    try {
+      if (recorder.isRecording) {
+        void recorder.stop().catch((error: unknown) => {
+          console.error('Unable to stop voice recording after closing the composer.', error);
+        });
+      }
+    } catch (error) {
+      console.error('Unable to stop voice recording after closing the composer.', error);
     }
+  }, [recorder]);
+
+  useEffect(() => () => {
     void setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true }).catch((resetError: unknown) => {
       console.error('Unable to restore the audio mode after closing the composer.', resetError);
     });
-  }, [recorder]);
+  }, []);
 
   return (
     <View style={styles.container}>

@@ -31,6 +31,7 @@ import { calculateChatComposerHeight } from '../../features/chats/chatLayout';
 import { getStoryReplyPreviewUrl } from '../../features/stories/storyService';
 import { ChatMediaComposer } from '../../features/chats/ChatMediaComposer';
 import { ChatMediaMessage } from '../../features/chats/ChatMediaMessage';
+import { SectionErrorBoundary } from '../../components/SectionErrorBoundary';
 import { deleteEditedVideo } from '../../features/video-editor/exportVideo';
 import {
   fetchConversationMessages,
@@ -52,6 +53,7 @@ import {
 import { beginProfileCompletion } from '../../features/auth/useAuthFlow';
 import type { ChatMediaAttachment } from '../../features/chats/chatMediaValidation';
 import { getSupabaseClient } from '../../lib/supabase';
+import { secureStorage } from '../../lib/storage';
 import { getSingleRouteParam, isUuidRouteParam } from '../../lib/routeParams';
 import type { Database } from '../../types/database';
 import { theme } from '../../theme/theme';
@@ -175,6 +177,7 @@ export default function ChatThreadScreen() {
   const [hasMore, setHasMore] = useState(true);
   const [error, setError] = useState('');
   const [draft, setDraft] = useState('');
+  const [loadedChatDraftKey, setLoadedChatDraftKey] = useState('');
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
   const [sending, setSending] = useState(false);
   const [remoteTyping, setRemoteTyping] = useState(false);
@@ -209,6 +212,45 @@ export default function ChatThreadScreen() {
       mountedRef.current = false;
     };
   }, []);
+
+  const chatDraftKey = conversationId ? `wimpex-chat-draft:${conversationId}` : '';
+  const draftReady = Boolean(chatDraftKey) && loadedChatDraftKey === chatDraftKey;
+
+  useEffect(() => {
+    if (!chatDraftKey) return undefined;
+    let active = true;
+    void secureStorage.getItem(chatDraftKey).then((savedDraft) => {
+      if (!active) return;
+      setDraft(savedDraft ?? '');
+      setLoadedChatDraftKey(chatDraftKey);
+    }).catch((loadError: unknown) => {
+      console.error('Unable to restore the chat draft.', loadError);
+      if (active) setLoadedChatDraftKey(chatDraftKey);
+    });
+    return () => {
+      active = false;
+    };
+  }, [chatDraftKey]);
+
+  useEffect(() => {
+    if (!chatDraftKey || !draftReady || sending) return undefined;
+    const saveTimer = setTimeout(() => {
+      const operation = draft.trim()
+        ? secureStorage.setItem(chatDraftKey, draft)
+        : secureStorage.removeItem(chatDraftKey);
+      void operation.catch((saveError: unknown) => {
+        console.error('Unable to save the chat draft.', saveError);
+      });
+    }, 250);
+    return () => clearTimeout(saveTimer);
+  }, [chatDraftKey, draft, draftReady, sending]);
+
+  const clearPersistedChatDraft = useCallback(() => {
+    if (!chatDraftKey) return;
+    void secureStorage.removeItem(chatDraftKey).catch((clearError: unknown) => {
+      console.error('Unable to clear the sent chat draft.', clearError);
+    });
+  }, [chatDraftKey]);
 
   const loadReactions = useCallback(async (rows: MessageRow[], isActive: () => boolean = () => true) => {
     const ids = rows.map((message) => message.id).filter((messageId) => !messageId.startsWith('local:'));
@@ -621,6 +663,7 @@ export default function ChatThreadScreen() {
         setMessages((current) => mergeChatMessages(current, [{ ...data, deliveryState: 'sent' }]));
       }
       setDraft('');
+      clearPersistedChatDraft();
       setReplyTo(null);
       setSending(false);
     } catch (sendError) {
@@ -632,7 +675,7 @@ export default function ChatThreadScreen() {
         router.replace('/(auth)/welcome?resume=signup');
       }
     }
-  }, [conversationId, supabase, userId]);
+  }, [clearPersistedChatDraft, conversationId, supabase, userId]);
 
   const transmitMediaMessage = useCallback(async (
     message: ChatMessage,
@@ -679,6 +722,9 @@ export default function ChatThreadScreen() {
         throw new Error('The attachment was uploaded but the message could not be confirmed.');
       }
       setMessages((current) => mergeChatMessages(current, [{ ...savedMessage, deliveryState: 'sent' }]));
+      setDraft('');
+      setAttachment(null);
+      clearPersistedChatDraft();
       setLocalMediaUris((current) => {
         const next = { ...current };
         delete next[message.client_id];
@@ -712,7 +758,7 @@ export default function ChatThreadScreen() {
     } finally {
       setSending(false);
     }
-  }, [conversationId, supabase, userId]);
+  }, [clearPersistedChatDraft, conversationId, supabase, userId]);
 
   const submitMessage = async () => {
     const body = draft.trim();
@@ -752,8 +798,6 @@ export default function ChatThreadScreen() {
       pendingMediaRef.current.set(clientId, { attachment, mediaId });
       setLocalMediaUris((current) => ({ ...current, [clientId]: attachment.uri }));
     }
-    setDraft('');
-    setAttachment(null);
     if (attachment && mediaId) void transmitMediaMessage(optimistic, { attachment, mediaId });
     else void transmitMessage(optimistic);
   };
@@ -1184,15 +1228,21 @@ export default function ChatThreadScreen() {
                 </Pressable>
               </View>
             ) : null}
-            <ChatMediaComposer
-              attachment={attachment}
-              disabled={sending}
-              caption={draft}
-              onCaptionChange={setDraft}
-              showVoiceRecorder={!draft.trim() && !attachment}
-              onAttachment={setAttachment}
-              onClear={() => setAttachment(null)}
-            />
+            <SectionErrorBoundary title="Chat attachments need to restart">
+              <ChatMediaComposer
+                attachment={attachment}
+                disabled={sending}
+                caption={draft}
+                onCaptionChange={setDraft}
+                showVoiceRecorder={!draft.trim() && !attachment}
+                onAttachment={setAttachment}
+                onClear={() => {
+                  setAttachment(null);
+                  setDraft('');
+                  clearPersistedChatDraft();
+                }}
+              />
+            </SectionErrorBoundary>
             <View style={styles.inputRow}>
               <FocusableTextInput
                 value={draft}

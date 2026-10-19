@@ -32,10 +32,12 @@ import {
   subscribeToCall,
   type CallResponse,
   type CallSession,
+  getCallErrorReference,
 } from '../../features/calls/callService';
 import { isTerminalCallStatus } from '../../features/calls/callPolicy';
 import { getSingleRouteParam, isUuidRouteParam } from '../../lib/routeParams';
 import { theme } from '../../theme/theme';
+import { SectionErrorBoundary } from '../../components/SectionErrorBoundary';
 export { RouteErrorFallback as ErrorBoundary } from '../../components/RouteErrorFallback';
 
 registerGlobals();
@@ -71,13 +73,15 @@ export default function CallScreen() {
   const mediaType = requestedMode === 'audio' ? 'audio' : 'video';
   const routeKey = `${conversationId ?? ''}:${callId ?? ''}:${incoming}:${mediaType}`;
   return (
-    <CallSessionScreen
-      key={routeKey}
-      conversationId={conversationId}
-      callId={callId}
-      incoming={incoming}
-      mediaType={mediaType}
-    />
+    <SectionErrorBoundary title="Call needs to restart">
+      <CallSessionScreen
+        key={routeKey}
+        conversationId={conversationId}
+        callId={callId}
+        incoming={incoming}
+        mediaType={mediaType}
+      />
+    </SectionErrorBoundary>
   );
 }
 
@@ -102,6 +106,7 @@ function CallSessionScreen({
   );
   const [callWarning, setCallWarning] = useState('');
   const [notice, setNotice] = useState('');
+  const [errorReference, setErrorReference] = useState('');
   const [permissionDenied, setPermissionDenied] = useState(false);
   const [audioReady, setAudioReady] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
@@ -109,6 +114,11 @@ function CallSessionScreen({
   const startedAtRef = useRef<number | null>(null);
   const endingRef = useRef(false);
   const callRef = useRef<CallSession | null>(null);
+
+  const setCallRequestError = useCallback(async (callError: unknown, fallback: string) => {
+    setErrorReference(getCallErrorReference(callError) ?? '');
+    setError(await getErrorMessage(callError, fallback));
+  }, []);
 
   const setCallState = useCallback((next: CallSession) => {
     const current = callRef.current;
@@ -182,11 +192,11 @@ function CallSessionScreen({
           : ''),
       );
     } catch (callError) {
-      setError(await getErrorMessage(callError, 'Could not start the call.'));
+      await setCallRequestError(callError, 'Could not start the call.');
     } finally {
       setLoading(false);
     }
-  }, [conversationId, mediaType]);
+  }, [conversationId, mediaType, setCallRequestError]);
 
   useEffect(() => {
     if (incoming) return undefined;
@@ -289,6 +299,7 @@ function CallSessionScreen({
     if (!callId || busy) return;
     setBusy(true);
     setError('');
+    setErrorReference('');
     try {
       if (!(await requestCallMediaPermissions(mediaType))) {
         setPermissionDenied(true);
@@ -301,11 +312,11 @@ function CallSessionScreen({
       setCall(result.call);
       setConnection(result);
     } catch (callError) {
-      setError(await getErrorMessage(callError, 'Could not answer the call.'));
+      await setCallRequestError(callError, 'Could not answer the call.');
     } finally {
       setBusy(false);
     }
-  }, [busy, callId, mediaType]);
+  }, [busy, callId, mediaType, setCallRequestError]);
 
   const finishCall = useCallback(async (action: 'end' | 'decline') => {
     const currentCallId = call?.id ?? callId;
@@ -320,13 +331,13 @@ function CallSessionScreen({
       const result = await requestCallAction(action, { callId: currentCallId });
       if ('call' in result) setCallState(result.call);
     } catch (callError) {
-      setError(await getErrorMessage(callError, 'Could not end the call.'));
+      await setCallRequestError(callError, 'Could not end the call.');
     } finally {
       setConnection(null);
       setBusy(false);
       router.back();
     }
-  }, [call?.id, callId, setCallState]);
+  }, [call?.id, callId, setCallRequestError, setCallState]);
 
   useEffect(() => {
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
@@ -361,14 +372,15 @@ function CallSessionScreen({
         if ('call' in result) setCallState(result.call);
       })
       .catch(async (callError: unknown) => {
-        setError(await getErrorMessage(callError, 'Could not confirm the call connection.'));
+        await setCallRequestError(callError, 'Could not confirm the call connection.');
       });
-  }, [call?.id, setCallState]);
+  }, [call?.id, setCallRequestError, setCallState]);
 
   const handleDisconnected = useCallback(() => {
     const currentCall = callRef.current;
     if (!currentCall || isTerminalCallStatus(currentCall.status) || endingRef.current) return;
     setError('The call connection was lost.');
+    setErrorReference('');
     void finishCall('end');
   }, [finishCall]);
 
@@ -396,13 +408,14 @@ function CallSessionScreen({
           mediaType={connection.call.media_type}
           error={error}
           warning={callWarning}
+          errorReference={errorReference}
           elapsedSeconds={elapsedSeconds}
           busy={busy}
           onHangup={() => void finishCall('end')}
         />
       </LiveKitRoom>
     );
-  }, [audioReady, busy, callWarning, connection, elapsedSeconds, error, finishCall, handleConnected, handleDisconnected]);
+  }, [audioReady, busy, callWarning, connection, elapsedSeconds, error, errorReference, finishCall, handleConnected, handleDisconnected]);
 
   const statusLabel = call?.status === 'active'
     ? formatDuration(elapsedSeconds)
@@ -430,6 +443,7 @@ function CallSessionScreen({
             <IncomingCall
               mode={mediaType}
               error={error}
+              errorReference={errorReference}
               permissionDenied={permissionDenied}
               onOpenSettings={() => {
                 void Linking.openSettings().catch(async (settingsError: unknown) => {
@@ -446,6 +460,7 @@ function CallSessionScreen({
               </View>
               <Text style={styles.statusText}>{notice || (call ? statusLabel : 'Call not connected')}</Text>
               {error ? <Text style={styles.errorText}>{error}</Text> : null}
+              {errorReference ? <Text style={styles.errorReference}>{errorReference}</Text> : null}
               {permissionDenied ? (
                 <Pressable
                   accessibilityRole="button"
@@ -489,6 +504,7 @@ function CallSessionScreen({
 function IncomingCall({
   mode,
   error,
+  errorReference,
   permissionDenied,
   onOpenSettings,
   onAccept,
@@ -496,6 +512,7 @@ function IncomingCall({
 }: {
   mode: 'audio' | 'video';
   error: string;
+  errorReference: string;
   permissionDenied: boolean;
   onOpenSettings: () => void;
   onAccept: () => void;
@@ -509,6 +526,7 @@ function IncomingCall({
       <Text style={styles.title}>Incoming {mode} call</Text>
       <Text style={styles.statusText}>Someone is calling you</Text>
       {error ? <Text style={styles.errorText}>{error}</Text> : null}
+      {errorReference ? <Text style={styles.errorReference}>{errorReference}</Text> : null}
       {permissionDenied ? (
         <Pressable accessibilityRole="button" onPress={onOpenSettings} style={styles.backButton}>
           <Text style={styles.backButtonText}>Open settings</Text>
@@ -537,6 +555,7 @@ function CallRoom({
   peerId,
   mediaType,
   error,
+  errorReference,
   warning,
   elapsedSeconds,
   busy,
@@ -546,6 +565,7 @@ function CallRoom({
   peerId: string;
   mediaType: 'audio' | 'video';
   error: string;
+  errorReference: string;
   warning: string;
   elapsedSeconds: number;
   busy: boolean;
@@ -608,6 +628,7 @@ function CallRoom({
         {error || controlError ? (
           <Text style={styles.callError}>{error || controlError}</Text>
         ) : null}
+        {errorReference ? <Text style={styles.errorReference}>{errorReference}</Text> : null}
       </View>
       {mediaType === 'video' && localTrack && isTrackReference(localTrack) ? (
         <VideoTrack
@@ -833,6 +854,11 @@ const styles = StyleSheet.create({
     maxWidth: 320,
     color: theme.colors.danger,
     fontSize: 14,
+    textAlign: 'center',
+  },
+  errorReference: {
+    color: theme.colors.textMuted,
+    fontSize: 12,
     textAlign: 'center',
   },
   endButton: {

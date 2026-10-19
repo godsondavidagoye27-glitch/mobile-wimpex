@@ -13,7 +13,15 @@ import { OnlinePresence } from '../features/chats/OnlinePresence';
 import { NotificationLifecycle } from '../features/notifications/NotificationLifecycle';
 import { KeyboardInsetProvider } from '../hooks/useKeyboardInset';
 import { getSupabaseClient } from '../lib/supabase';
-import { secureStorage } from '../lib/storage';
+import { persistAppError } from '../lib/appErrorTelemetry';
+import {
+  crashRetryDelayMs,
+  crashRetryWindowMs,
+  decideCrashRetry,
+  emptyCrashRetryState,
+  markCrashRetryHealthy,
+  type CrashRetryState,
+} from '../lib/crashRetryPolicy';
 import { theme } from '../theme/theme';
 
 void SplashScreen.preventAutoHideAsync().catch((error: unknown) => {
@@ -22,21 +30,94 @@ void SplashScreen.preventAutoHideAsync().catch((error: unknown) => {
 
 class AppErrorBoundary extends Component<
   { children: ReactNode },
-  { hasError: boolean; error: Error | null; componentStack: string }
+  {
+    hasError: boolean;
+    retrying: boolean;
+    error: Error | null;
+    componentStack: string;
+    manualRetryPending: boolean;
+    failedManualRetries: number;
+  }
 > {
-  state = { hasError: false, error: null as Error | null, componentStack: '' };
+  state = {
+    hasError: false,
+    retrying: false,
+    error: null as Error | null,
+    componentStack: '',
+    manualRetryPending: false,
+    failedManualRetries: 0,
+  };
+  private retryState: CrashRetryState = emptyCrashRetryState;
+  private retryTimer: ReturnType<typeof setTimeout> | null = null;
+  private healthyTimer: ReturnType<typeof setTimeout> | null = null;
 
   static getDerivedStateFromError(error: Error) {
-    return { hasError: true, error };
+    return { hasError: true, retrying: true, error };
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
     console.error('The app encountered an unexpected error.', error, info.componentStack);
-    this.setState({ componentStack: info.componentStack ?? '' });
-    persistAppError(error, info.componentStack ?? '');
+    if (this.healthyTimer) {
+      clearTimeout(this.healthyTimer);
+      this.healthyTimer = null;
+    }
+    const componentStack = info.componentStack ?? '';
+    if (this.state.manualRetryPending) {
+      persistAppError(error, componentStack, false);
+      this.setState((current) => ({
+        retrying: false,
+        manualRetryPending: false,
+        failedManualRetries: current.failedManualRetries + 1,
+        componentStack,
+      }));
+      return;
+    }
+    const decision = decideCrashRetry(this.retryState, Date.now());
+    this.retryState = decision.state;
+    persistAppError(error, componentStack, decision.retry);
+    this.setState({ componentStack, retrying: decision.retry });
+    if (!decision.retry) return;
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = null;
+      this.setState((current) => ({
+        hasError: false,
+        retrying: false,
+        error: null,
+        componentStack: '',
+      }));
+      this.healthyTimer = setTimeout(() => {
+        this.retryState = markCrashRetryHealthy(this.retryState, Date.now());
+      }, crashRetryWindowMs);
+    }, crashRetryDelayMs);
+  }
+
+  componentWillUnmount() {
+    if (this.retryTimer) clearTimeout(this.retryTimer);
+    if (this.healthyTimer) clearTimeout(this.healthyTimer);
+  }
+
+  private reload = () => {
+    if (this.state.failedManualRetries >= 2) {
+      router.replace('/');
+      return;
+    }
+    if (this.retryTimer) clearTimeout(this.retryTimer);
+    if (this.healthyTimer) clearTimeout(this.healthyTimer);
+    this.setState((current) => ({
+      hasError: false,
+      retrying: false,
+      error: null,
+      componentStack: '',
+      manualRetryPending: true,
+    }));
+    this.healthyTimer = setTimeout(() => {
+      this.retryState = markCrashRetryHealthy(this.retryState, Date.now());
+      this.healthyTimer = null;
+    }, crashRetryWindowMs);
   }
 
   render() {
+    if (this.state.retrying) return <View style={styles.rootContent} />;
     if (this.state.hasError) {
       const stack = this.state.error?.stack?.split('\n').slice(0, 8).join('\n') ?? '';
       const componentStack = this.state.componentStack.split('\n').slice(0, 8).join('\n');
@@ -64,34 +145,19 @@ class AppErrorBoundary extends Component<
             </Pressable>
           ) : null}
           <Pressable
-            onPress={() => {
-              this.setState({ hasError: false, error: null, componentStack: '' }, () => {
-                setTimeout(() => router.replace('/'), 0);
-              });
-            }}
+            onPress={this.reload}
             style={styles.reloadButton}
             accessibilityRole="button"
           >
-            <Text style={styles.reloadButtonText}>Reload</Text>
+            <Text style={styles.reloadButtonText}>
+              {this.state.failedManualRetries >= 2 ? 'Go home' : 'Reload'}
+            </Text>
           </Pressable>
         </View>
       );
     }
     return this.props.children;
   }
-}
-
-function persistAppError(error: Error, componentStack: string) {
-  if (__DEV__) return;
-  const payload = JSON.stringify({
-    message: error.message,
-    stack: error.stack ?? '',
-    componentStack,
-    occurredAt: new Date().toISOString(),
-  });
-  void secureStorage.setItem('wimpex-last-app-error', payload).catch((storageError: unknown) => {
-    console.error('Unable to persist the last uncaught app error.', storageError);
-  });
 }
 
 export default function RootLayout() {
@@ -166,7 +232,7 @@ export default function RootLayout() {
     const previousHandler = errorUtils.getGlobalHandler?.();
     const handler = (error: Error, isFatal?: boolean) => {
       console.error('An uncaught JavaScript error occurred.', { error, isFatal });
-      persistAppError(error, '');
+      persistAppError(error, '', false);
       previousHandler?.(error, isFatal);
     };
     errorUtils.setGlobalHandler(handler);

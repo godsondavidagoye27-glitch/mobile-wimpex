@@ -1,4 +1,4 @@
-const { existsSync } = require('node:fs');
+const { existsSync, readFileSync } = require('node:fs');
 
 module.exports = ({ config }) => {
   const profile = process.env.EAS_BUILD_PROFILE;
@@ -20,13 +20,34 @@ module.exports = ({ config }) => {
   }
 
   const googleServicesFile = process.env.GOOGLE_SERVICES_JSON;
-  if (profile && process.env.EAS_BUILD_PLATFORM === 'android' && !googleServicesFile) {
+  const androidPackage = config.android?.package;
+  // EAS_BUILD is only "true" on EAS build workers, so local config evaluation never fails here.
+  const isAndroidEasBuild = process.env.EAS_BUILD === 'true' && process.env.EAS_BUILD_PLATFORM === 'android';
+  if (isAndroidEasBuild && ['preview', 'production'].includes(profile) && !googleServicesFile) {
     throw new Error(
-      `Set GOOGLE_SERVICES_JSON as an EAS file environment variable for Android ${profile} builds.`,
+      `Set GOOGLE_SERVICES_JSON as an EAS file environment variable for the "${profile}" environment. `
+      + 'Android push notifications will not work without it.',
     );
   }
-  if (googleServicesFile && !existsSync(googleServicesFile)) {
-    throw new Error(`GOOGLE_SERVICES_JSON points to a file that does not exist: ${googleServicesFile}`);
+  if (googleServicesFile) {
+    if (!existsSync(googleServicesFile)) {
+      throw new Error(`GOOGLE_SERVICES_JSON points to a file that does not exist: ${googleServicesFile}`);
+    }
+    let packageNames = [];
+    try {
+      const parsed = JSON.parse(readFileSync(googleServicesFile, 'utf8'));
+      packageNames = (parsed.client ?? [])
+        .map((client) => client?.client_info?.android_client_info?.package_name)
+        .filter((name) => typeof name === 'string');
+    } catch {
+      throw new Error('GOOGLE_SERVICES_JSON is not a valid google-services.json file.');
+    }
+    if (androidPackage && !packageNames.includes(androidPackage)) {
+      throw new Error(
+        `GOOGLE_SERVICES_JSON is for ${packageNames.join(', ') || 'an unknown app'}, `
+        + `but this app's Android package is ${androidPackage}. Download the google-services.json for ${androidPackage} from Firebase.`,
+      );
+    }
   }
 
   return {

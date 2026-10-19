@@ -183,6 +183,8 @@ Use two signed-in accounts and a development build on devices that can reach the
 
 ### Create and upload
 
+For existing installations, apply `supabase/migrations/20261019000000_grant_post_id_insert.sql` and then `supabase/migrations/20261019010000_fail_post_upload.sql`. The first grants authenticated users insert permission for only `posts.id`; the second lets a user mark their own uploading post as failed through `fail_post_upload`, without granting client update permission on `posts.status`.
+
 - Pick an MP4 video under 60 seconds and under 50 MB, preview it, add a caption, and post it.
 - Try to choose a video longer than 60 seconds and verify the app rejects it.
 - Try to choose a video larger than 50 MB and verify the app rejects it.
@@ -364,7 +366,7 @@ The `/call/[conversationId]` route provides an outgoing audio/video call screen 
    ```
 
    `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY` are supplied to deployed Supabase Edge Functions. Never add the LiveKit secret or service-role key to an `EXPO_PUBLIC_*` variable or the app bundle.
-3. Apply `supabase/migrations/20261013070000_livekit_calls.sql` and `supabase/migrations/20261018020000_call_lifecycle_reliability.sql` after the chat migration, then deploy the function:
+3. Apply `supabase/migrations/20261013070000_livekit_calls.sql` after the chat migration, then apply `supabase/migrations/20261018020000_call_lifecycle_reliability.sql` before deploying `livekit-call`. The latter adds `call_sessions.last_activity_at`, which the function queries and updates. Then deploy the function:
 
    ```powershell
    npx supabase db push
@@ -372,6 +374,7 @@ The `/call/[conversationId]` route provides an outgoing audio/video call screen 
    ```
 
    The function requires a valid Supabase user JWT (`verify_jwt = true`). It then independently verifies the user and checks direct-chat membership, adult eligibility, demo/official exclusions, block state, and the recipient's DM policy before creating or joining a room.
+   If a call fails in a preview or development build, use the displayed `ref: <requestId> / <stage>` and search for that request ID under **Supabase Dashboard > Edge Functions > livekit-call > Logs**. Production shows only the friendly error message.
 
 ### Connecting the chat caller
 

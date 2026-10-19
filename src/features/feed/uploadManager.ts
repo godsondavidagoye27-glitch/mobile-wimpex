@@ -5,6 +5,7 @@ import { getErrorMessage } from '../../lib/errorMessage';
 import type { Post } from '../../types/database';
 import { getVideoExtension } from '../media/videoExtension';
 import { isVideoDraft, isVideoUploadJob } from './uploadValidation';
+import { createPostInsertPayload } from './postInsertPayload';
 
 export type VideoUploadJob = {
   id: string;
@@ -230,7 +231,7 @@ async function upsertPostRecord(job: VideoUploadJob): Promise<Post['status']> {
     return existing.status;
   }
 
-  const post: Omit<Post, 'captions_path' | 'captions_status' | 'captions_language' | 'captions_updated_at' | 'captions_attempts'> = {
+  const post = createPostInsertPayload({
     id: job.postId,
     author_id: job.ownerId,
     caption: job.caption,
@@ -243,17 +244,7 @@ async function upsertPostRecord(job: VideoUploadJob): Promise<Post['status']> {
     audience: job.audience,
     allow_comments: job.allowComments,
     auto_captions: job.autoCaptions,
-    status: 'uploading',
-    like_count: 0,
-    comment_count: 0,
-    save_count: 0,
-    share_count: 0,
-    view_count: 0,
-    pinned_at: null,
-    is_demo: false,
-    created_at: new Date().toISOString(),
-    published_at: null,
-  };
+  });
   const { error } = await client.from('posts').insert(post);
   if (error) throw error;
   return 'uploading';
@@ -380,11 +371,7 @@ async function performUpload(job: VideoUploadJob): Promise<void> {
     console.error(`Video upload failed while attempting to ${uploadStage}.`, error);
     try {
       const { error: statusError } = await getSupabaseClient()
-        .from('posts')
-        .update({ status: 'failed' })
-        .eq('id', uploading.postId)
-        .eq('author_id', uploading.ownerId)
-        .in('status', ['uploading', 'failed']);
+        .rpc('fail_post_upload', { p_post_id: uploading.postId });
       if (statusError) throw statusError;
     } catch (statusError) {
       console.error('Unable to mark a failed video upload.', statusError);

@@ -1,5 +1,39 @@
 import type { RealtimeChannel } from '@supabase/supabase-js';
+import Constants from 'expo-constants';
 import { getSupabaseClient } from '../../lib/supabase';
+
+type CallErrorResponse = {
+  error?: unknown;
+  code?: unknown;
+  stage?: unknown;
+  requestId?: unknown;
+};
+
+export class CallRequestError extends Error {
+  readonly code?: string;
+  readonly stage?: string;
+  readonly requestId?: string;
+
+  constructor(message: string, response: CallErrorResponse) {
+    super(message);
+    this.name = 'CallRequestError';
+    this.code = typeof response.code === 'string' ? response.code : undefined;
+    this.stage = typeof response.stage === 'string' ? response.stage : undefined;
+    this.requestId = typeof response.requestId === 'string' ? response.requestId : undefined;
+  }
+}
+
+export function getCallErrorReference(error: unknown): string | null {
+  if (!error || typeof error !== 'object') return null;
+  const details = error as { requestId?: unknown; stage?: unknown };
+  const profile = Constants.expoConfig?.extra?.appVariant;
+  if (
+    (profile !== 'preview' && profile !== 'development')
+    || typeof details.requestId !== 'string'
+    || typeof details.stage !== 'string'
+  ) return null;
+  return `ref: ${details.requestId} / ${details.stage}`;
+}
 
 export type CallSession = {
   id: string;
@@ -37,19 +71,33 @@ export async function requestCallAction(
     { body: { action, ...params } },
   );
   if (error) {
-    let responseMessage = (data as { error?: string } | null)?.error;
-    if (!responseMessage) {
+    let response: CallErrorResponse = {};
+    const dataBody = data as CallErrorResponse | null;
+    if (dataBody && typeof dataBody === 'object') response = dataBody;
+    if (
+      typeof response.error !== 'string'
+      || typeof response.code !== 'string'
+      || typeof response.stage !== 'string'
+      || typeof response.requestId !== 'string'
+    ) {
       const errorContext = error as typeof error & { context?: { json?: () => Promise<unknown> } };
       try {
-        const body = await errorContext.context?.json?.();
-        if (body && typeof body === 'object' && 'error' in body && typeof body.error === 'string') {
-          responseMessage = body.error;
+        const body: unknown = await errorContext.context?.json?.();
+        if (body && typeof body === 'object') {
+          response = { ...response, ...(body as CallErrorResponse) };
         }
-      } catch {
-        responseMessage = undefined;
+      } catch (parseError) {
+        console.error('Could not read the call error response body.', parseError);
       }
     }
-    throw new Error(responseMessage || error.message || 'Could not connect the call.');
+    const message = response.code === 'call_schema_outdated'
+      ? 'Calling is being updated. Try again soon.'
+      : response.code === 'call_server_error'
+        ? 'Could not process this call request. Please try again.'
+        : typeof response.error === 'string' && response.error
+          ? response.error
+          : error.message || 'Could not connect the call.';
+    throw new CallRequestError(message, response);
   }
   if (!data) throw new Error('The call service returned an empty response.');
   return data;

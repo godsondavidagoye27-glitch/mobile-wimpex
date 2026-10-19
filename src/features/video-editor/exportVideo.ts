@@ -193,7 +193,7 @@ export async function exportVideo(options: ExportVideoOptions): Promise<ExportVi
     const directory = new Directory(Paths.document, 'wimpex-video-edits');
     directory.create({ intermediates: true, idempotent: true });
     const durableFile = new File(directory, `${Crypto.randomUUID()}.mp4`);
-    currentFile.copy(durableFile);
+    await currentFile.copy(durableFile);
     if (!durableFile.exists || durableFile.size <= 0) {
       throw new Error('The edited video could not be saved for upload.');
     }

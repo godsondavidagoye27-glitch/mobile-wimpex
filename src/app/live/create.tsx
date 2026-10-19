@@ -7,8 +7,10 @@ import { startLive } from '../../features/live/liveService';
 import { getErrorMessage } from '../../lib/errorMessage';
 import { theme } from '../../theme/theme';
 import { KeyboardAwareScreen } from '../../hooks/useKeyboardInset';
+import { SectionErrorBoundary } from '../../components/SectionErrorBoundary';
+export { RouteErrorFallback as ErrorBoundary } from '../../components/RouteErrorFallback';
 
-export default function CreateLiveScreen() {
+function CreateLiveContent() {
   const [title, setTitle] = useState('');
   const [starting, setStarting] = useState(false);
 
@@ -18,6 +20,7 @@ export default function CreateLiveScreen() {
       Alert.alert('Title too long', 'Live stream titles can be up to 100 characters.');
       return;
     }
+
     setStarting(true);
     try {
       const streamId = await startLive(title);
@@ -59,6 +62,14 @@ export default function CreateLiveScreen() {
         <Text style={styles.note}>Live streams are not recorded or available for replay.</Text>
       </View>
     </KeyboardAwareScreen>
+  );
+}
+
+export default function CreateLiveScreen() {
+  return (
+    <SectionErrorBoundary title="Live setup needs to restart">
+      <CreateLiveContent />
+    </SectionErrorBoundary>
   );
 }
 

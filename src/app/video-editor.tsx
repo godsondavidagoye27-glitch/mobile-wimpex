@@ -17,6 +17,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { getSingleRouteParam } from '../lib/routeParams';
+import { SectionErrorBoundary } from '../components/SectionErrorBoundary';
 import { getErrorMessage } from '../lib/errorMessage';
 import { theme } from '../theme/theme';
 import { exportVideo } from '../features/video-editor/exportVideo';
@@ -29,6 +30,7 @@ import {
   finishVideoEditorRequest,
   type VideoEditorResult,
 } from '../features/video-editor/videoEditorRequests';
+export { RouteErrorFallback as ErrorBoundary } from '../components/RouteErrorFallback';
 
 function numberParam(value: string | string[] | undefined, fallback: number) {
   const parsed = Number(getSingleRouteParam(value));
@@ -47,7 +49,7 @@ function seekPlayerTo(player: VideoPlayer, seconds: number) {
   player.seekBy(seconds - player.currentTime);
 }
 
-export default function VideoEditorScreen() {
+function VideoEditorContent() {
   const params = useLocalSearchParams<{
     requestId?: string;
     uri?: string;
@@ -451,6 +453,14 @@ export default function VideoEditorScreen() {
         )}
       </View>
     </SafeAreaView>
+  );
+}
+
+export default function VideoEditorScreen() {
+  return (
+    <SectionErrorBoundary title="Video editor needs to restart">
+      <VideoEditorContent />
+    </SectionErrorBoundary>
   );
 }
 

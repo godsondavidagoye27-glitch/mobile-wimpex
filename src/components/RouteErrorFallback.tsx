@@ -1,22 +1,67 @@
 import type { ErrorBoundaryProps } from 'expo-router';
-import { router } from 'expo-router';
-import { useEffect } from 'react';
+import { router, usePathname } from 'expo-router';
+import { useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { secureStorage } from '../lib/storage';
+import { persistAppError } from '../lib/appErrorTelemetry';
+import {
+  crashRetryDelayMs,
+  crashRetryWindowMs,
+  decideCrashRetry,
+  emptyCrashRetryState,
+  markCrashRetryHealthy,
+  type CrashRetryState,
+} from '../lib/crashRetryPolicy';
 import { theme } from '../theme/theme';
 
+const routeRetryStates = new Map<string, CrashRetryState>();
+
 export function RouteErrorFallback({ error, retry }: ErrorBoundaryProps) {
+  const pathname = usePathname();
+  const retryRef = useRef(retry);
+  const handledErrorRef = useRef<Error | null>(null);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const healthyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [retrying, setRetrying] = useState(true);
+
+  useEffect(() => {
+    retryRef.current = retry;
+  }, [retry]);
+
   useEffect(() => {
     console.error('A route encountered an unexpected render error.', error);
-    if (__DEV__) return;
-    void secureStorage.setItem('wimpex-last-route-error', JSON.stringify({
-      message: error.message,
-      stack: error.stack ?? '',
-      occurredAt: new Date().toISOString(),
-    })).catch((storageError: unknown) => {
-      console.error('Unable to persist the last route error.', storageError);
-    });
-  }, [error]);
+    if (handledErrorRef.current === error) return;
+    handledErrorRef.current = error;
+    const current = routeRetryStates.get(pathname) ?? emptyCrashRetryState;
+    const decision = decideCrashRetry(current, Date.now());
+    routeRetryStates.set(pathname, decision.state);
+    persistAppError(error, '', decision.retry);
+    setRetrying(decision.retry);
+    if (decision.retry) {
+      retryTimerRef.current = setTimeout(() => {
+        retryTimerRef.current = null;
+        void retryRef.current().catch((retryError: unknown) => {
+          console.error('Unable to retry the failed route.', retryError);
+        });
+        healthyTimerRef.current = setTimeout(() => {
+          healthyTimerRef.current = null;
+          const latest = routeRetryStates.get(pathname) ?? emptyCrashRetryState;
+          routeRetryStates.set(pathname, markCrashRetryHealthy(latest, Date.now()));
+        }, crashRetryWindowMs);
+      }, crashRetryDelayMs);
+    }
+    return () => {
+      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+      if (healthyTimerRef.current) clearTimeout(healthyTimerRef.current);
+    };
+  }, [error, pathname]);
+
+  if (retrying) {
+    return (
+      <View style={styles.recovering}>
+        <Text style={styles.message}>Restarting this screen…</Text>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.screen}>
@@ -30,7 +75,7 @@ export function RouteErrorFallback({ error, retry }: ErrorBoundaryProps) {
         </ScrollView>
       ) : null}
       <Pressable accessibilityRole="button" onPress={retry} style={styles.button}>
-        <Text style={styles.buttonText}>Retry</Text>
+        <Text style={styles.buttonText}>Try again</Text>
       </Pressable>
       <Pressable accessibilityRole="button" onPress={() => router.back()} style={styles.backButton}>
         <Text style={styles.backText}>Go back</Text>
@@ -40,6 +85,12 @@ export function RouteErrorFallback({ error, retry }: ErrorBoundaryProps) {
 }
 
 const styles = StyleSheet.create({
+  recovering: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.colors.black,
+  },
   screen: {
     flex: 1,
     alignItems: 'center',

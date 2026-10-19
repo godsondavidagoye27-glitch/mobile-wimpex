@@ -7,7 +7,8 @@
 - In Expo/EAS credentials, upload Firebase Cloud Messaging v1 service-account credentials for the matching Android application. A local `google-services.json` file alone does not configure Expo's hosted push service.
 - Configure APNs credentials for the iOS bundle identifier `app.wimpex.mobile` in EAS credentials. Confirm the Apple Push Notifications entitlement is enabled for the App ID.
 - Set the non-secret `EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_ANON_KEY`, and Google OAuth client values in each EAS environment referenced by `eas.json`. Production config validation fails early if the required public values are absent.
-- Apply `supabase/migrations/20261018020000_call_lifecycle_reliability.sql` and deploy `livekit-call` and `chat-push`. No migration was applied to a remote Supabase project as part of the code changes.
+- Apply `supabase/migrations/20261018020000_call_lifecycle_reliability.sql` before deploying `livekit-call`; it adds `call_sessions.last_activity_at`, which the function reads and updates. Then deploy `livekit-call` and `chat-push`. No migration was applied to a remote Supabase project as part of the code changes.
+- For a failed call, copy the displayed `ref: <requestId> / <stage>` from a preview/development build and open **Supabase Dashboard > Edge Functions > livekit-call > Logs**. Search for the request ID to find the structured error code and message. Production displays only the friendly error text.
 - Confirm Android channels named `default` and `calls` exist after install. Android 13+ notification permission is requested after sign-in; people can open system settings from the notification warning.
 
 Native configuration changes require a new build; an OTA update cannot add the FCM file, notification icon/channel manifest configuration, or Android Bluetooth permission:
