@@ -48,7 +48,9 @@ export function LiveNowRail() {
     );
   }
 
-  if (query.isError) {
+  // Keep showing existing data if a background refetch fails; swapping in an error row changes
+  // the rail height and makes the feed below jump.
+  if (query.isError && !query.data) {
     return (
       <View style={styles.errorRow}>
         <Text style={styles.errorText}>Live streams could not be loaded.</Text>
@@ -59,7 +61,7 @@ export function LiveNowRail() {
     );
   }
 
-  if (!query.data.length) return null;
+  if (!query.data?.length) return null;
 
   return (
     <View style={styles.section}>

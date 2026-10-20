@@ -23,24 +23,45 @@ export type FeedPage = {
   nextCursor: FeedCursor | null;
 };
 
+// Reuse signed URLs across refetches. A new URL string for the same video makes
+// useVideoPlayer(uri) rebuild the player (flicker, restart, native crashes), and
+// every refetch used to mint new ones.
+const signedUrlCache = new Map<string, { url: string; expiresAt: number }>();
+const signedUrlRefreshMarginMs = 10 * 60_000;
+
 export async function getSignedUrls(bucket: 'videos' | 'thumbnails', paths: string[]) {
   const uniquePaths = [...new Set(paths)];
-  if (uniquePaths.length === 0) return new Map<string, string>();
+  if (uniquePaths.length === 0) return new Map<string, string | null>();
+
+  const now = Date.now();
+  const result = new Map<string, string | null>();
+  const missing: string[] = [];
+  for (const path of uniquePaths) {
+    const cached = signedUrlCache.get(`${bucket}:${path}`);
+    if (cached && cached.expiresAt - signedUrlRefreshMarginMs > now) result.set(path, cached.url);
+    else missing.push(path);
+  }
+  if (missing.length === 0) return result;
 
   const { data, error } = await getSupabaseClient()
     .storage
     .from(bucket)
-    .createSignedUrls(uniquePaths, signedUrlExpirySeconds);
+    .createSignedUrls(missing, signedUrlExpirySeconds);
 
   if (error) throw error;
-  return mapSignedUrlResults(
-    uniquePaths,
-    data?.map((result, index) => ({
-      path: result.path ?? uniquePaths[index],
-      signedUrl: result.signedUrl,
-      error: result.error,
+  const fresh = mapSignedUrlResults(
+    missing,
+    data?.map((entry, index) => ({
+      path: entry.path ?? missing[index],
+      signedUrl: entry.signedUrl,
+      error: entry.error,
     })) ?? null,
   );
+  fresh.forEach((url, path) => {
+    result.set(path, url);
+    if (url) signedUrlCache.set(`${bucket}:${path}`, { url, expiresAt: now + signedUrlExpirySeconds * 1000 });
+  });
+  return result;
 }
 
 async function attachSignedUrls(rows: FeedRpcRow[]): Promise<FeedItem[]> {

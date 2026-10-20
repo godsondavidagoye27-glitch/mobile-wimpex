@@ -58,7 +58,7 @@ export function StoryRail() {
     );
   }
 
-  if (storyQuery.isError) {
+  if (storyQuery.isError && !storyQuery.data) {
     return (
       <View style={styles.errorRow}>
         <Text style={styles.errorText}>Stories could not be loaded.</Text>

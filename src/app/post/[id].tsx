@@ -1,3 +1,4 @@
+import { goBack } from '../../lib/navigation';
 import { getErrorMessage } from '../../lib/errorMessage';
 import { useEvent } from 'expo';
 import * as Crypto from 'expo-crypto';
@@ -170,18 +171,18 @@ async function loadCommentPage(postId: string, cursor: CommentCursor | null): Pr
     group.push(reply);
     repliesByParent.set(reply.parent_id, group);
   });
-  const items: CommentItem[] = roots.map((root) => {
+  // A missing profile (deleted/blocked user, RLS) must not fail the whole comment list.
+  const items: CommentItem[] = roots.flatMap((root) => {
     const rootAuthor = authorById.get(root.author_id);
-    if (!rootAuthor) throw new Error('Could not load a comment author.');
-    return {
+    if (!rootAuthor) return [];
+    return [{
       ...root,
       author: rootAuthor,
-      replies: (repliesByParent.get(root.id) ?? []).map((reply) => {
+      replies: (repliesByParent.get(root.id) ?? []).flatMap((reply) => {
         const replyAuthor = authorById.get(reply.author_id);
-        if (!replyAuthor) throw new Error('Could not load a reply author.');
-        return { ...reply, author: replyAuthor };
+        return replyAuthor ? [{ ...reply, author: replyAuthor }] : [];
       }),
-    };
+    }];
   });
   const lastRoot = roots.at(-1);
   return {
@@ -302,8 +303,8 @@ export default function PostDetailScreen() {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ['post-detail', postId] }),
       queryClient.invalidateQueries({ queryKey: ['post-comments', postId] }),
-      queryClient.invalidateQueries({ queryKey: ['feed', 'for_you'] }),
-      queryClient.invalidateQueries({ queryKey: ['feed', 'following'] }),
+      // Mark the home feed stale without reloading it behind this screen.
+      queryClient.invalidateQueries({ queryKey: ['feed'], refetchType: 'none' }),
     ]);
   };
 
@@ -457,7 +458,7 @@ export default function PostDetailScreen() {
   if (postQuery.isError || !detail) {
     return (
       <View style={styles.loadingScreen}>
-        <Pressable onPress={() => router.back()} style={styles.backButton} accessibilityRole="button" accessibilityLabel="Go back">
+        <Pressable onPress={() => goBack()} style={styles.backButton} accessibilityRole="button" accessibilityLabel="Go back">
           <Icon name="back" size={20} color={theme.colors.white} />
         </Pressable>
         <Text style={styles.errorText}>{postQuery.error?.message ?? 'Could not load this video.'}</Text>
@@ -474,7 +475,7 @@ export default function PostDetailScreen() {
       style={styles.screen}
       header={(
         <View style={styles.header}>
-          <Pressable onPress={() => router.back()} style={styles.backButton} accessibilityRole="button" accessibilityLabel="Go back">
+          <Pressable onPress={() => goBack()} style={styles.backButton} accessibilityRole="button" accessibilityLabel="Go back">
             <Icon name="back" size={20} color={theme.colors.white} />
           </Pressable>
           <Text style={styles.headerTitle}>Video</Text>

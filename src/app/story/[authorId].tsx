@@ -1,3 +1,4 @@
+import { closeToHome, goBack } from '../../lib/navigation';
 import { getErrorMessage } from '../../lib/errorMessage';
 import { useEvent } from 'expo';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
@@ -157,6 +158,21 @@ export default function StoryViewerScreen() {
   const params = useLocalSearchParams<{ authorId?: string | string[] }>();
   const routeAuthorId = getSingleRouteParam(params.authorId);
   const [authorId, setAuthorId] = useState(routeAuthorId ?? '');
+
+  // The route param can arrive after first render; never stay stuck on the initial empty value.
+  useEffect(() => {
+    if (routeAuthorId) setAuthorId((current) => (current === routeAuthorId ? current : routeAuthorId));
+  }, [routeAuthorId]);
+
+  // A story screen with no valid author is a stale leftover: close it instead of trapping the user.
+  const hasValidAuthor = isUuidRouteParam(authorId);
+  useEffect(() => {
+    if (!hasValidAuthor && !routeAuthorId) {
+      const timer = setTimeout(closeToHome, 400);
+      return () => clearTimeout(timer);
+    }
+    return undefined;
+  }, [hasValidAuthor, routeAuthorId]);
   const [storyIndex, setStoryIndex] = useState(0);
   const [holding, setHolding] = useState(false);
   const [screenFocused, setScreenFocused] = useState(false);
@@ -285,7 +301,7 @@ export default function StoryViewerScreen() {
       setStoryIndex((index) => index + 1);
       return;
     }
-    if (!goToNextAuthor()) router.back();
+    if (!goToNextAuthor()) goBack();
   }, [goToNextAuthor, stories.length, storyIndex]);
 
   const goPrevious = useCallback(() => {
@@ -302,7 +318,7 @@ export default function StoryViewerScreen() {
   const panResponder = useMemo(() => PanResponder.create({
     onMoveShouldSetPanResponder: (_event, gesture) => Math.abs(gesture.dx) > 18 || Math.abs(gesture.dy) > 18,
     onPanResponderRelease: (_event, gesture) => {
-      if (gesture.dy > 80) router.back();
+      if (gesture.dy > 80) goBack();
       else if (gesture.dx < -70) goToNextAuthor();
       else if (gesture.dx > 70) goToPreviousAuthor();
     },
@@ -348,7 +364,7 @@ export default function StoryViewerScreen() {
             .then(async () => {
               await queryClient.invalidateQueries({ queryKey: railQueryKey });
               await queryClient.invalidateQueries({ queryKey: authorStoriesQueryKey(authorId) });
-              router.back();
+              goBack();
             })
             .catch(async (error: unknown) => Alert.alert('Could not delete the story', await getErrorMessage(error, 'Try again.')));
         },
@@ -440,7 +456,7 @@ export default function StoryViewerScreen() {
             style: 'destructive',
             onPress: () => {
               void blockStoryAuthor(authorId)
-                .then(() => router.back())
+                .then(() => goBack())
                 .catch(async (error: unknown) => Alert.alert('Could not block this account', await getErrorMessage(error, 'Try again.')));
             },
           },
@@ -454,7 +470,7 @@ export default function StoryViewerScreen() {
     return (
       <View style={styles.loading}>
         <Text style={styles.unavailableTitle}>This story link is invalid.</Text>
-        <Pressable onPress={() => router.back()} style={styles.closeButton} accessibilityRole="button">
+        <Pressable onPress={closeToHome} style={styles.closeButton} accessibilityRole="button">
           <Text style={styles.closeText}>Close</Text>
         </Pressable>
       </View>
@@ -472,7 +488,7 @@ export default function StoryViewerScreen() {
         <Pressable onPress={() => void railQuery.refetch()} style={styles.closeButton} accessibilityRole="button">
           <Text style={styles.closeText}>Retry</Text>
         </Pressable>
-        <Pressable onPress={() => router.back()} accessibilityRole="button" style={styles.closeTextButton}>
+        <Pressable onPress={() => goBack()} accessibilityRole="button" style={styles.closeTextButton}>
           <Text style={styles.closeText}>Close</Text>
         </Pressable>
       </View>
@@ -480,7 +496,7 @@ export default function StoryViewerScreen() {
   }
 
   if (!author || author.story_count === 0) {
-    return <StoryUnavailable onClose={() => router.back()} />;
+    return <StoryUnavailable onClose={closeToHome} />;
   }
 
   if (storiesQuery.isError) {

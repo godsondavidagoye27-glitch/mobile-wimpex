@@ -1,10 +1,14 @@
-import { router, Tabs } from 'expo-router';
+import { Tabs } from 'expo-router';
+import { useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
+import { CreateSheet } from '../../components/CreateSheet';
 import { Icon } from '../../components/Icon';
 import { theme } from '../../theme/theme';
 
 export default function TabLayout() {
+  const [createOpen, setCreateOpen] = useState(false);
   return (
+    <View style={styles.root}>
     <Tabs
       screenOptions={{
         headerShown: false,
@@ -73,7 +77,7 @@ export default function TabLayout() {
         listeners={{
           tabPress: (event) => {
             event.preventDefault();
-            router.push('/create');
+            setCreateOpen(true);
           },
         }}
       />
@@ -96,10 +100,13 @@ export default function TabLayout() {
         }}
       />
     </Tabs>
+    {createOpen ? <CreateSheet onClose={() => setCreateOpen(false)} /> : null}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  root: { flex: 1 },
   fabWrap: {
     flex: 1,
     alignItems: 'center',

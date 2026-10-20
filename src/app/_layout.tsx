@@ -254,7 +254,6 @@ export default function RootLayout() {
               <TeenUsageReminder />
               <View style={styles.rootContent} onLayout={hideSplash}>
                 <Stack screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
-                  <Stack.Screen name="create" options={{ presentation: 'transparentModal', animation: 'slide_from_bottom', contentStyle: { backgroundColor: 'transparent' } }} />
                   <Stack.Screen name="story/[authorId]" options={{ presentation: 'transparentModal', animation: 'fade', contentStyle: { backgroundColor: '#000000' } }} />
                 </Stack>
               </View>

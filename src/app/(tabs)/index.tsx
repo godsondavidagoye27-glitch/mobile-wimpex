@@ -260,6 +260,9 @@ export default function HomeScreen() {
   const viewedPostIds = useRef(new Set<string>());
   const queryClient = useQueryClient();
   const [isFocused, setIsFocused] = useState(false);
+  // Only a user pull shows the spinner. Background refetches (caption polling, app focus,
+  // reconnect) used to drive it, so the feed looked like it was refreshing by itself.
+  const [manualRefreshing, setManualRefreshing] = useState(false);
   const [appIsActive, setAppIsActive] = useState(AppState.currentState === 'active');
   const mode = tab === 'For You' ? 'for_you' : 'following';
   const feedQuery = useFeed(mode);
@@ -323,10 +326,21 @@ export default function HomeScreen() {
   useEffect(() => {
     if (!activePostId || viewedPostIds.current.has(activePostId)) return;
     viewedPostIds.current.add(activePostId);
-    void recordPostView(activePostId).catch(async (error: unknown) => {
-      Alert.alert('Could not record this view', await getErrorMessage(error, 'Try again.'));
+    // Background bookkeeping: never interrupt scrolling with an alert.
+    void recordPostView(activePostId).catch((error: unknown) => {
+      viewedPostIds.current.delete(activePostId);
+      console.warn('Could not record this view.', error);
     });
   }, [activePostId]);
+
+  const pullToRefresh = async () => {
+    setManualRefreshing(true);
+    try {
+      await feedQuery.refetch();
+    } finally {
+      setManualRefreshing(false);
+    }
+  };
 
   const refreshFeeds = async () => {
     await Promise.all([
@@ -361,7 +375,9 @@ export default function HomeScreen() {
     updateCachedPost(postId, optimisticUpdate);
     try {
       await action();
-      await refreshFeeds();
+      // The optimistic update is already in the cache; just mark feeds stale so
+      // they refresh next time instead of reloading every page under the viewer.
+      await queryClient.invalidateQueries({ queryKey: ['feed'], refetchType: 'none' });
     } catch (error) {
       queryClient.setQueryData(queryKeys.feed('for_you'), previousForYou);
       queryClient.setQueryData(queryKeys.feed('following'), previousFollowing);
@@ -571,8 +587,8 @@ export default function HomeScreen() {
         viewabilityConfig={viewabilityConfig}
         refreshControl={
           <RefreshControl
-            refreshing={feedQuery.isRefetching && !feedQuery.isFetchingNextPage}
-            onRefresh={() => void feedQuery.refetch()}
+            refreshing={manualRefreshing}
+            onRefresh={() => void pullToRefresh()}
             tintColor={theme.colors.primary}
           />
         }

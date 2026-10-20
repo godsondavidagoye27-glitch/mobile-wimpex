@@ -1,3 +1,4 @@
+import { closeToHome, goBack } from '../lib/navigation';
 import * as Crypto from 'expo-crypto';
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
@@ -294,7 +295,9 @@ export default function CreateStoryScreen() {
         sticker,
       });
       if (media.kind === 'video') deleteEditedVideo(media.uri);
-      router.replace({ pathname: '/story/[authorId]', params: { authorId: created.authorId } });
+      // Not router.replace() into the story viewer: swapping a card for a transparentModal
+      // leaves a stale story screen in the stack. The new story shows in the rail on Home.
+      closeToHome();
     } catch (caught) {
       console.error('Unable to share story.', caught);
       setError(await getErrorMessage(caught, 'Could not share this story.'));
@@ -308,7 +311,7 @@ export default function CreateStoryScreen() {
   return (
     <KeyboardAwareScreen style={styles.screen}>
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Go back">
+        <Pressable onPress={() => goBack()} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Go back">
           <Icon name="back" size={20} color={theme.colors.white} />
         </Pressable>
         <Text style={styles.title}>Story</Text>
