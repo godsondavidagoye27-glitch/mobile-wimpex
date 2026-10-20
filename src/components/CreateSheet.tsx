@@ -1,35 +1,29 @@
-import { router } from 'expo-router';
+import { router, type Href } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { Icon, type AppIconName } from '../components/Icon';
+import { Icon, type AppIconName } from './Icon';
 import { theme } from '../theme/theme';
 
-const createOptions: { key: string; title: string; description: string; icon: AppIconName }[] = [
-  { key: 'video', title: 'Video', description: 'Record or upload a clip', icon: 'video' },
-  { key: 'story', title: 'Story', description: 'Share a quick update', icon: 'sparkles' },
-  { key: 'live', title: 'Live', description: 'Go live with your audience', icon: 'live' },
-  { key: 'community', title: 'Community post', description: 'Start a discussion', icon: 'groups' },
+const createOptions: { key: string; title: string; description: string; icon: AppIconName; href: Href }[] = [
+  { key: 'video', title: 'Video', description: 'Record or upload a clip', icon: 'video', href: '/create-post' },
+  { key: 'story', title: 'Story', description: 'Share a quick update', icon: 'sparkles', href: '/create-story' },
+  { key: 'live', title: 'Live', description: 'Go live with your audience', icon: 'live', href: '/live/create' },
+  { key: 'community', title: 'Community post', description: 'Start a discussion', icon: 'groups', href: '/community/create-post' },
 ];
 
-export default function CreateModalRoute() {
-  const handlePress = (key: string) => {
-    if (key === 'story') {
-      router.replace('/create-story');
-      return;
-    }
-    if (key === 'video') {
-      router.replace('/create-post');
-      return;
-    }
-    if (key === 'live') {
-      router.replace('/live/create');
-      return;
-    }
-    router.replace('/community/create-post');
+/**
+ * In-tree overlay (not a navigator route). A transparentModal route that is
+ * router.replace()d by the composer can stay alive underneath the stack and
+ * resurface on the next router.back(); an overlay cannot.
+ */
+export function CreateSheet({ onClose }: { onClose: () => void }) {
+  const handlePress = (href: Href) => {
+    onClose();
+    router.push(href);
   };
 
   return (
     <View style={styles.screen}>
-      <Pressable style={styles.backdrop} onPress={() => router.back()} accessibilityRole="button" accessibilityLabel="Close create menu" />
+      <Pressable style={styles.backdrop} onPress={onClose} accessibilityRole="button" accessibilityLabel="Close create menu" />
       <View style={styles.sheet}>
         <View style={styles.handle} />
         <Text style={styles.title}>Create</Text>
@@ -37,7 +31,7 @@ export default function CreateModalRoute() {
           <Pressable
             key={option.key}
             style={styles.optionRow}
-            onPress={() => handlePress(option.key)}
+            onPress={() => handlePress(option.href)}
             accessibilityRole="button"
           >
             <View style={styles.iconBox}>
@@ -56,7 +50,9 @@ export default function CreateModalRoute() {
 
 const styles = StyleSheet.create({
   screen: {
-    flex: 1,
+    ...StyleSheet.absoluteFill,
+    zIndex: 50,
+    elevation: 50,
     justifyContent: 'flex-end',
     backgroundColor: 'transparent',
   },
