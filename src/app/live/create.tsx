@@ -1,3 +1,4 @@
+import { goBack } from '../../lib/navigation';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'react-native';
@@ -36,7 +37,7 @@ function CreateLiveContent() {
   return (
     <KeyboardAwareScreen style={styles.screen}>
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.backButton} accessibilityRole="button" accessibilityLabel="Go back">
+        <Pressable onPress={() => goBack()} style={styles.backButton} accessibilityRole="button" accessibilityLabel="Go back">
           <Icon name="back" size={20} color={theme.colors.white} />
         </Pressable>
         <Text style={styles.headerTitle}>Start a live</Text>

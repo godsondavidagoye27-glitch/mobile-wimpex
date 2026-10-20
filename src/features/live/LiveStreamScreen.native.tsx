@@ -1,3 +1,4 @@
+import { goBack } from '../../lib/navigation';
 import {
   AudioSession,
   isTrackReference,
@@ -408,7 +409,7 @@ export default function LiveStreamScreen() {
 
   useEffect(() => {
     if (!ended) return undefined;
-    const timeout = setTimeout(() => router.back(), 3000);
+    const timeout = setTimeout(() => goBack(), 3000);
     return () => clearTimeout(timeout);
   }, [ended]);
 
@@ -456,7 +457,7 @@ export default function LiveStreamScreen() {
       await endLive(streamId);
       if (!mountedRef.current) return;
       setEnded(true);
-      router.back();
+      goBack();
     } catch (caught) {
       ending.current = false;
       console.error('Unable to end live stream.', caught);
@@ -473,7 +474,7 @@ export default function LiveStreamScreen() {
         { text: 'End live', style: 'destructive', onPress: () => void finishStream() },
       ]);
     } else {
-      router.back();
+      goBack();
     }
   };
 
@@ -551,7 +552,7 @@ export default function LiveStreamScreen() {
     return (
       <View style={styles.center}>
         <Text style={styles.errorHeading}>A live stream was not selected.</Text>
-        <Pressable onPress={() => router.back()} style={styles.backAction} accessibilityRole="button">
+        <Pressable onPress={() => goBack()} style={styles.backAction} accessibilityRole="button">
           <Text style={styles.backActionText}>Close</Text>
         </Pressable>
       </View>
@@ -567,7 +568,7 @@ export default function LiveStreamScreen() {
       <View style={styles.center}>
         <Text style={styles.errorHeading}>Could not open live stream</Text>
         <Text style={styles.errorText}>{error}</Text>
-        <Pressable onPress={() => router.back()} style={styles.backAction} accessibilityRole="button">
+        <Pressable onPress={() => goBack()} style={styles.backAction} accessibilityRole="button">
           <Text style={styles.backActionText}>Close</Text>
         </Pressable>
       </View>

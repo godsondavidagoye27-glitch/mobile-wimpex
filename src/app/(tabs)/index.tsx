@@ -6,7 +6,7 @@ import { useNetworkState } from 'expo-network';
 import * as Linking from 'expo-linking';
 import * as Crypto from 'expo-crypto';
 import { useQueryClient, type InfiniteData } from '@tanstack/react-query';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   AppState,
@@ -153,7 +153,7 @@ function FeedHeader() {
   );
 }
 
-function FeedPostCard({
+const FeedPostCard = memo(function FeedPostCard({
   item,
   active,
   shouldLoadVideo,
@@ -167,9 +167,9 @@ function FeedPostCard({
   item: FeedItem;
   active: boolean;
   shouldLoadVideo: boolean;
-  onToggleLike: () => void;
-  onToggleSave: () => void;
-  onShare: () => void;
+  onToggleLike: (item: FeedItem) => void;
+  onToggleSave: (item: FeedItem) => void;
+  onShare: (item: FeedItem) => void;
   busy: boolean;
   itemHeight: number;
   isAuthor: boolean;
@@ -210,7 +210,7 @@ function FeedPostCard({
             <Icon name="more" size={24} color={theme.colors.white} />
           </Pressable>
           <Pressable
-            onPress={onToggleLike}
+            onPress={() => onToggleLike(item)}
             disabled={busy}
             style={styles.actionButton}
             accessibilityRole="button"
@@ -229,7 +229,7 @@ function FeedPostCard({
             <Text style={styles.count}>{item.post.comment_count}</Text>
           </Pressable>
           <Pressable
-            onPress={onToggleSave}
+            onPress={() => onToggleSave(item)}
             disabled={busy}
             style={styles.actionButton}
             accessibilityRole="button"
@@ -238,7 +238,7 @@ function FeedPostCard({
             <Icon name="bookmark" size={24} color={theme.colors.white} filled={item.is_saved} />
             <Text style={styles.count}>{item.post.save_count}</Text>
           </Pressable>
-          <Pressable onPress={onShare} style={styles.actionButton} accessibilityRole="button" accessibilityLabel="Share video">
+          <Pressable onPress={() => onShare(item)} style={styles.actionButton} accessibilityRole="button" accessibilityLabel="Share video">
             <Icon name="share" size={24} color={theme.colors.white} />
             <Text style={styles.count}>{item.post.share_count}</Text>
           </Pressable>
@@ -246,7 +246,7 @@ function FeedPostCard({
       </View>
     </View>
   );
-}
+});
 
 export default function HomeScreen() {
   const [tab, setTab] = useState<'For You' | 'Following'>('For You');
@@ -424,6 +424,31 @@ export default function HomeScreen() {
     }
   };
 
+  const likePost = (item: FeedItem) => void runPostAction(
+    item.post.id,
+    () => setPostLiked(item.post.id, item.is_liked),
+    (current) => ({
+      ...current,
+      is_liked: !current.is_liked,
+      post: { ...current.post, like_count: Math.max(0, current.post.like_count + (current.is_liked ? -1 : 1)) },
+    }),
+  );
+  const savePost = (item: FeedItem) => void runPostAction(
+    item.post.id,
+    () => setPostSaved(item.post.id, item.is_saved),
+    (current) => ({
+      ...current,
+      is_saved: !current.is_saved,
+      post: { ...current.post, save_count: Math.max(0, current.post.save_count + (current.is_saved ? -1 : 1)) },
+    }),
+  );
+  // Stable callbacks so memoized cards don't re-render on every upload tick or state change.
+  const actionsRef = useRef({ like: likePost, save: savePost, share: (item: FeedItem) => void sharePost(item) });
+  actionsRef.current = { like: likePost, save: savePost, share: (item: FeedItem) => void sharePost(item) };
+  const onToggleLike = useCallback((item: FeedItem) => actionsRef.current.like(item), []);
+  const onToggleSave = useCallback((item: FeedItem) => actionsRef.current.save(item), []);
+  const onShare = useCallback((item: FeedItem) => actionsRef.current.share(item), []);
+
   const renderPost = ({ item, index }: { item: FeedItem; index: number }) => (
     <FeedPostCard
       item={item}
@@ -432,25 +457,9 @@ export default function HomeScreen() {
       busy={busyPostIds.has(item.post.id)}
       itemHeight={listHeight || 480}
       isAuthor={item.post.author_id === currentUserId}
-      onToggleLike={() => void runPostAction(
-        item.post.id,
-        () => setPostLiked(item.post.id, item.is_liked),
-        (current) => ({
-          ...current,
-          is_liked: !current.is_liked,
-          post: { ...current.post, like_count: Math.max(0, current.post.like_count + (current.is_liked ? -1 : 1)) },
-        }),
-      )}
-      onToggleSave={() => void runPostAction(
-        item.post.id,
-        () => setPostSaved(item.post.id, item.is_saved),
-        (current) => ({
-          ...current,
-          is_saved: !current.is_saved,
-          post: { ...current.post, save_count: Math.max(0, current.post.save_count + (current.is_saved ? -1 : 1)) },
-        }),
-      )}
-      onShare={() => void sharePost(item)}
+      onToggleLike={onToggleLike}
+      onToggleSave={onToggleSave}
+      onShare={onShare}
     />
   );
 
@@ -552,7 +561,12 @@ export default function HomeScreen() {
           ) : <ActivityIndicator color={theme.colors.primary} />}
         </View>
       ))}
-      <FlatList
+      <View style={styles.listHost} onLayout={(event) => {
+        const height = Math.round(event.nativeEvent.layout.height);
+        setListHeight((current) => (Math.abs(current - height) > 1 ? height : current));
+      }}>
+      {listHeight > 0 ? <FlatList
+        style={styles.listHost}
         data={posts}
         keyExtractor={(item) => item.post.id}
         renderItem={renderPost}
@@ -570,7 +584,6 @@ export default function HomeScreen() {
           </Pressable>
         ) : null}
         contentContainerStyle={styles.content}
-        onLayout={(event) => setListHeight(event.nativeEvent.layout.height)}
         snapToInterval={listHeight || undefined}
         snapToStart
         snapToEnd={false}
@@ -592,12 +605,14 @@ export default function HomeScreen() {
             tintColor={theme.colors.primary}
           />
         }
-      />
+      /> : null}
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  listHost: { flex: 1 },
   screen: { flex: 1, backgroundColor: theme.colors.black },
   headerRow: {
     flexDirection: 'row',

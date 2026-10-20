@@ -1,3 +1,4 @@
+import { goBack } from '../../lib/navigation';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { File } from 'expo-file-system';
@@ -215,7 +216,7 @@ export default function CommunityPostComposerScreen() {
   return (
     <KeyboardAwareScreen style={styles.screen}>
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Close composer">
+        <Pressable onPress={() => goBack()} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Close composer">
           <Icon name="close" size={20} color={theme.colors.white} />
         </Pressable>
         <Text style={styles.headerTitle}>Community post</Text>

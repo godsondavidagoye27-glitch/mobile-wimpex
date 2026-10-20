@@ -1,3 +1,4 @@
+import { goBack } from '../../lib/navigation';
 import { router } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { theme } from '../../theme/theme';
@@ -13,7 +14,7 @@ function CallUnavailableContent() {
       </Text>
       <Pressable
         accessibilityRole="button"
-        onPress={() => router.back()}
+        onPress={() => goBack()}
         style={styles.button}
       >
         <Text style={styles.buttonText}>Go back</Text>

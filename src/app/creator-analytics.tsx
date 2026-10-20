@@ -1,3 +1,4 @@
+import { goBack } from '../lib/navigation';
 import { router } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -83,7 +84,7 @@ export default function CreatorAnalyticsScreen() {
   return (
     <View style={styles.screen}>
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} accessibilityRole="button" accessibilityLabel="Go back" style={styles.back}>
+        <Pressable onPress={() => goBack()} accessibilityRole="button" accessibilityLabel="Go back" style={styles.back}>
           <Icon name="back" size={20} color={theme.colors.white} />
         </Pressable>
         <Text style={styles.title}>Creator dashboard</Text>

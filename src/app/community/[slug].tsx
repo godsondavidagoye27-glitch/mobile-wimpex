@@ -1,3 +1,4 @@
+import { goBack } from '../../lib/navigation';
 import { getErrorMessage } from '../../lib/errorMessage';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useNetworkState } from 'expo-network';
@@ -1009,7 +1010,7 @@ export default function CommunityScreen() {
   return (
     <KeyboardAwareScreen style={styles.screen}>
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Go back">
+        <Pressable onPress={() => goBack()} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Go back">
           <Icon name="back" size={20} color={theme.colors.white} />
         </Pressable>
         <Text numberOfLines={1} style={styles.headerTitle}>{community?.name ?? 'Community'}</Text>

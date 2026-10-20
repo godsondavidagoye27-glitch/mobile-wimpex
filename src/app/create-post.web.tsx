@@ -1,3 +1,4 @@
+import { goBack } from '../lib/navigation';
 import { router } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Icon } from '../components/Icon';
@@ -7,7 +8,7 @@ export default function CreatePostWebScreen() {
   return (
     <View style={styles.screen}>
       <Pressable
-        onPress={() => router.back()}
+        onPress={() => goBack()}
         style={styles.backButton}
         accessibilityRole="button"
         accessibilityLabel="Go back"

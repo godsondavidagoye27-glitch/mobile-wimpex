@@ -1,3 +1,4 @@
+import { goBack } from '../lib/navigation';
 import * as Crypto from 'expo-crypto';
 import * as ImagePicker from 'expo-image-picker';
 import { Directory, File, Paths } from 'expo-file-system';
@@ -523,7 +524,7 @@ export default function CreatePostScreen() {
 
   const leaveComposer = () => {
     if (!draft.uri && !draft.caption.trim()) {
-      router.back();
+      goBack();
       return;
     }
     Alert.alert(
@@ -534,7 +535,7 @@ export default function CreatePostScreen() {
           text: 'Keep draft',
           onPress: () => {
             void flushActiveDraft().then((saved) => {
-              if (saved) router.back();
+              if (saved) goBack();
             });
           },
         },
@@ -543,7 +544,7 @@ export default function CreatePostScreen() {
           style: 'destructive',
           onPress: () => {
             void (async () => {
-              if (await discardDraft(draftId)) router.back();
+              if (await discardDraft(draftId)) goBack();
             })();
           },
         },

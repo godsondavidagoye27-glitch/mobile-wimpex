@@ -1,3 +1,4 @@
+import { goBack } from '../../lib/navigation';
 import { getErrorMessage } from '../../lib/errorMessage';
 import * as ImagePicker from 'expo-image-picker';
 import { router, useNavigation } from 'expo-router';
@@ -199,7 +200,7 @@ export default function EditProfileScreen() {
       }).eq('id', profile.id);
       if (updateError) throw updateError;
       setSaved(true);
-      router.back();
+      goBack();
     } catch (caught) {
       if (uploadedPath) {
         const { error: cleanupError } = await getSupabaseClient().storage.from('avatars').remove([uploadedPath]);
@@ -219,7 +220,7 @@ export default function EditProfileScreen() {
     if (pendingNavigationAction) {
       pendingNavigationAction();
     } else {
-      router.back();
+      goBack();
     }
     setPendingNavigationAction(null);
   };
@@ -250,7 +251,7 @@ export default function EditProfileScreen() {
   return (
     <KeyboardAwareScreen style={styles.screen}>
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} accessibilityRole="button" style={styles.iconButton} accessibilityLabel="Go back">
+        <Pressable onPress={() => goBack()} accessibilityRole="button" style={styles.iconButton} accessibilityLabel="Go back">
           <Icon name="back" size={20} color={theme.colors.white} />
         </Pressable>
         <Text style={styles.title}>Edit profile</Text>

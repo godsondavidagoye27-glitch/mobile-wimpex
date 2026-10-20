@@ -1,3 +1,4 @@
+import { goBack } from '../../lib/navigation';
 import { getErrorMessage } from '../../lib/errorMessage';
 import { createProfileShareUrl } from '../sharing/shareLinks';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -426,7 +427,7 @@ export function ProfileScreen({ username }: { username: string | null }) {
     return (
       <View style={styles.screen}>
         <View style={styles.header}>
-          <Pressable onPress={() => router.back()} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Go back">
+          <Pressable onPress={() => goBack()} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Go back">
             <Icon name="back" size={20} color={theme.colors.white} />
           </Pressable>
         </View>
@@ -615,7 +616,7 @@ export function ProfileScreen({ username }: { username: string | null }) {
   return (
     <View style={styles.screen}>
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Go back">
+        <Pressable onPress={() => goBack()} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Go back">
           <Icon name="back" size={20} color={theme.colors.white} />
         </Pressable>
         <Text style={styles.headerUsername}>{shownProfile.username}</Text>

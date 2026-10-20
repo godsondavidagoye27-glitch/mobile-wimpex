@@ -1,3 +1,4 @@
+import { goBack } from '../lib/navigation';
 import type { ErrorBoundaryProps } from 'expo-router';
 import { router, usePathname } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
@@ -77,7 +78,7 @@ export function RouteErrorFallback({ error, retry }: ErrorBoundaryProps) {
       <Pressable accessibilityRole="button" onPress={retry} style={styles.button}>
         <Text style={styles.buttonText}>Try again</Text>
       </Pressable>
-      <Pressable accessibilityRole="button" onPress={() => router.back()} style={styles.backButton}>
+      <Pressable accessibilityRole="button" onPress={() => goBack()} style={styles.backButton}>
         <Text style={styles.backText}>Go back</Text>
       </Pressable>
     </View>

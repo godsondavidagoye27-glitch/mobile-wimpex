@@ -1,3 +1,4 @@
+import { goBack } from '../../lib/navigation';
 import { getErrorMessage } from '../../lib/errorMessage';
 import {
   AudioSession,
@@ -322,7 +323,7 @@ function CallSessionScreen({
     const currentCallId = call?.id ?? callId;
     if (endingRef.current) return;
     if (!currentCallId) {
-      router.back();
+      goBack();
       return;
     }
     endingRef.current = true;
@@ -335,7 +336,7 @@ function CallSessionScreen({
     } finally {
       setConnection(null);
       setBusy(false);
-      router.back();
+      goBack();
     }
   }, [call?.id, callId, setCallRequestError, setCallState]);
 
@@ -346,7 +347,7 @@ function CallSessionScreen({
       } else if (callRef.current && !isTerminalCallStatus(callRef.current.status)) {
         void finishCall(callRef.current.status === 'ringing' && incoming ? 'decline' : 'end');
       } else {
-        router.back();
+        goBack();
       }
       return true;
     });
@@ -432,7 +433,7 @@ function CallSessionScreen({
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Close call screen"
-            onPress={() => incoming && callId ? void finishCall('decline') : router.back()}
+            onPress={() => incoming && callId ? void finishCall('decline') : goBack()}
             style={styles.closeButton}
           >
             <Icon name="close" color={theme.colors.white} />
@@ -489,7 +490,7 @@ function CallSessionScreen({
                   <Text style={styles.controlLabel}>End call</Text>
                 </Pressable>
               ) : (
-                <Pressable accessibilityRole="button" onPress={() => router.back()} style={styles.backButton}>
+                <Pressable accessibilityRole="button" onPress={() => goBack()} style={styles.backButton}>
                   <Text style={styles.backButtonText}>Close</Text>
                 </Pressable>
               )}

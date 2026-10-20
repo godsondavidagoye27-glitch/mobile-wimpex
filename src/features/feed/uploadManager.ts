@@ -106,9 +106,25 @@ function removeItem(key: string): Promise<void> {
   return import('expo-sqlite/kv-store').then(({ Storage }) => Storage.removeItem(key));
 }
 
-function publishJobs() {
-  const snapshot = [...jobs.values()];
-  listeners.forEach((listener) => listener(snapshot));
+let lastPublishAt = 0;
+let publishTimer: ReturnType<typeof setTimeout> | null = null;
+
+function publishJobs(throttle = false) {
+  const emit = () => {
+    publishTimer = null;
+    lastPublishAt = Date.now();
+    const snapshot = [...jobs.values()];
+    listeners.forEach((listener) => listener(snapshot));
+  };
+  if (!throttle) {
+    if (publishTimer) clearTimeout(publishTimer);
+    emit();
+    return;
+  }
+  // Progress ticks fire many times a second; re-rendering the home feed for each one causes jank.
+  if (publishTimer) return;
+  const wait = Math.max(0, 400 - (Date.now() - lastPublishAt));
+  publishTimer = setTimeout(emit, wait);
 }
 
 async function hydrateJobs() {
@@ -159,8 +175,10 @@ async function saveJob(job: VideoUploadJob, persistProgress = true) {
       throw error;
     }
   }
+  const previous = jobs.get(job.id);
   jobs.set(job.id, job);
-  publishJobs();
+  // Only plain progress updates are throttled; state/error changes publish immediately.
+  publishJobs(!persistProgress && previous?.state === job.state && previous?.error === job.error);
 }
 
 function getStorageEndpoint() {

@@ -1,3 +1,4 @@
+import { goBack } from '../../../lib/navigation';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
@@ -77,7 +78,7 @@ export default function EditPostScreen() {
         .eq('author_id', post.author_id);
       if (updateError) throw updateError;
       if (payload.caption !== post.caption) requestPendingModeration('post');
-      router.back();
+      goBack();
     } catch (caught) {
       setError(await getErrorMessage(caught, 'Could not save post changes.'));
     } finally {
@@ -90,7 +91,7 @@ export default function EditPostScreen() {
   return (
     <View style={styles.screen}>
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.back} accessibilityRole="button" accessibilityLabel="Go back">
+        <Pressable onPress={() => goBack()} style={styles.back} accessibilityRole="button" accessibilityLabel="Go back">
           <Icon name="back" size={20} color={theme.colors.white} />
         </Pressable>
         <Text style={styles.title}>Edit post</Text>

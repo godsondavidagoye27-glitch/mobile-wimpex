@@ -1,3 +1,4 @@
+import { goBack } from '../lib/navigation';
 import { Image } from 'expo-image';
 import { useEvent } from 'expo';
 import { useVideoPlayer, VideoView, type VideoPlayer, type VideoThumbnail } from 'expo-video';
@@ -260,7 +261,7 @@ function VideoEditorContent() {
   const cancel = useCallback(() => {
     cancelledRef.current = true;
     finishVideoEditorRequest(requestId, null);
-    router.back();
+    goBack();
   }, [requestId]);
 
   const done = async () => {
@@ -291,7 +292,7 @@ function VideoEditorContent() {
         endMs: range.endMs,
       };
       finishVideoEditorRequest(requestId, editorResult);
-      router.back();
+      goBack();
     } catch (exportError) {
       console.error('Unable to export edited video.', exportError);
       if (!cancelledRef.current && mountedRef.current) {

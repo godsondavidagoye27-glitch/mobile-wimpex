@@ -1,3 +1,4 @@
+import { goBack } from '../../lib/navigation';
 import { getErrorMessage } from '../../lib/errorMessage';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useNetworkState } from 'expo-network';
@@ -1001,7 +1002,7 @@ export default function ChatThreadScreen() {
           void supabase.from('blocks').insert({ blocker_id: userId, blocked_id: peer.id })
             .then(({ error: blockError }) => {
               if (blockError) Alert.alert('Could not block this person', blockError.message);
-              else router.back();
+              else goBack();
             });
         },
       },
@@ -1173,7 +1174,7 @@ export default function ChatThreadScreen() {
         style={styles.screen}
         header={(
           <View style={styles.header}>
-            <Pressable onPress={() => router.back()} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Go back">
+            <Pressable onPress={() => goBack()} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Go back">
               <Icon name="back" size={20} color={theme.colors.white} />
             </Pressable>
             <Text style={styles.headerTitle}>Chat</Text>
@@ -1196,7 +1197,7 @@ export default function ChatThreadScreen() {
     return (
       <View style={styles.screen}>
         <View style={styles.header}>
-          <Pressable onPress={() => router.back()} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Go back">
+          <Pressable onPress={() => goBack()} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Go back">
             <Icon name="back" size={20} color={theme.colors.white} />
           </Pressable>
           <Text style={styles.headerTitle}>Chat</Text>
@@ -1223,7 +1224,7 @@ export default function ChatThreadScreen() {
         header={(
           <View>
           <View style={styles.header}>
-            <Pressable onPress={() => router.back()} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Go back">
+            <Pressable onPress={() => goBack()} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Go back">
               <Icon name="back" size={20} color={theme.colors.white} />
             </Pressable>
             <View style={styles.headerAvatar}>

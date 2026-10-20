@@ -1,3 +1,4 @@
+import { goBack } from '../lib/navigation';
 import { getErrorMessage } from '../lib/errorMessage';
 import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
@@ -201,7 +202,7 @@ export default function CreateCommunityScreen() {
   return (
     <KeyboardAwareScreen style={styles.screen}>
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Go back">
+        <Pressable onPress={() => goBack()} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Go back">
           <Icon name="back" size={20} color={theme.colors.white} />
         </Pressable>
         <Text style={styles.title}>New community</Text>

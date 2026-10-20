@@ -1,3 +1,4 @@
+import { goBack } from '../../lib/navigation';
 import { getErrorMessage } from '../../lib/errorMessage';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -187,7 +188,7 @@ export function StoryHighlightsScreen() {
   return (
     <KeyboardAwareScreen style={styles.screen}>
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} accessibilityRole="button" accessibilityLabel="Go back">
+        <Pressable onPress={() => goBack()} accessibilityRole="button" accessibilityLabel="Go back">
           <Icon name="back" color={theme.colors.white} />
         </Pressable>
         <Text style={styles.heading}>Highlights</Text>
