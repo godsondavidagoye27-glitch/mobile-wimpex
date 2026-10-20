@@ -73,9 +73,11 @@ export function filterGoLivePushRecipients(
   blockedIds: ReadonlySet<string>,
   pushDisabledIds: ReadonlySet<string>,
   quietHoursIds: ReadonlySet<string>,
+  mutedIds: ReadonlySet<string> = new Set(),
 ): string[] {
   return [...new Set(candidateIds)].filter((userId) =>
     !blockedIds.has(userId)
       && !pushDisabledIds.has(userId)
-      && !quietHoursIds.has(userId));
+      && !quietHoursIds.has(userId)
+      && !mutedIds.has(userId));
 }

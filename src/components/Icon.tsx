@@ -9,6 +9,7 @@ import {
   Check,
   ChevronRight,
   Circle,
+  Compass,
   Download,
   Eye,
   EyeOff,
@@ -48,6 +49,7 @@ import {
 
 const iconMap = {
   home: Home,
+  explore: Compass,
   chats: MessageSquare,
   plus: Plus,
   groups: Users,

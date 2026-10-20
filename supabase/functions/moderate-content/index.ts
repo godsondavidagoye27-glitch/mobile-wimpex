@@ -145,13 +145,25 @@ Deno.serve(async (request) => {
 
 async function loadContent(
   admin: ReturnType<typeof createClient>,
-  type: 'post' | 'comment',
+  type: 'post' | 'comment' | 'story_question_reply',
   id: string,
 ): Promise<{ text: string; imageUrl: string | null; authorId: string | null }> {
   if (type === 'comment') {
     const { data, error } = await admin.from('comments').select('body,author_id').eq('id', id).maybeSingle();
     if (error) throw error;
     return { text: data?.body ?? '', imageUrl: null, authorId: data?.author_id ?? null };
+  }
+  if (type === 'story_question_reply') {
+    const { data, error } = await admin.from('story_question_replies')
+      .select('body,responder_id')
+      .eq('id', id)
+      .maybeSingle();
+    if (error) throw error;
+    return {
+      text: data?.body ?? '',
+      imageUrl: null,
+      authorId: data?.responder_id ?? null,
+    };
   }
   const { data, error } = await admin.from('posts')
     .select('caption,author_id,thumb_path')
@@ -167,11 +179,15 @@ async function loadContent(
 
 async function setModerationStatus(
   admin: ReturnType<typeof createClient>,
-  type: 'post' | 'comment',
+  type: 'post' | 'comment' | 'story_question_reply',
   id: string,
   status: 'clear' | 'hidden',
 ) {
-  const table = type === 'post' ? 'posts' : 'comments';
+  const table = type === 'post'
+    ? 'posts'
+    : type === 'comment'
+      ? 'comments'
+      : 'story_question_replies';
   const { error } = await admin.from(table).update({ moderation_status: status }).eq('id', id);
   if (error) throw error;
 }

@@ -3,6 +3,10 @@ import { AccessToken } from 'npm:livekit-server-sdk@2';
 import { sendExpoPushMessages } from '../_shared/expoPush.ts';
 import { getStaleCallTerminalStatus } from '../_shared/callLifecycle.ts';
 import { getCallErrorDetails, mapCallFailure } from '../_shared/callErrors.ts';
+import {
+  isNotificationTargetMuted,
+  type NotificationMuteRow,
+} from '../_shared/notificationMute.ts';
 
 type Action = 'start' | 'accept' | 'connected' | 'heartbeat' | 'end' | 'decline' | 'expire';
 type CallSession = {
@@ -64,6 +68,21 @@ function isTerminal(status: CallSession['status']) {
   return status === 'ended' || status === 'declined' || status === 'missed';
 }
 
+async function hasMutedIncomingCalls(
+  admin: ReturnType<typeof createClient>,
+  ownerId: string,
+  callerId: string,
+) {
+  const { data, error } = await admin.from('notification_mutes')
+    .select('owner_id,target_type,target_id,muted_until,mute_calls')
+    .eq('owner_id', ownerId)
+    .eq('target_type', 'user')
+    .eq('target_id', callerId)
+    .eq('mute_calls', true);
+  if (error) throw error;
+  return isNotificationTargetMuted((data ?? []) as NotificationMuteRow[], ownerId, 'user', callerId, Date.now(), true);
+}
+
 Deno.serve(async (request) => {
   if (request.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   if (request.method !== 'POST') return jsonResponse(405, { error: 'Method not allowed.' });
@@ -121,6 +140,11 @@ Deno.serve(async (request) => {
       stage = 'eligibility';
       const eligibility = await checkEligibility(admin, payload.conversationId, userId);
       if (eligibility.error) return jsonResponse(eligibility.status, { error: eligibility.error });
+      const peer = eligibility.profiles.find((profile) => profile.id !== userId)!;
+      stage = 'check_call_mute';
+      if (await hasMutedIncomingCalls(admin, peer.id, userId)) {
+        return jsonResponse(403, { error: 'This person has chosen not to receive calls from you.' });
+      }
 
       stage = 'load_stale_calls';
       const { data: staleCalls, error: staleError } = await admin
@@ -142,7 +166,6 @@ Deno.serve(async (request) => {
         if (error) throw error;
       }
 
-      const peer = eligibility.profiles.find((profile) => profile.id !== userId)!;
       stage = 'insert_session';
       const { data, error } = await admin.from('call_sessions').insert({
         conversation_id: payload.conversationId,
@@ -203,6 +226,10 @@ Deno.serve(async (request) => {
         stage = 'eligibility';
         const eligibility = await checkEligibility(admin, session.conversation_id, userId);
         if (eligibility.error) return jsonResponse(eligibility.status, { error: eligibility.error });
+        stage = 'check_call_mute';
+        if (await hasMutedIncomingCalls(admin, userId, session.caller_id)) {
+          return jsonResponse(403, { error: 'This person has chosen not to receive calls from you.' });
+        }
         stage = 'update_session';
         const { data: updated, error: updateError } = await admin.from('call_sessions')
           .update({ status: 'connecting', last_activity_at: new Date().toISOString() })

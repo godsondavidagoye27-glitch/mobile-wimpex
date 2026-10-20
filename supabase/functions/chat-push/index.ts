@@ -1,6 +1,10 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { constantTimeEquals } from '../_shared/constantTime.ts';
 import { sendExpoPushMessages, type ExpoPushTicket } from '../_shared/expoPush.ts';
+import {
+  isNotificationTargetMuted,
+  type NotificationMuteRow,
+} from '../_shared/notificationMute.ts';
 
 type Message = {
   id: string;
@@ -242,7 +246,11 @@ Deno.serve(async (request) => {
     const recipientIds = candidateIds.filter((userId) => !blockedIds.has(userId));
     if (!recipientIds.length) return jsonResponse(200, { delivered: 0 });
 
-    const [{ data: settings, error: settingsError }, { data: tokens, error: tokensError }] =
+    const [
+      { data: settings, error: settingsError },
+      { data: tokens, error: tokensError },
+      { data: mutes, error: mutesError },
+    ] =
       await Promise.all([
         serviceClient
           .from('user_settings')
@@ -252,13 +260,23 @@ Deno.serve(async (request) => {
           .from('device_push_tokens')
           .select('user_id,installation_id,expo_push_token')
           .in('user_id', recipientIds),
+        serviceClient
+          .from('notification_mutes')
+          .select('owner_id,target_type,target_id,muted_until,mute_calls')
+          .in('owner_id', recipientIds)
+          .in('target_type', ['user', 'conversation'])
+          .in('target_id', [message.sender_id, message.conversation_id]),
       ]);
     if (settingsError) throw settingsError;
     if (tokensError) throw tokensError;
+    if (mutesError) throw mutesError;
+    const activeMutes = (mutes ?? []) as NotificationMuteRow[];
     const settingsByUser = new Map((settings ?? []).map((setting) => [setting.user_id, setting]));
     const eligibleRecipients = recipientIds.filter((userId) => {
       const setting = settingsByUser.get(userId);
-      return setting ? setting.push_enabled && setting.notify_messages : true;
+      return (setting ? setting.push_enabled && setting.notify_messages : true)
+        && !isNotificationTargetMuted(activeMutes, userId, 'user', message.sender_id)
+        && !isNotificationTargetMuted(activeMutes, userId, 'conversation', message.conversation_id);
     });
     const quietHoursResults = await Promise.all(eligibleRecipients.map(async (userId) => {
       const { data: suppress, error: quietHoursError } = await serviceClient

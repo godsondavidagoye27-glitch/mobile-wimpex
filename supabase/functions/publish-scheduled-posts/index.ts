@@ -2,6 +2,10 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { constantTimeEquals } from '../_shared/constantTime.ts';
 import { sendExpoPushMessages } from '../_shared/expoPush.ts';
 import {
+  isNotificationMuteActive,
+  type NotificationMuteRow,
+} from '../_shared/notificationMute.ts';
+import {
   filterGoLivePushRecipients,
   selectDueScheduledPosts,
 } from '../../../src/features/feed/scheduledPosts.ts';
@@ -96,6 +100,19 @@ async function sendGoLivePushes(admin: ReturnType<typeof createClient>, post: Pu
   const pushEnabledIds = candidateIds.filter((userId) => !pushDisabledIds.has(userId));
   if (!pushEnabledIds.length) return 0;
 
+  const { data: mutes, error: mutesError } = await admin
+    .from('notification_mutes')
+    .select('owner_id,target_type,target_id,muted_until,mute_calls')
+    .in('owner_id', candidateIds)
+    .eq('target_type', 'user')
+    .eq('target_id', post.author_id);
+  if (mutesError) throw mutesError;
+  const mutedIds = new Set(
+    (mutes ?? [])
+      .filter((mute: NotificationMuteRow) => isNotificationMuteActive(mute.muted_until))
+      .map((mute: NotificationMuteRow) => mute.owner_id),
+  );
+
   const quietResults = await Promise.all(pushEnabledIds.map(async (userId) => {
     const { data: suppress, error } = await admin.rpc('teen_should_suppress_push', { p_user_id: userId });
     if (error) {
@@ -115,6 +132,7 @@ async function sendGoLivePushes(admin: ReturnType<typeof createClient>, post: Pu
     blockedIds,
     pushDisabledIds,
     quietIds,
+    mutedIds,
   );
   if (!eligibleRecipientIds.length) return 0;
 

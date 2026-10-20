@@ -18,6 +18,13 @@ import { Icon } from '../components/Icon';
 import { FocusableTextInput } from '../components/AuthField';
 import { getErrorMessage } from '../lib/errorMessage';
 import { createStory } from '../features/stories/storyService';
+import { SectionErrorBoundary } from '../components/SectionErrorBoundary';
+import {
+  StoryStickerPreview,
+  StickerSizeControls,
+  type StoryStickerDraft,
+} from '../features/stories/StoryStickerPreview';
+import { validateStorySticker } from '../features/stories/storyStickerLogic';
 import {
   fitStoryImageDimensions,
   validateStoryCaption,
@@ -58,6 +65,7 @@ export default function CreateStoryScreen() {
   const [caption, setCaption] = useState('');
   const [captionColor, setCaptionColor] = useState<CaptionColor>('dark');
   const [audience, setAudience] = useState<Audience>('everyone');
+  const [sticker, setSticker] = useState<StoryStickerDraft | null>(null);
   const [media, setMedia] = useState<{
     uri: string;
     kind: 'image' | 'video';
@@ -261,6 +269,11 @@ export default function CreateStoryScreen() {
       setError('Add close friends first.');
       return;
     }
+    const stickerError = sticker ? validateStorySticker(sticker) : null;
+    if (stickerError) {
+      setError(stickerError);
+      return;
+    }
 
     setBusy(true);
     const id = Crypto.randomUUID();
@@ -278,6 +291,7 @@ export default function CreateStoryScreen() {
         durationMs: media.durationMs,
         width: media.width,
         height: media.height,
+        sticker,
       });
       if (media.kind === 'video') deleteEditedVideo(media.uri);
       router.replace({ pathname: '/story/[authorId]', params: { authorId: created.authorId } });
@@ -329,6 +343,14 @@ export default function CreateStoryScreen() {
           ) : (
             <Text style={styles.previewPlaceholder}>Choose a photo or video.</Text>
           )}
+          {media && sticker ? (
+            <SectionErrorBoundary title="Sticker preview unavailable">
+              <StoryStickerPreview
+                sticker={sticker}
+                onChange={setSticker}
+              />
+            </SectionErrorBoundary>
+          ) : null}
           {media?.kind === 'video' ? (
             <Pressable
               onPress={() => void editStoryVideo(media).catch(async (editError: unknown) => {
@@ -342,6 +364,87 @@ export default function CreateStoryScreen() {
               <Text style={styles.editVideoText}>Edit video</Text>
             </Pressable>
           ) : null}
+        </View>
+
+        <View style={styles.card}>
+          <Text style={styles.label}>Interactive story sticker</Text>
+          <View style={styles.stickerTypeRow}>
+            {(['poll', 'question'] as const).map((kind) => (
+              <Pressable
+                key={kind}
+                onPress={() => setSticker((current) => current
+                  ? { ...current, kind }
+                  : {
+                    kind,
+                    prompt: '',
+                    optionOne: '',
+                    optionTwo: '',
+                    positionX: 0.5,
+                    positionY: 0.65,
+                    scale: 1,
+                  })}
+                style={[styles.stickerType, sticker?.kind === kind && styles.stickerTypeSelected]}
+                accessibilityRole="button"
+                accessibilityState={{ selected: sticker?.kind === kind }}
+              >
+                <Text style={[styles.stickerTypeText, sticker?.kind === kind && styles.stickerTypeTextSelected]}>
+                  {kind === 'poll' ? '2-option poll' : 'Question'}
+                </Text>
+              </Pressable>
+            ))}
+            {sticker ? (
+              <Pressable
+                onPress={() => setSticker(null)}
+                style={styles.removeSticker}
+                accessibilityRole="button"
+                accessibilityLabel="Remove interactive sticker"
+              >
+                <Icon name="close" size={20} color={theme.colors.textMuted} />
+              </Pressable>
+            ) : null}
+          </View>
+          {sticker ? (
+            <>
+              <FocusableTextInput
+                value={sticker.prompt}
+                onChangeText={(prompt) => setSticker((current) => current ? { ...current, prompt } : current)}
+                placeholder={sticker.kind === 'poll' ? 'Ask a poll question' : 'Ask your followers'}
+                placeholderTextColor={theme.colors.textMuted}
+                maxLength={120}
+                style={styles.stickerInput}
+                accessibilityLabel="Sticker prompt"
+              />
+              {sticker.kind === 'poll' ? (
+                <View style={styles.pollOptions}>
+                  <FocusableTextInput
+                    value={sticker.optionOne}
+                    onChangeText={(optionOne) => setSticker((current) => current ? { ...current, optionOne } : current)}
+                    placeholder="First choice"
+                    placeholderTextColor={theme.colors.textMuted}
+                    maxLength={40}
+                    style={[styles.stickerInput, styles.pollOptionInput]}
+                    accessibilityLabel="First poll choice"
+                  />
+                  <FocusableTextInput
+                    value={sticker.optionTwo}
+                    onChangeText={(optionTwo) => setSticker((current) => current ? { ...current, optionTwo } : current)}
+                    placeholder="Second choice"
+                    placeholderTextColor={theme.colors.textMuted}
+                    maxLength={40}
+                    style={[styles.stickerInput, styles.pollOptionInput]}
+                    accessibilityLabel="Second poll choice"
+                  />
+                </View>
+              ) : null}
+              <StickerSizeControls
+                scale={sticker.scale}
+                onChange={(scale) => setSticker((current) => current ? { ...current, scale } : current)}
+              />
+              <Text style={styles.stickerHint}>Drag the sticker on the preview to position it.</Text>
+            </>
+          ) : (
+            <Text style={styles.stickerHint}>Add a poll or question your viewers can answer.</Text>
+          )}
         </View>
 
         <View style={styles.card}>
@@ -439,6 +542,16 @@ const styles = StyleSheet.create({
   colorSelected: { borderWidth: 3, borderColor: theme.colors.white },
   captionPreview: { minHeight: 38, alignItems: 'center', justifyContent: 'center', padding: 8, borderRadius: 10 },
   captionPreviewText: { color: '#FFFFFF', fontSize: 13, fontWeight: '700', textAlign: 'center' },
+  stickerTypeRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12, marginBottom: 8 },
+  stickerType: { minHeight: 38, justifyContent: 'center', paddingHorizontal: 12, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.line },
+  stickerTypeSelected: { borderColor: theme.colors.primary, backgroundColor: 'rgba(214,178,94,0.12)' },
+  stickerTypeText: { color: theme.colors.textMuted, fontSize: 12, fontWeight: '700' },
+  stickerTypeTextSelected: { color: theme.colors.primary },
+  removeSticker: { width: 38, height: 38, marginLeft: 'auto', alignItems: 'center', justifyContent: 'center' },
+  stickerInput: { minHeight: 44, marginTop: 8, paddingHorizontal: 10, color: theme.colors.white, borderRadius: 10, borderWidth: 1, borderColor: theme.colors.line, fontSize: 14 },
+  pollOptions: { flexDirection: 'row', gap: 8 },
+  pollOptionInput: { flex: 1 },
+  stickerHint: { marginTop: 8, color: theme.colors.textMuted, fontSize: 12, lineHeight: 17 },
   audienceRow: { minHeight: 62, paddingHorizontal: 14, borderRadius: 16, borderWidth: 1, borderColor: theme.colors.line, backgroundColor: theme.colors.surface, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   audienceValue: { color: theme.colors.white, fontSize: 14, fontWeight: '700', marginTop: 3 },
   addFriends: { minHeight: 44, justifyContent: 'center' },

@@ -20,6 +20,7 @@ import {
 } from 'react-native';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { Icon } from '../../components/Icon';
+import { NotificationMuteSheet } from '../../features/notifications/NotificationMuteSheet';
 import { NameWithBadge } from '../../components/NameWithBadge';
 import { FocusableTextInput } from '../../components/AuthField';
 import { ChatScreenLayout } from '../../components/ChatScreenLayout';
@@ -98,6 +99,7 @@ export default function CommunityScreen() {
   const [memberQuery, setMemberQuery] = useState('');
   const [selectedMember, setSelectedMember] = useState<CommunityMemberRpcRow | null>(null);
   const [communityActionsOpen, setCommunityActionsOpen] = useState(false);
+  const [muteCommunityOpen, setMuteCommunityOpen] = useState(false);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteInput, setInviteInput] = useState('');
   const [inviteQuery, setInviteQuery] = useState('');
@@ -1147,6 +1149,14 @@ export default function CommunityScreen() {
                 <Text style={styles.modalActionText}>Leave community</Text>
               </Pressable>
             ) : null}
+            {isActiveMember && community ? (
+              <Pressable style={styles.modalAction} onPress={() => {
+                setCommunityActionsOpen(false);
+                setMuteCommunityOpen(true);
+              }}>
+                <Text style={styles.modalActionText}>Mute community notifications</Text>
+              </Pressable>
+            ) : null}
             <Pressable style={styles.modalAction} onPress={() => {
               setCommunityActionsOpen(false);
               Alert.alert('Report sent', 'Thanks for flagging this community. The moderation team will review it.');
@@ -1167,6 +1177,16 @@ export default function CommunityScreen() {
           </View>
         </Pressable>
       </Modal>
+      {community ? (
+        <NotificationMuteSheet
+          visible={muteCommunityOpen}
+          targetType="community"
+          targetId={community.id}
+          targetLabel={community.name}
+          onClose={() => setMuteCommunityOpen(false)}
+          onSaved={() => Alert.alert('Community muted', `Notifications from ${community.name} are muted.`)}
+        />
+      ) : null}
 
       <Modal visible={reportsOpen} transparent animationType="slide" onRequestClose={() => setReportsOpen(false)}>
         <View style={styles.inviteBackdrop}>

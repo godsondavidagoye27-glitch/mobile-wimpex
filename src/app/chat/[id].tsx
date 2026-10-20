@@ -33,6 +33,7 @@ import { getStoryReplyPreviewUrl } from '../../features/stories/storyService';
 import { ChatMediaComposer } from '../../features/chats/ChatMediaComposer';
 import { ChatMediaMessage } from '../../features/chats/ChatMediaMessage';
 import { SectionErrorBoundary } from '../../components/SectionErrorBoundary';
+import { NotificationMuteSheet } from '../../features/notifications/NotificationMuteSheet';
 import { deleteEditedVideo } from '../../features/video-editor/exportVideo';
 import {
   fetchChatList,
@@ -197,6 +198,8 @@ export default function ChatThreadScreen() {
   const [selectedForwardIds, setSelectedForwardIds] = useState<Set<string>>(new Set());
   const [forwardLoading, setForwardLoading] = useState(false);
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
+  const [muteUserOpen, setMuteUserOpen] = useState(false);
+  const [muteConversationOpen, setMuteConversationOpen] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
   const [reportReason, setReportReason] = useState('');
   const [reportTarget, setReportTarget] = useState<{ type: 'message' | 'conversation'; id: string } | null>(null);
@@ -1512,6 +1515,16 @@ export default function ChatThreadScreen() {
                 <Text style={styles.dangerMenuText}>Block {peer.display_name}</Text>
               </Pressable>
             ) : null}
+            {peer && conversation?.type === 'direct' ? (
+              <Pressable onPress={() => { setHeaderMenuOpen(false); setMuteUserOpen(true); }} style={styles.menuItem} accessibilityRole="button">
+                <Text style={styles.menuItemText}>Mute {peer.display_name}</Text>
+              </Pressable>
+            ) : null}
+            {conversation ? (
+              <Pressable onPress={() => { setHeaderMenuOpen(false); setMuteConversationOpen(true); }} style={styles.menuItem} accessibilityRole="button">
+                <Text style={styles.menuItemText}>Mute this conversation</Text>
+              </Pressable>
+            ) : null}
             <Pressable onPress={() => {
               setHeaderMenuOpen(false);
               setReportTarget({ type: 'conversation', id: conversationId });
@@ -1522,6 +1535,26 @@ export default function ChatThreadScreen() {
           </View>
         </Pressable>
       </Modal>
+      {peer && conversation?.type === 'direct' ? (
+        <NotificationMuteSheet
+          visible={muteUserOpen}
+          targetType="user"
+          targetId={peer.id}
+          targetLabel={peer.display_name}
+          onClose={() => setMuteUserOpen(false)}
+          onSaved={() => Alert.alert('Notifications muted', `Notifications from ${peer.display_name} are muted.`)}
+        />
+      ) : null}
+      {conversation ? (
+        <NotificationMuteSheet
+          visible={muteConversationOpen}
+          targetType="conversation"
+          targetId={conversation.id}
+          targetLabel="this conversation"
+          onClose={() => setMuteConversationOpen(false)}
+          onSaved={() => Alert.alert('Conversation muted', 'Notifications for this conversation are muted.')}
+        />
+      ) : null}
 
       <Modal transparent visible={reportOpen} animationType="slide" onRequestClose={() => setReportOpen(false)}>
         <KeyboardAwareScreen style={{ flex: 1 }}>

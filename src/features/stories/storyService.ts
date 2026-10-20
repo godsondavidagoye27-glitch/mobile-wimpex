@@ -1,7 +1,13 @@
 import { File } from 'expo-file-system';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getSupabaseClient } from '../../lib/supabase';
-import type { AuthorStoryRpcRow, Database, StoryRailRow } from '../../types/database';
+import type {
+  AuthorStoryRpcRow,
+  Database,
+  StoryPollResultsRpcRow,
+  StoryQuestionReplyRpcRow,
+  StoryRailRow,
+} from '../../types/database';
 import { mapSignedUrlResults } from '../feed/signedUrls';
 import { getVideoExtension } from '../media/videoExtension';
 import { orderStoryRail } from './storyTimeline';
@@ -37,6 +43,15 @@ export type CreateStoryInput = {
   durationMs: number;
   width: number;
   height: number;
+  sticker?: {
+    kind: 'poll' | 'question';
+    prompt: string;
+    optionOne?: string;
+    optionTwo?: string;
+    positionX: number;
+    positionY: number;
+    scale: number;
+  } | null;
 };
 
 function getClient(): Client {
@@ -211,17 +226,23 @@ export async function createStory(input: CreateStoryInput, client = getClient())
   });
   if (uploadError) throw uploadError;
 
-  const { error: insertError } = await client.from('stories').insert({
-    id: input.id,
-    author_id: authorId,
-    kind: input.kind,
-    media_path: mediaPath,
-    caption: input.caption.trim() || null,
-    caption_style: input.caption.trim() ? input.captionStyle : null,
-    audience: input.audience,
-    duration_ms: input.kind === 'image' ? 5000 : input.durationMs,
-    width: input.width,
-    height: input.height,
+  const { error: insertError } = await client.rpc('create_story_with_sticker', {
+    p_story_id: input.id,
+    p_kind: input.kind,
+    p_media_path: mediaPath,
+    p_caption: input.caption.trim() || null,
+    p_caption_style: input.caption.trim() ? input.captionStyle ?? null : null,
+    p_audience: input.audience,
+    p_duration_ms: input.kind === 'image' ? 5000 : input.durationMs,
+    p_width: input.width,
+    p_height: input.height,
+    p_sticker_kind: input.sticker?.kind ?? null,
+    p_sticker_prompt: input.sticker?.prompt.trim() || null,
+    p_option_one: input.sticker?.optionOne?.trim() || null,
+    p_option_two: input.sticker?.optionTwo?.trim() || null,
+    p_position_x: input.sticker?.positionX ?? 0.5,
+    p_position_y: input.sticker?.positionY ?? 0.65,
+    p_scale: input.sticker?.scale ?? 1,
   });
   if (insertError) {
     const { error: cleanupError } = await client.storage.from('stories').remove([mediaPath]);
@@ -232,6 +253,55 @@ export async function createStory(input: CreateStoryInput, client = getClient())
   }
 
   return { storyId: input.id, authorId };
+}
+
+export async function getStorySticker(storyId: string, client = getClient()) {
+  const { data, error } = await client
+    .from('story_stickers')
+    .select('*')
+    .eq('story_id', storyId)
+    .maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
+export async function getStoryPollResults(stickerId: string, client = getClient()) {
+  const { data, error } = await client.rpc('get_story_poll_results', { p_sticker_id: stickerId });
+  if (error) throw error;
+  return data?.[0] ?? null;
+}
+
+export async function voteOnStoryPoll(
+  stickerId: string,
+  optionNumber: 1 | 2,
+  client = getClient(),
+): Promise<StoryPollResultsRpcRow> {
+  const { data, error } = await client.rpc('vote_on_story_poll', {
+    p_sticker_id: stickerId,
+    p_option_number: optionNumber,
+  });
+  if (error) throw error;
+  if (!data?.[0]) throw new Error('The poll results could not be loaded.');
+  return data[0];
+}
+
+export async function replyToStoryQuestion(stickerId: string, body: string, client = getClient()) {
+  const { data, error } = await client.rpc('reply_to_story_question', {
+    p_sticker_id: stickerId,
+    p_body: body.trim(),
+  });
+  if (error) throw error;
+  if (!data) throw new Error('Your reply could not be sent.');
+  return data;
+}
+
+export async function getStoryQuestionReplies(
+  stickerId: string,
+  client = getClient(),
+): Promise<StoryQuestionReplyRpcRow[]> {
+  const { data, error } = await client.rpc('get_story_question_replies', { p_sticker_id: stickerId });
+  if (error) throw error;
+  return data ?? [];
 }
 
 export async function deleteStory(story: AuthorStoryRpcRow, client = getClient()) {

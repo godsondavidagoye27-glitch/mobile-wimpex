@@ -29,6 +29,8 @@ import Animated, {
 import { Icon } from '../../components/Icon';
 import { NameWithBadge } from '../../components/NameWithBadge';
 import { FocusableTextInput } from '../../components/AuthField';
+import { SectionErrorBoundary } from '../../components/SectionErrorBoundary';
+import { StoryStickerWidget } from '../../features/stories/StoryStickerWidget';
 import {
   blockStoryAuthor,
   canReplyToStory,
@@ -593,6 +595,14 @@ export default function StoryViewerScreen() {
             accessibilityRole="button"
             accessibilityLabel="Next or previous story"
           />
+          <SectionErrorBoundary title="Story sticker unavailable">
+            <StoryStickerWidget
+              key={activeStory.id}
+              storyId={activeStory.id}
+              isOwner={author.is_owner}
+              onPauseChange={setHolding}
+            />
+          </SectionErrorBoundary>
         </View>
 
         {activeStory.caption ? (

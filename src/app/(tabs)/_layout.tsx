@@ -35,6 +35,15 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
+        name="explore"
+        options={{
+          title: 'Explore',
+          tabBarIcon: ({ color, focused }) => (
+            <Icon name="explore" size={20} color={String(focused ? theme.colors.primary : color)} />
+          ),
+        }}
+      />
+      <Tabs.Screen
         name="chats"
         options={{
           title: 'Chats',

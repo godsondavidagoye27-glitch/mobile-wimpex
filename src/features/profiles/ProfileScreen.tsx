@@ -27,6 +27,7 @@ import { theme } from '../../theme/theme';
 import type { FeedPost, FeedRpcRow, ProfileRpcRow } from '../../types/database';
 import { FollowListSheet } from './FollowListSheet';
 import { ProfileHighlights } from './ProfileHighlights';
+import { NotificationMuteSheet } from '../notifications/NotificationMuteSheet';
 import { followActionForStatus, followStatusAfterAction } from './followState';
 import { useFollowRequestCount } from './useFollowRequestCount';
 
@@ -123,6 +124,7 @@ export function ProfileScreen({ username }: { username: string | null }) {
   const [stickyTabs, setStickyTabs] = useState(false);
   const [listKind, setListKind] = useState<FollowListKind | null>(null);
   const [showMore, setShowMore] = useState(false);
+  const [muteOpen, setMuteOpen] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
   const [dialogAction, setDialogAction] = useState<DialogAction | null>(null);
   const [acting, setActing] = useState(false);
@@ -698,12 +700,25 @@ export function ProfileScreen({ username }: { username: string | null }) {
           <Pressable style={styles.sheetRow} onPress={() => { setShowMore(false); setReportOpen(true); }}>
             <Icon name="flag" size={20} color={theme.colors.white} /><Text style={styles.sheetRowText}>Report</Text>
           </Pressable>
+          <Pressable style={styles.sheetRow} onPress={() => { setShowMore(false); setMuteOpen(true); }}>
+            <Icon name="bell" size={20} color={theme.colors.white} /><Text style={styles.sheetRowText}>Mute notifications</Text>
+          </Pressable>
           <Pressable style={styles.sheetRow} onPress={() => { setShowMore(false); setDialogAction({ type: 'block' }); }}>
             <Icon name="ban" size={20} color={theme.colors.danger} /><Text style={[styles.sheetRowText, styles.dangerText]}>Block</Text>
           </Pressable>
           <Pressable style={styles.cancelButton} onPress={() => setShowMore(false)}><Text style={styles.secondaryText}>Cancel</Text></Pressable>
         </View>
       </Modal>
+      {shownProfile && !shownProfile.is_me ? (
+        <NotificationMuteSheet
+          visible={muteOpen}
+          targetType="user"
+          targetId={shownProfile.id}
+          targetLabel={`@${shownProfile.username}`}
+          onClose={() => setMuteOpen(false)}
+          onSaved={() => showToast('Notifications muted')}
+        />
+      ) : null}
 
       <Modal transparent animationType="slide" visible={reportOpen} onRequestClose={() => setReportOpen(false)}>
         <Pressable style={styles.modalOverlay} onPress={() => setReportOpen(false)} />

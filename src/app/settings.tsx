@@ -17,6 +17,7 @@ import {
 import { Icon, type AppIconName } from '../components/Icon';
 import { FocusableTextInput } from '../components/AuthField';
 import { useFollowRequestCount } from '../features/profiles/useFollowRequestCount';
+import { MutedTargetsSheet } from '../features/notifications/MutedTargetsSheet';
 import { signOutProviders } from '../features/auth/socialAuth';
 import { assertNoActiveVideoUploads, clearLocalUploadData } from '../features/feed/uploadManager';
 import { useAuthFlow } from '../features/auth/useAuthFlow';
@@ -87,6 +88,7 @@ export default function SettingsScreen() {
   const [error, setError] = useState('');
   const [policyOpen, setPolicyOpen] = useState(false);
   const [storyRepliesOpen, setStoryRepliesOpen] = useState(false);
+  const [mutedTargetsOpen, setMutedTargetsOpen] = useState(false);
   const [dialog, setDialog] = useState<'logout' | 'delete' | null>(null);
   const [typedUsername, setTypedUsername] = useState('');
   const [saving, setSaving] = useState(false);
@@ -399,6 +401,7 @@ export default function SettingsScreen() {
         {renderRow('New followers', 'user', renderSwitch(settings.notify_followers, (value) => void persistNotification('notify_followers', value)))}
         {renderRow('Messages', 'chats', renderSwitch(settings.notify_messages, (value) => void persistNotification('notify_messages', value)))}
         {renderRow('Live from people I follow', 'live', renderSwitch(settings.notify_live, (value) => void persistNotification('notify_live', value)))}
+        {renderRow('Muted', 'bell', <Icon name="chevronRight" size={20} color={theme.colors.textMuted} />, () => setMutedTargetsOpen(true))}
 
         <Text style={styles.sectionTitle}>About</Text>
         {renderRow('App version', 'info', <Text style={styles.valueText}>1.0.2</Text>)}
@@ -442,6 +445,8 @@ export default function SettingsScreen() {
           <Pressable style={styles.sheetCancel} onPress={() => setStoryRepliesOpen(false)}><Text style={styles.cancelText}>Cancel</Text></Pressable>
         </View>
       </Modal>
+
+      <MutedTargetsSheet visible={mutedTargetsOpen} onClose={() => setMutedTargetsOpen(false)} />
 
       <Modal transparent animationType="slide" visible={dialog !== null} onRequestClose={() => setDialog(null)}>
         <KeyboardAwareScreen style={{ flex: 1 }}>

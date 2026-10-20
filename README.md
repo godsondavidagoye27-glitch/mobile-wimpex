@@ -18,6 +18,7 @@ Wimpex is an Expo and React Native mobile application using Expo Router and Supa
 - [Push notifications](#push-notifications)
 - [LiveKit calling](#phase-7d-livekit-calling)
 - [Stories testing and setup](#stories-manual-test)
+- [Interactive story stickers, Explore, and notification mutes](#interactive-story-stickers-explore-and-notification-mutes)
 - [Scheduled posts and story highlights](#scheduled-posts-and-story-highlights)
 - [Video editor testing and native builds](#video-editor-native-build)
 - [Comment safety, moderation, and sharing](#comment-safety-moderation-and-sharing)
@@ -524,6 +525,41 @@ Use two real accounts. Include an accepted follower, an account that does not fo
 ### Current environment limitations
 
 The Supabase Cron schedule is not provisioned by the migration because it needs project-specific URL and secret values. The Dashboard extension, Vault secret, and Cron job setup above are required deployment steps. Story media referenced by a chat reply is retained after story expiry/deletion and remains private to active members of that direct conversation.
+
+## Interactive story stickers, Explore, and notification mutes
+
+Apply these new migrations after `20261028000000_story_highlights.sql`, in filename order:
+
+1. `20261029000000_story_interaction_stickers.sql`
+2. `20261030000000_explore_discovery.sql`
+3. `20261031000000_notification_mutes.sql`
+4. `20261101000000_fix_story_highlight_media_policy.sql`
+
+No existing migration should be edited, and do not apply these migrations to a remote Supabase project without reviewing them first. Redeploy the Edge Functions below after applying the migrations:
+
+```powershell
+npx supabase functions deploy moderate-content
+npx supabase functions deploy chat-push
+npx supabase functions deploy livekit-call
+npx supabase functions deploy publish-scheduled-posts
+```
+
+Story authors can add a draggable, resizable two-choice poll or question sticker when creating a story. Viewers can vote once per poll; the author sees totals and voters see results after voting. Question replies are accessible only to the story author and pass through hidden-word filtering and the existing moderation queue. Sticker access follows story audience, expiry, block, and teen-safety rules.
+
+Explore provides paginated 24-hour/7-day hashtag and creator rankings plus suggested public adult accounts, using public activity, accepted mutual follows, and profile interests. Results are cached for three minutes. Existing search and hashtag screens remain available.
+
+Use profile, chat, and community menus to mute notifications for one hour, eight hours, one week, or until manually unmuted. Settings > Notifications > Muted lists active mutes; account mutes have a separate **Mute calls too** control. Calls continue to ring by default, even when other notifications from that person are muted. Chat and scheduled-post push senders and the in-app notification center enforce active mutes.
+
+Before release, update the privacy policy and Play Store Data Safety form to disclose account-linked poll votes and question reply text. Replies submitted for automated moderation may be shared with OpenRouter and its routed model providers. Disclose the use of public post activity, follows, and profile interests for personalized discovery, and the storage of notification-mute targets, durations, and the optional call-mute preference. These features add no native dependency; a new native build or app-version bump is not required.
+
+### Manual checks
+
+- Create image and video stories with poll and question stickers, move and resize them, and verify that reopening the composer preserves the selected options and placement.
+- Vote from multiple eligible accounts; try a second vote and verify it does not replace the first. Confirm the author sees results immediately and viewers see them only after voting.
+- Send a question reply, confirm only the author can load replies, and test blocked, expired, hidden-word, and moderated cases.
+- Confirm Explore pagination, both time windows, empty states, and exclusions for private, blocked, demo, and under-18 accounts. Compare suggested-account ordering with mutual follows and shared interests.
+- Mute a user, conversation, and community for each duration. Confirm push and in-app notification suppression, expiry behavior, unmuting, and that calls still ring unless **Mute calls too** is enabled.
+- Confirm a muted-call preference prevents an incoming call from ringing and that unmuting calls restores calling.
 
 ## Live streaming test
 

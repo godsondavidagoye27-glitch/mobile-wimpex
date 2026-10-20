@@ -6,7 +6,7 @@ Each highlight has an audience, and each saved item also keeps the source story'
 
 Authors can create up to 20 highlights, save up to 100 stories in each, rename, reorder, remove, and review highlights from the profile. Add active stories from the story viewer before they expire. Media is copied rather than referenced so expiry does not invalidate saved highlights.
 
-Apply `20261028000000_story_highlights.sql` after `20261027000000_scheduled_posts.sql`. Redeploy `delete-own-account` so its storage cleanup includes the `highlights` bucket. No new edge function is required.
+Apply `20261028000000_story_highlights.sql` after `20261027000000_scheduled_posts.sql`. If the migration was already applied, also apply `20261101000000_fix_story_highlight_media_policy.sql`; it keeps `story_highlight_items` inaccessible directly while allowing the storage policy to securely check media visibility. Redeploy `delete-own-account` so its storage cleanup includes the `highlights` bucket. No new edge function is required.
 
 Before release, disclose that user-selected photos/videos can be retained in Wimpex storage beyond their original story expiry until the author removes the highlight or deletes the account. Include user-generated photos/videos, retention, profile visibility controls, and deletion behavior in the privacy policy and Play Store Data Safety form.
 

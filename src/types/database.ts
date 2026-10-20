@@ -111,6 +111,28 @@ export type SuggestedPersonRpcRow = Omit<SearchPersonRpcRow, 'follow_status'> & 
   shared_interests: number;
 };
 
+export type ExploreCreatorRpcRow = {
+  id: string;
+  username: string;
+  display_name: string;
+  avatar_url: string | null;
+  is_private: boolean;
+  followers_count: number;
+  popularity_score: number;
+  published_post_count: number;
+};
+
+export type ExploreSuggestedAccountRpcRow = {
+  id: string;
+  username: string;
+  display_name: string;
+  avatar_url: string | null;
+  is_private: boolean;
+  followers_count: number;
+  mutual_follows: number;
+  shared_interests: number;
+};
+
 export type SearchHashtagRpcRow = {
   tag: string;
   post_count: number;
@@ -130,6 +152,14 @@ export type BlockedProfileRpcRow = {
   display_name: string;
   avatar_url: string | null;
   blocked_at: string;
+};
+
+export type NotificationMuteRpcRow = {
+  target_type: 'user' | 'community' | 'conversation';
+  target_id: string;
+  muted_until: string | null;
+  mute_calls: boolean;
+  target_label: string;
 };
 
 export type NotificationType =
@@ -239,6 +269,36 @@ export type AuthorStoryRpcRow = {
   expires_at: string;
   has_viewed: boolean;
   view_count: number | null;
+};
+
+export type StoryStickerRow = {
+  id: string;
+  story_id: string;
+  author_id: string;
+  kind: 'poll' | 'question';
+  prompt: string;
+  option_one: string | null;
+  option_two: string | null;
+  position_x: number;
+  position_y: number;
+  scale: number;
+  created_at: string;
+};
+
+export type StoryQuestionReplyRpcRow = {
+  id: string;
+  responder_id: string;
+  username: string;
+  body: string;
+  created_at: string;
+};
+
+export type StoryPollResultsRpcRow = {
+  option_one_count: number | null;
+  option_two_count: number | null;
+  total_votes: number | null;
+  viewer_option: 1 | 2 | null;
+  can_view_results: boolean;
 };
 
 export type StoryHighlightAudience = 'everyone' | 'followers' | 'close_friends';
@@ -518,6 +578,12 @@ export type Database = {
         Update: { story_id?: string; viewer_id?: string; viewed_at?: string };
         Relationships: Relationships;
       };
+      story_stickers: {
+        Row: StoryStickerRow;
+        Insert: never;
+        Update: never;
+        Relationships: Relationships;
+      };
       close_friends: {
         Row: { owner_id: string; friend_id: string; created_at: string };
         Insert: { owner_id: string; friend_id: string; created_at?: string };
@@ -703,7 +769,7 @@ export type Database = {
       moderation_flags: {
         Row: {
           id: string;
-          content_type: 'post' | 'comment';
+          content_type: 'post' | 'comment' | 'story_question_reply';
           content_id: string;
           author_id: string;
           category: 'nudity' | 'violence' | 'spam' | 'abuse';
@@ -1174,6 +1240,39 @@ export type Database = {
         };
         Relationships: Relationships;
       };
+      notification_mutes: {
+        Row: {
+          id: string;
+          owner_id: string;
+          target_type: 'user' | 'community' | 'conversation';
+          target_id: string;
+          muted_until: string | null;
+          mute_calls: boolean;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          owner_id: string;
+          target_type: 'user' | 'community' | 'conversation';
+          target_id: string;
+          muted_until?: string | null;
+          mute_calls?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          owner_id?: string;
+          target_type?: 'user' | 'community' | 'conversation';
+          target_id?: string;
+          muted_until?: string | null;
+          mute_calls?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: Relationships;
+      };
       user_settings: {
         Row: {
           user_id: string;
@@ -1338,6 +1437,40 @@ export type Database = {
       story_reply_media_is_referenced: { Args: { p_path: string }; Returns: boolean };
       get_story_rail: { Args: Record<string, never>; Returns: StoryRailRow[] };
       get_author_stories: { Args: { p_author_id: string }; Returns: AuthorStoryRpcRow[] };
+      create_story_with_sticker: {
+        Args: {
+          p_story_id: string;
+          p_kind: 'image' | 'video';
+          p_media_path: string;
+          p_caption: string | null;
+          p_caption_style: Json | null;
+          p_audience: 'everyone' | 'followers' | 'close_friends';
+          p_duration_ms: number;
+          p_width: number;
+          p_height: number;
+          p_sticker_kind?: 'poll' | 'question' | null;
+          p_sticker_prompt?: string | null;
+          p_option_one?: string | null;
+          p_option_two?: string | null;
+          p_position_x?: number;
+          p_position_y?: number;
+          p_scale?: number;
+        };
+        Returns: string;
+      };
+      get_story_poll_results: {
+        Args: { p_sticker_id: string };
+        Returns: StoryPollResultsRpcRow[];
+      };
+      vote_on_story_poll: {
+        Args: { p_sticker_id: string; p_option_number: 1 | 2 };
+        Returns: StoryPollResultsRpcRow[];
+      };
+      reply_to_story_question: { Args: { p_sticker_id: string; p_body: string }; Returns: string };
+      get_story_question_replies: {
+        Args: { p_sticker_id: string };
+        Returns: StoryQuestionReplyRpcRow[];
+      };
       mark_story_viewed: { Args: { p_story_id: string }; Returns: undefined };
       get_story_viewers: {
         Args: {
@@ -1357,6 +1490,20 @@ export type Database = {
       send_live_message: { Args: { p_stream_id: string; p_body: string }; Returns: string };
       delete_live_message: { Args: { p_stream_id: string; p_message_id: string }; Returns: boolean };
       mute_live_user: { Args: { p_stream_id: string; p_user_id: string; p_duration_seconds?: number }; Returns: string };
+      mute_notification_target: {
+        Args: { p_target_type: 'user' | 'community' | 'conversation'; p_target_id: string; p_duration_minutes?: number | null };
+        Returns: undefined;
+      };
+      unmute_notification_target: {
+        Args: { p_target_type: 'user' | 'community' | 'conversation'; p_target_id: string };
+        Returns: undefined;
+      };
+      set_muted_user_calls: { Args: { p_target_id: string; p_mute_calls: boolean }; Returns: undefined };
+      get_my_notification_mutes: { Args: Record<string, never>; Returns: NotificationMuteRpcRow[] };
+      is_notification_muted: {
+        Args: { p_owner_id: string; p_target_type: 'user' | 'community' | 'conversation'; p_target_id: string; p_calls_only?: boolean };
+        Returns: boolean;
+      };
       ban_live_user: { Args: { p_stream_id: string; p_user_id: string; p_reason?: string | null; p_duration_seconds?: number | null }; Returns: boolean };
       delete_story: { Args: { p_story_id: string }; Returns: undefined };
       add_close_friend: { Args: { p_friend_id: string }; Returns: undefined };
@@ -1533,6 +1680,36 @@ export type Database = {
       suggested_people: {
         Args: Record<string, never>;
         Returns: SuggestedPersonRpcRow[];
+      };
+      explore_hashtags: {
+        Args: {
+          p_window?: '24h' | '7d';
+          p_cursor_post_count?: number | null;
+          p_cursor_tag?: string | null;
+          p_page_size?: number;
+        };
+        Returns: SearchHashtagRpcRow[];
+      };
+      explore_popular_creators: {
+        Args: {
+          p_window?: '24h' | '7d';
+          p_cursor_score?: number | null;
+          p_cursor_username?: string | null;
+          p_cursor_id?: string | null;
+          p_page_size?: number;
+        };
+        Returns: ExploreCreatorRpcRow[];
+      };
+      explore_suggested_accounts: {
+        Args: {
+          p_cursor_mutual_follows?: number | null;
+          p_cursor_shared_interests?: number | null;
+          p_cursor_followers?: number | null;
+          p_cursor_username?: string | null;
+          p_cursor_id?: string | null;
+          p_page_size?: number;
+        };
+        Returns: ExploreSuggestedAccountRpcRow[];
       };
       can_view_community: { Args: { p_community_id: string; p_viewer_id?: string }; Returns: boolean };
       create_community_post: {

@@ -41,12 +41,13 @@ describe('scheduled posts', () => {
     expect(localDateTimeParts(local.toISOString())).toEqual({ date: '2026-10-20', time: '13:07' });
   });
 
-  it('excludes blocked, opted-out, and quiet-hour recipients from go-live pushes', () => {
+  it('excludes blocked, opted-out, quiet-hour, and muted recipients from go-live pushes', () => {
     expect(filterGoLivePushRecipients(
-      ['ok', 'blocked', 'disabled', 'quiet', 'ok'],
+      ['ok', 'blocked', 'disabled', 'quiet', 'muted', 'ok'],
       new Set(['blocked']),
       new Set(['disabled']),
       new Set(['quiet']),
+      new Set(['muted']),
     )).toEqual(['ok']);
   });
 });

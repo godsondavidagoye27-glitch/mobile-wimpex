@@ -530,7 +530,14 @@ export default function SearchScreen() {
           <Icon name="back" size={20} color={theme.colors.white} />
         </Pressable>
         <Text style={styles.title}>Search</Text>
-        <View style={styles.headerSpacer} />
+        <Pressable
+          onPress={() => router.push('/explore')}
+          style={styles.headerSpacer}
+          accessibilityRole="button"
+          accessibilityLabel="Open Explore"
+        >
+          <Icon name="explore" size={20} color={theme.colors.primary} />
+        </Pressable>
       </View>
 
       <View style={styles.searchRow}>
