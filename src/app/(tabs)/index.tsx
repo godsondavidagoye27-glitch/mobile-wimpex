@@ -6,7 +6,7 @@ import { useNetworkState } from 'expo-network';
 import * as Linking from 'expo-linking';
 import * as Crypto from 'expo-crypto';
 import { useQueryClient, type InfiniteData } from '@tanstack/react-query';
-import { memo, useCallback, useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   AppState,
@@ -20,6 +20,9 @@ import {
   View,
   type ViewToken,
 } from 'react-native';
+import * as Haptics from 'expo-haptics';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import Animated, { useAnimatedStyle, useSharedValue, withSequence, withSpring, withTiming } from 'react-native-reanimated';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { Icon } from '../../components/Icon';
 import { NameWithBadge } from '../../components/NameWithBadge';
@@ -54,6 +57,7 @@ function FeedVideo({
   onOpenPost,
   post,
   isAuthor,
+  onDoubleTapLike,
 }: {
   uri: string | null;
   active: boolean;
@@ -61,6 +65,7 @@ function FeedVideo({
   onOpenPost: () => void;
   post: FeedItem['post'];
   isAuthor: boolean;
+  onDoubleTapLike: () => void;
 }) {
   if (!uri || !shouldLoad) {
     return (
@@ -72,7 +77,7 @@ function FeedVideo({
       </Pressable>
     );
   }
-  return <PlayingVideo uri={uri} active={active} post={post} isAuthor={isAuthor} />;
+  return <PlayingVideo uri={uri} active={active} post={post} isAuthor={isAuthor} onDoubleTapLike={onDoubleTapLike} />;
 }
 
 function PlayingVideo({
@@ -80,13 +85,53 @@ function PlayingVideo({
   active,
   post,
   isAuthor,
+  onDoubleTapLike,
 }: {
   uri: string;
   active: boolean;
   post: FeedItem['post'];
   isAuthor: boolean;
+  onDoubleTapLike: () => void;
 }) {
   const [pausedByUser, setPausedByUser] = useState(false);
+  const likeRef = useRef(onDoubleTapLike);
+  likeRef.current = onDoubleTapLike;
+
+  // Heart that pops up where you double-tap.
+  const burstX = useSharedValue(0);
+  const burstY = useSharedValue(0);
+  const burstScale = useSharedValue(0);
+  const burstOpacity = useSharedValue(0);
+  const burstStyle = useAnimatedStyle(() => ({
+    opacity: burstOpacity.value,
+    transform: [{ translateX: burstX.value - 48 }, { translateY: burstY.value - 48 }, { scale: burstScale.value }],
+  }));
+
+  // Double tap = like (never unlike). Single tap = pause/play. The single tap waits briefly so a
+  // double tap isn't also counted as a pause.
+  const tapGesture = useMemo(() => {
+    const doubleTap = Gesture.Tap()
+      .numberOfTaps(2)
+      .maxDelay(250)
+      .runOnJS(true)
+      .onEnd((event, success) => {
+        if (!success) return;
+        burstX.value = event.x;
+        burstY.value = event.y;
+        burstScale.value = 0.4;
+        burstScale.value = withSequence(withSpring(1.15, { damping: 7 }), withTiming(1, { duration: 120 }));
+        burstOpacity.value = withSequence(withTiming(1, { duration: 40 }), withTiming(1, { duration: 380 }), withTiming(0, { duration: 260 }));
+        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined);
+        likeRef.current();
+      });
+    const singleTap = Gesture.Tap()
+      .numberOfTaps(1)
+      .runOnJS(true)
+      .onEnd((_event, success) => {
+        if (success) setPausedByUser((paused) => !paused);
+      });
+    return Gesture.Exclusive(doubleTap, singleTap);
+  }, [burstOpacity, burstScale, burstX, burstY]);
   const player = useVideoPlayer(uri, (videoPlayer) => {
     videoPlayer.loop = true;
     videoPlayer.timeUpdateEventInterval = 5;
@@ -131,14 +176,22 @@ function PlayingVideo({
   return (
     <View style={styles.videoSurface}>
       <VideoView player={player} style={StyleSheet.absoluteFill} contentFit="cover" nativeControls={false} />
-      <Pressable
-        onPress={() => setPausedByUser((paused) => !paused)}
-        style={styles.playState}
-        accessibilityRole="button"
-        accessibilityLabel={isPlaying ? 'Pause video' : 'Play video'}
-      >
-        <Icon name={isPlaying ? 'pause' : 'play'} size={20} color={theme.colors.white} />
-      </Pressable>
+      <GestureDetector gesture={tapGesture}>
+        <View
+          style={StyleSheet.absoluteFill}
+          accessible
+          accessibilityRole="button"
+          accessibilityLabel={isPlaying ? 'Pause video. Double tap to like.' : 'Play video. Double tap to like.'}
+        />
+      </GestureDetector>
+      <Animated.View style={[styles.likeBurst, burstStyle, { pointerEvents: 'none' }]}>
+        <Icon name="heart" size={84} color={theme.colors.danger} filled />
+      </Animated.View>
+      {pausedByUser ? (
+        <View style={[styles.pausedBadge, { pointerEvents: 'none' }]}>
+          <Icon name="play" size={34} color={theme.colors.white} />
+        </View>
+      ) : null}
       <CaptionOverlay player={player} post={post} active={active} isAuthor={isAuthor} />
     </View>
   );
@@ -185,6 +238,9 @@ const FeedPostCard = memo(function FeedPostCard({
         onOpenPost={openPost}
         post={item.post}
         isAuthor={isAuthor}
+        onDoubleTapLike={() => {
+          if (!item.is_liked && !busy) onToggleLike(item);
+        }}
       />
       <View style={[styles.videoOverlay, { pointerEvents: 'box-none' }]}>
         <View style={[styles.metaStack, { pointerEvents: 'box-none' }]}>
@@ -705,6 +761,18 @@ const styles = StyleSheet.create({
   videoSurface: { ...StyleSheet.absoluteFill, alignItems: 'center', justifyContent: 'center' },
   videoPlaceholder: { ...StyleSheet.absoluteFill, alignItems: 'center', justifyContent: 'center' },
   unavailableText: { color: theme.colors.white, fontSize: 12, marginTop: 8 },
+  likeBurst: { position: 'absolute', left: 0, top: 0, width: 96, height: 96, alignItems: 'center', justifyContent: 'center' },
+  pausedBadge: {
+    position: 'absolute',
+    alignSelf: 'center',
+    top: '45%',
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: theme.colors.overlay,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   playState: {
     position: 'absolute',
     top: 16,

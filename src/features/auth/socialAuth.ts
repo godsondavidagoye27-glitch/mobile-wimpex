@@ -183,19 +183,15 @@ export async function signOutProviders(options: { localOnly?: boolean } = {}) {
   if (error) throw error;
 
   if (Constants.appOwnership === 'expo') return;
+  // The Supabase session is already gone at this point, so a Google SDK problem must not make
+  // logout look like it failed. GoogleSignin.signOut() throws "apiClient is null" unless
+  // configure() ran in this app session (it only ran during a Google sign-in), so configure first.
   try {
     const google = await import('@react-native-google-signin/google-signin');
+    const webClientId = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
+    if (webClientId) google.GoogleSignin.configure({ webClientId });
     await google.GoogleSignin.signOut();
   } catch (error) {
-    if (
-      error &&
-      typeof error === 'object' &&
-      'code' in error &&
-      typeof error.code === 'string' &&
-      /not.?available|native.?module/i.test(error.code)
-    ) {
-      return;
-    }
-    throw error;
+    console.warn('Google sign out did not complete; the app session was already ended.', error);
   }
 }

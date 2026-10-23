@@ -17,7 +17,10 @@ import {
   Text,
   View,
 } from 'react-native';
-import { VideoView, useVideoPlayer } from 'expo-video';
+import * as Haptics from 'expo-haptics';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import Animated, { useAnimatedStyle, useSharedValue, withSequence, withSpring, withTiming } from 'react-native-reanimated';
+import { VideoView, useVideoPlayer, type VideoPlayer } from 'expo-video';
 import { Icon } from '../../components/Icon';
 import { NameWithBadge } from '../../components/NameWithBadge';
 import { FocusableTextInput } from '../../components/AuthField';
@@ -193,7 +196,17 @@ async function loadCommentPage(postId: string, cursor: CommentCursor | null): Pr
 
 type CaptionPost = Pick<Post, 'id' | 'captions_path' | 'captions_status' | 'captions_language'>;
 
-function PostVideo({ uri, post, isAuthor }: { uri: string | null; post: CaptionPost; isAuthor: boolean }) {
+function PostVideo({
+  uri,
+  post,
+  isAuthor,
+  onDoubleTapLike,
+}: {
+  uri: string | null;
+  post: CaptionPost;
+  isAuthor: boolean;
+  onDoubleTapLike: () => void;
+}) {
   if (!uri) {
     return (
       <View style={styles.videoUnavailable}>
@@ -202,28 +215,163 @@ function PostVideo({ uri, post, isAuthor }: { uri: string | null; post: CaptionP
       </View>
     );
   }
-  return <PlayingPostVideo uri={uri} post={post} isAuthor={isAuthor} />;
+  return <PlayingPostVideo uri={uri} post={post} isAuthor={isAuthor} onDoubleTapLike={onDoubleTapLike} />;
 }
 
-function PlayingPostVideo({ uri, post, isAuthor }: { uri: string; post: CaptionPost; isAuthor: boolean }) {
+const seekStripHeight = 16;
+
+// Thin progress line along the bottom of the video; tap or drag to seek. It replaces the system
+// controls, which would otherwise swallow the tap and double-tap gestures.
+function VideoSeekBar({ player }: { player: VideoPlayer }) {
+  const [progress, setProgress] = useState(0);
+  const [width, setWidth] = useState(0);
+  const [scrubbing, setScrubbing] = useState(false);
+  const scrubbingRef = useRef(false);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      try {
+        if (!scrubbingRef.current && player.duration > 0) setProgress(player.currentTime / player.duration);
+      } catch {
+        // Player already released.
+      }
+    }, 250);
+    return () => clearInterval(timer);
+  }, [player]);
+
+  const gesture = useMemo(() => {
+    const seekTo = (x: number) => {
+      if (width <= 0) return;
+      const fraction = Math.min(1, Math.max(0, x / width));
+      setProgress(fraction);
+      try {
+        if (player.duration > 0) player.currentTime = fraction * player.duration;
+      } catch {
+        // Player already released.
+      }
+    };
+    const setScrub = (value: boolean) => {
+      scrubbingRef.current = value;
+      setScrubbing(value);
+    };
+    const tap = Gesture.Tap().runOnJS(true).onEnd((event, success) => {
+      if (success) seekTo(event.x);
+    });
+    const drag = Gesture.Pan()
+      .runOnJS(true)
+      .activeOffsetX([-6, 6])
+      .failOffsetY([-14, 14])
+      .onStart((event) => {
+        setScrub(true);
+        seekTo(event.x);
+      })
+      .onUpdate((event) => seekTo(event.x))
+      .onFinalize(() => setScrub(false));
+    return Gesture.Race(drag, tap);
+  }, [player, width]);
+
+  return (
+    <GestureDetector gesture={gesture}>
+      <View
+        style={styles.seekStrip}
+        onLayout={(event) => setWidth(event.nativeEvent.layout.width)}
+        accessible
+        accessibilityRole="adjustable"
+        accessibilityLabel="Video progress"
+      >
+        <View style={[styles.seekTrack, scrubbing && styles.seekTrackActive]}>
+          <View style={[styles.seekFill, { width: `${Math.min(100, Math.max(0, progress * 100))}%` }]} />
+        </View>
+      </View>
+    </GestureDetector>
+  );
+}
+
+function PlayingPostVideo({
+  uri,
+  post,
+  isAuthor,
+  onDoubleTapLike,
+}: {
+  uri: string;
+  post: CaptionPost;
+  isAuthor: boolean;
+  onDoubleTapLike: () => void;
+}) {
   const player = useVideoPlayer(uri, (videoPlayer) => {
     videoPlayer.loop = true;
   });
   const { isPlaying } = useEvent(player, 'playingChange', { isPlaying: player.playing });
+  const likeRef = useRef(onDoubleTapLike);
+  likeRef.current = onDoubleTapLike;
 
   useEffect(() => {
     player.play();
   }, [player]);
 
+  // Heart that pops up where you double-tap.
+  const burstX = useSharedValue(0);
+  const burstY = useSharedValue(0);
+  const burstScale = useSharedValue(0);
+  const burstOpacity = useSharedValue(0);
+  const burstStyle = useAnimatedStyle(() => ({
+    opacity: burstOpacity.value,
+    transform: [{ translateX: burstX.value - 48 }, { translateY: burstY.value - 48 }, { scale: burstScale.value }],
+  }));
+
+  // Double tap = like (never unlike). Single tap = pause/play, after a short wait so a double tap
+  // isn't also counted as a pause.
+  const tapGesture = useMemo(() => {
+    const doubleTap = Gesture.Tap()
+      .numberOfTaps(2)
+      .maxDelay(250)
+      .runOnJS(true)
+      .onEnd((event, success) => {
+        if (!success) return;
+        burstX.value = event.x;
+        burstY.value = event.y;
+        burstScale.value = 0.4;
+        burstScale.value = withSequence(withSpring(1.15, { damping: 7 }), withTiming(1, { duration: 120 }));
+        burstOpacity.value = withSequence(withTiming(1, { duration: 40 }), withTiming(1, { duration: 380 }), withTiming(0, { duration: 260 }));
+        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined);
+        likeRef.current();
+      });
+    const singleTap = Gesture.Tap()
+      .numberOfTaps(1)
+      .runOnJS(true)
+      .onEnd((_event, success) => {
+        if (!success) return;
+        try {
+          if (player.playing) player.pause();
+          else player.play();
+        } catch {
+          // Player already released.
+        }
+      });
+    return Gesture.Exclusive(doubleTap, singleTap);
+  }, [burstOpacity, burstScale, burstX, burstY, player]);
+
   return (
     <View style={styles.videoContainer}>
-      <VideoView player={player} style={StyleSheet.absoluteFill} contentFit="contain" nativeControls />
+      <VideoView player={player} style={StyleSheet.absoluteFill} contentFit="contain" nativeControls={false} />
+      <GestureDetector gesture={tapGesture}>
+        <View
+          style={styles.videoTapLayer}
+          accessible
+          accessibilityRole="button"
+          accessibilityLabel={isPlaying ? 'Pause video. Double tap to like.' : 'Play video. Double tap to like.'}
+        />
+      </GestureDetector>
+      <Animated.View style={[styles.likeBurst, burstStyle, { pointerEvents: 'none' }]}>
+        <Icon name="heart" size={84} color={theme.colors.danger} filled />
+      </Animated.View>
       <CaptionOverlay player={player} post={post} active isAuthor={isAuthor} />
       {!isPlaying ? (
         <View style={[styles.pausedVideoOverlay, { pointerEvents: 'none' }]}>
-          <Icon name="play" size={24} color={theme.colors.white} />
+          <Icon name="play" size={34} color={theme.colors.white} />
         </View>
       ) : null}
+      <VideoSeekBar player={player} />
     </View>
   );
 }
@@ -490,6 +638,12 @@ export default function PostDetailScreen() {
             uri={detail.videoUrl}
             post={detail.post}
             isAuthor={detail.currentUserId === detail.post.author_id}
+            onDoubleTapLike={() => {
+              if (detail.liked) return;
+              void setPostLiked(detail.post.id, detail.liked)
+                .then(refreshPost)
+                .catch(async (error: unknown) => Alert.alert('Could not update like', await getErrorMessage(error, 'Try again.')));
+            }}
           />
           {detail.currentUserId === detail.post.author_id ? (
             <View style={styles.captionOwnerTools}>
@@ -804,6 +958,12 @@ const styles = StyleSheet.create({
   captionCueTime: { color: theme.colors.textMuted, fontSize: 11 },
   captionCueInput: { minHeight: 52, color: theme.colors.white, textAlignVertical: 'top' },
   captionSaveButton: { minHeight: 48, alignItems: 'center', justifyContent: 'center', borderRadius: 24, backgroundColor: theme.colors.primary },
+  videoTapLayer: { position: 'absolute', top: 0, left: 0, right: 0, bottom: seekStripHeight },
+  likeBurst: { position: 'absolute', left: 0, top: 0, width: 96, height: 96, alignItems: 'center', justifyContent: 'center' },
+  seekStrip: { position: 'absolute', left: 0, right: 0, bottom: 0, height: seekStripHeight, justifyContent: 'flex-end' },
+  seekTrack: { height: 3, backgroundColor: 'rgba(255,255,255,0.25)' },
+  seekTrackActive: { height: 7 },
+  seekFill: { height: '100%', backgroundColor: theme.colors.white },
   pausedVideoOverlay: {
     ...StyleSheet.absoluteFill,
     alignItems: 'center',
