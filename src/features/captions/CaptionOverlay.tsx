@@ -35,7 +35,14 @@ function loadCaptionFile(path: string) {
 }
 
 function setCaptionTimeUpdateInterval(player: VideoPlayer, interval: number) {
-  player.timeUpdateEventInterval = interval;
+  // On unmount, useVideoPlayer may already have released the native player before this cleanup
+  // runs. Touching a released player throws ("Cannot use shared object that was already
+  // released") and takes down the whole screen, so ignore that case.
+  try {
+    player.timeUpdateEventInterval = interval;
+  } catch {
+    // Player already released; nothing to reset.
+  }
 }
 
 function statusCopy(status: FeedPost['captions_status']) {

@@ -161,6 +161,8 @@ class AppErrorBoundary extends Component<
   }
 }
 
+export const unstable_settings = { initialRouteName: 'index' };
+
 export default function RootLayout() {
   const [queryClient] = useState(() => new QueryClient({
     defaultOptions: {
@@ -254,6 +256,9 @@ export default function RootLayout() {
               <TeenUsageReminder />
               <View style={styles.rootContent} onLayout={hideSplash}>
                 <Stack screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
+                  {/* Must stay first: a remounted navigator (after an error-boundary reload) starts on the
+                      first declared screen, which used to be the story viewer with no author id. */}
+                  <Stack.Screen name="index" />
                   <Stack.Screen name="story/[authorId]" options={{ presentation: 'transparentModal', animation: 'fade', contentStyle: { backgroundColor: '#000000' } }} />
                 </Stack>
               </View>

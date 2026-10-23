@@ -1,7 +1,7 @@
 import { closeToHome, goBack } from '../../lib/navigation';
 import { getErrorMessage } from '../../lib/errorMessage';
 import { useEvent } from 'expo';
-import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams, useRootNavigationState } from 'expo-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -166,13 +166,20 @@ export default function StoryViewerScreen() {
 
   // A story screen with no valid author is a stale leftover: close it instead of trapping the user.
   const hasValidAuthor = isUuidRouteParam(authorId);
+  // Pop only this screen (not the whole stack) so the user lands back on the screen they were on.
+  const staleStoryScreen = !hasValidAuthor && !routeAuthorId;
+  // TEMPORARY DIAGNOSTIC: describe the navigation stack so we can see who opened this screen.
+  const rootNavState = useRootNavigationState();
+  const stackDescription = (rootNavState?.routes ?? [])
+    .map((route) => `${route.name}${route.params ? ` ${JSON.stringify(route.params)}` : ''}`)
+    .join('\n  > ');
   useEffect(() => {
-    if (!hasValidAuthor && !routeAuthorId) {
-      const timer = setTimeout(closeToHome, 400);
-      return () => clearTimeout(timer);
-    }
-    return undefined;
-  }, [hasValidAuthor, routeAuthorId]);
+    if (!staleStoryScreen) return undefined;
+    console.warn('Stale story screen (no author id). Stack:', stackDescription);
+    const timer = setTimeout(() => goBack(), 12000);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [staleStoryScreen]);
   const [storyIndex, setStoryIndex] = useState(0);
   const [holding, setHolding] = useState(false);
   const [screenFocused, setScreenFocused] = useState(false);
@@ -465,6 +472,19 @@ export default function StoryViewerScreen() {
       { text: 'Cancel', style: 'cancel' },
     ]);
   };
+
+  // Stale screen with no author: show nothing while it pops itself (no flashing error text).
+  if (staleStoryScreen) {
+    return (
+      <View style={styles.loading}>
+        <Text style={styles.unavailableTitle}>Debug: stale story screen</Text>
+        <Text style={[styles.unavailableTitle, { fontSize: 12, marginTop: 12 }]}>{`stack:\n  ${stackDescription}`}</Text>
+        <Pressable onPress={() => goBack()} style={styles.closeButton} accessibilityRole="button">
+          <Text style={styles.closeText}>Close</Text>
+        </Pressable>
+      </View>
+    );
+  }
 
   if (!isUuidRouteParam(authorId)) {
     return (
